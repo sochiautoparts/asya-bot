@@ -50,3 +50,30 @@ Stage Summary:
 - Performance: 2-5s generation (vs 7-47s with Ollama)
 - Quality: Excellent Russian language, natural conversation
 - Deploy: GitHub Actions workflow updated for GGUF model caching
+---
+Task ID: 1
+Agent: main
+Task: Complete overhaul of nastya-bot v37.0 — Dual-model system with Phi-4-mini + Qwen3-4B
+
+Work Log:
+- Examined entire codebase: config.py, llama_cpp_provider.py, router.py, chat.py, main.py, channel.py, news.py, database.py, web_search.py, bot.yml
+- Found Phi-4-mini-instruct GGUF model: unsloth/Phi-4-mini-instruct-GGUF, Q4_K_M ~2.32GB, officially supports Russian
+- Implemented LlamaCppProvider v2.0 with dual-model support (primary + secondary with auto-failover)
+- Updated AIRouter v37.0 with auto-test on startup for Russian quality
+- Updated config.py: MODEL2_PATH, MODEL_PREFERENCE, n_ctx=4096, max_tokens=256, history_limit=10
+- Updated chat.py: expanded user context, news with links, web search with snippets, improved discussion mode
+- Updated GitHub Actions workflow: dual model download, new env vars (MODEL2_PATH, MODEL_PREFERENCE, MODEL_HISTORY_LIMIT)
+- Updated main.py: v37.0 version strings, new config imports
+- Committed and pushed v37.0 to GitHub
+- Triggered GitHub Actions workflow dispatch (HTTP 204 success)
+
+Stage Summary:
+- v37.0 pushed and deployed with DUAL-MODEL system
+- PRIMARY: Phi-4-mini-instruct-Q4_K_M (officially supports Russian, 200K vocab)
+- SECONDARY: Qwen3-4B-Instruct-Q4_K_M (proven fallback)
+- Context expanded: 2048→4096 tokens, max_output: 80→256 tokens, history: 4→10 messages
+- Auto-test on startup selects best model for Russian
+- Auto-failover when primary model fails
+- Enhanced "Обсудить с Настей" with detailed discussion prompt and link inclusion
+- News context now includes URLs so model can reference them
+- System prompt encourages 2-4 sentence substantive responses with links for events
