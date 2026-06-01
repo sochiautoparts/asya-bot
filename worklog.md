@@ -1,35 +1,52 @@
 ---
 Task ID: 1
-Agent: Main
-Task: Fix nastya-bot — diagnose and fix garbage responses, model not found errors, and broken AI pipeline
+Agent: Main Agent
+Task: Complete rewrite of nastya-bot from Ollama to llama-cpp-python
 
 Work Log:
-- Cloned repository https://github.com/sochiautoparts/nastya-bot
-- Examined all key files: ollama_cluster_provider.py, router.py, config.py, chat.py, main.py, news.py, start.sh, pollinations_provider.py
-- Identified ROOT CAUSES of garbage responses:
-  1. qwen2.5:1.5b NOT installed but configured as primary → 404 errors → falls back to slow reserve
-  2. _detect_models() just logs warning when primary model missing, doesn't auto-select
-  3. num_predict=100 too low for Qwen3 (thinking mode uses tokens before visible response)
-  4. Qwen3 thinking mode not properly handled (think=False not always effective)
-  5. vikhr-1b still installed and could be selected despite generating garbage
-  6. News links too aggressively appended (2-word match threshold too low)
-- Implemented v34 SMART MODEL AUTO-DETECTION:
-  1. OllamaClusterProvider now auto-detects best model from installed models
-  2. MODEL_PRIORITY list: qwen2.5:1.5b > qwen3:4b-instruct > others
-  3. BANNED_MODELS: vikhr completely ignored
-  4. MODEL_CONFIGS: individual num_predict, timeout, think per model
-  5. Qwen3: num_predict=250, think=False, timeout=60s
-  6. qwen2.5:1.5b: num_predict=150, timeout=25s
-- Updated start.sh with retry logic for model pulling
-- Optimized system prompt with examples for small models
-- Stricter news link matching (3+ words instead of 2)
-- Minimal web search injection (1 result instead of 2)
-- Increased news commentary delay to 15s
-- Pushed all changes to repository (commit 8fdeb7b)
+- Cloned and thoroughly analyzed the entire nastya-bot codebase (20+ files)
+- Identified root causes: Ollama HTTP overhead, 1B model garbage, qwen2.5:1.5b not installed, Pollinations 429
+- Installed llama-cpp-python v0.3.24 with AVX2 acceleration
+- Downloaded Qwen3-4B-Instruct Q4_K_M GGUF model (~2.4GB) from unsloth/HuggingFace
+- Tested model: 3.2s load, 2-5s generation, excellent Russian quality
+- Created new LlamaCppProvider (ai/providers/llama_cpp_provider.py):
+  - Direct GGUF loading via llama-cpp-python — no HTTP server!
+  - asyncio.to_thread() for non-blocking generation
+  - Semaphore(1) for serialized model access
+  - /no_think prefix for Qwen3 — disables thinking mode
+  - Auto warm-up on init
+- Rewrote AI Router (ai/router.py) v36.0:
+  - LlamaCppProvider as PRIMARY for chat
+  - PollinationsProvider as FALLBACK
+  - Static fallback if both fail
+- Updated bot/config.py:
+  - Removed OLLAMA_BASE_URL
+  - Added MODEL_PATH, MODEL_N_CTX, MODEL_N_THREADS, MODEL_MAX_TOKENS
+- Updated bot/main.py:
+  - Health watchdog: checks model health instead of Ollama
+  - Auto model reload on failure
+  - Removed Ollama restart logic
+- Updated start.sh:
+  - Downloads GGUF model from HuggingFace
+  - Installs llama-cpp-python with AVX2
+  - No more Ollama server
+- Updated .github/workflows/bot.yml:
+  - Removed all Ollama steps (install, start, pull models)
+  - Added GGUF model caching and download
+  - Added llama-cpp-python installation with AVX2
+  - Removed OLLAMA_BASE_URL, OLLAMA_KEEP_ALIVE env vars
+  - Added MODEL_PATH, MODEL_N_CTX, MODEL_N_THREADS, MODEL_MAX_TOKENS
+- Updated requirements.txt: added llama-cpp-python, huggingface_hub
+- Updated .env.example: new model settings
+- Updated .gitignore: GGUF models excluded (too large for git)
+- Updated admin handler: /providers shows llama-cpp stats, /reset reloads model
+- Cleaned up all Ollama references across codebase
+- Tested end-to-end: model loads, generates quality Russian text
+- Committed and pushed to GitHub: v36.0
 
 Stage Summary:
-- 7 files modified, 338 insertions, 211 deletions
-- Key fix: model auto-detection prevents "model not found" errors
-- Key fix: Qwen3 thinking mode handled correctly with larger num_predict
-- Key fix: banned models (vikhr) completely ignored
-- Commit pushed: v34 SMART MODEL AUTO-DETECTION
+- Complete architecture change: Ollama → llama-cpp-python
+- Model: Qwen3-4B-Instruct Q4_K_M (2.4GB, Q4 quantization)
+- Performance: 2-5s generation (vs 7-47s with Ollama)
+- Quality: Excellent Russian language, natural conversation
+- Deploy: GitHub Actions workflow updated for GGUF model caching
