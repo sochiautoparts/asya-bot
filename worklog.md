@@ -1,21 +1,23 @@
 ---
 Task ID: 1
-Agent: Main Agent
-Task: Fix Nastya Bot - diagnose and fix timeout issues with Ollama models on CPU
+Agent: Super Z (main)
+Task: Diagnose and fix nastya-bot Telegram bot AI response failures
 
 Work Log:
 - Cloned repository https://github.com/sochiautoparts/nastya-bot
-- Analyzed full codebase: ollama_cluster_provider.py, router.py, chat.py, config.py, main.py, news.py, channel.py
-- Identified 5 root causes of bot not responding to users
-- Implemented v31.0 CPU-OPTIMIZED fixes across 8 files
-- Committed and pushed to GitHub
+- Performed deep analysis of all 21 Python files
+- Identified root causes: Ollama models timing out (15-90s on 2 CPU cores), system prompt too large (~800-1100 tokens), Semaphore(1) blocking all requests, Pollinations rate-limited from overload
+- Decided on HYBRID architecture: Pollinations PRIMARY for chat, Ollama PRIMARY for background
+- Rewrote ai/router.py: separate _route_chat() and _route_background() methods
+- Rewrote ai/providers/ollama_cluster_provider.py: separate semaphores, reduced timeouts, Pollinations fallback outside semaphore
+- Drastically reduced system prompt from ~800-1100 to ~200-250 tokens in bot/config.py
+- Removed dead code from chat.py: knowledge injection, memory extraction, zodiac scanning, verbose instructions
+- Reduced news.py prompts from ~300-400 tokens to ~80-100 tokens each
+- Updated bot/main.py: version 32.0, health watchdog no longer kills process on Ollama failure
+- Committed and pushed v32.0 to repository
 
 Stage Summary:
-- ROOT CAUSE: Qwen3-4B (4B params) was primary model — too slow on 2 CPU cores (45+ seconds timeout)
-- FIX: Swapped models — Vikhr-1B is now primary (5-15s on CPU), Qwen3-4B is reserve
-- Reduced num_ctx from 4096 to 2048, max_tokens from 400 to 100, history from 12 to 6
-- Increased timeouts: 90s primary, 120s reserve (realistic for CPU)
-- Shortened system prompt from ~200 tokens to ~80 tokens
-- Increased background task delays to prevent blocking user chat
-- Always disable thinking mode for CPU speed
-- Commit: a52b5d0 pushed to main branch
+- All 6 modified files pass Python syntax check
+- Commit: v32.0: HYBRID EDITION — Pollinations for chat + Ollama for background
+- Pushed to origin/main successfully
+- Key improvement: Chat responses should now take 2-5 seconds (via Pollinations/GPT-4o-mini) instead of 15-90 seconds (via Ollama)
