@@ -1,25 +1,33 @@
 ---
 Task ID: 1
 Agent: main
-Task: Analyze Nastya Bot v39 production logs and fix critical issues
+Task: Overhaul nastya-bot: Pollinations.ai PRIMARY, remove Qwen2.5-3B, add photo caption AI, deploy
 
 Work Log:
-- Cloned repo and analyzed all source files
-- Identified ROOT CAUSE: bot.yml env vars override config.py defaults
-  - MODEL_N_CTX=4096, MODEL_MAX_TOKENS=384, MODEL_HISTORY_LIMIT=15 (from bot.yml)
-  - These overrode the v39 config.py defaults (2048/200/10)
-  - Result: 65-89s response times because 384 tokens + thinking tokens = huge generation
-- Identified CRITICAL dedup bug: timestamp-based dedup was set on EVERY message
-  - Quick reactions (donate, age, etc.) set _user_processing timestamp but never cleared it
-  - Result: user sends donate → next 45s ALL messages blocked!
-  - Fixed: changed to asyncio.Task-based tracking — only blocks when AI is actually processing
-- Updated all version strings from v39 → v40
-- Updated bot.yml env vars: 2048/200/10
-- Updated cache keys for fresh deployment
-- Pushed and triggered GitHub Actions deployment
+- Cloned repo and studied full codebase (router.py, providers, config.py, chat.py, main.py, start.sh, bot.yml)
+- Researched Pollinations.ai API extensively: only model is gpt-oss-20b (alias: "openai")
+- Tested Pollinations API with user's API key (sk_Bxe1lAQ3oZ5yslfCLHl7jFPRG9r3dJxH) — works!
+- Confirmed gpt-oss-20b does NOT support vision (vision=False)
+- Tested reasoning_effort parameter: 'none', 'low', 'medium', 'high' — 'low' is best for chat speed
+- Added POLLINATIONS_API_KEY as GitHub secret (encrypted with nacl)
+- Rewrote pollinations_provider.py v6.0: single model, Bearer auth, reasoning_effort, SSE/JSON parsing
+- Rewrote llama_cpp_provider.py v3.0: SINGLE model only (removed dual-model support)
+- Rewrote router.py v41.0: Pollinations PRIMARY → LlamaCpp FALLBACK → static fallback
+- Updated config.py v41.0: POLLINATIONS_API_KEY, removed MODEL2_PATH/MODEL_PREFERENCE, POLLINATIONS_MAX_TOKENS=512
+- Updated chat.py v9.0: photo CAPTION processing via AI, photo rate limiting, extra_context param, truncation=2000
+- Updated main.py v41.0: removed MODEL2_PATH/MODEL_PREFERENCE references
+- Updated start.sh v41.0: single model download, Pollinations config, cloud-only mode note
+- Rewrote bot.yml v41.0: removed Qwen2.5-3B download, added Pollinations API test step, POLLINATIONS_API_KEY env
+- Committed and pushed to GitHub
+- Triggered workflow dispatch — Run #82 started
+- All steps passed: AVX2 install, model download, Pollinations API test, DB cache
+- Bot is RUNNING (Run Nastya Bot step in_progress)
 
 Stage Summary:
-- v40.0 deployed to GitHub Actions (Run #78)
-- Critical fixes: config override, dedup logic, version consistency
-- Bot is running with n_ctx=2048, max_tokens=200, history=10
-- Expected response time: ~20s (down from 65-89s!)
+- Architecture changed from Qwen3=PRIMARY/Qwen2.5-3B=SECONDARY to Pollinations=PRIMARY/Qwen3=FALLBACK
+- Qwen2.5-3B completely removed from project
+- Photo caption processing added (AI discusses photo captions)
+- Pollinations API key added to GitHub secrets
+- Response truncation raised from 1200 to 2000 chars
+- max_tokens: 512 for Pollinations (cloud), 256 for local Qwen3
+- Bot v41.0 deployed and running
