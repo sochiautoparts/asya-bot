@@ -1,60 +1,48 @@
 ---
 Task ID: 1
-Agent: main
-Task: Overhaul nastya-bot: Pollinations.ai PRIMARY, remove Qwen2.5-3B, add photo caption AI, deploy
+Agent: Main
+Task: Study Pollinations.ai API documentation and test available models
 
 Work Log:
-- Cloned repo and studied full codebase (router.py, providers, config.py, chat.py, main.py, start.sh, bot.yml)
-- Researched Pollinations.ai API extensively: only model is gpt-oss-20b (alias: "openai")
-- Tested Pollinations API with user's API key (sk_Bxe1lAQ3oZ5yslfCLHl7jFPRG9r3dJxH) — works!
-- Confirmed gpt-oss-20b does NOT support vision (vision=False)
-- Tested reasoning_effort parameter: 'none', 'low', 'medium', 'high' — 'low' is best for chat speed
-- Added POLLINATIONS_API_KEY as GitHub secret (encrypted with nacl)
-- Rewrote pollinations_provider.py v6.0: single model, Bearer auth, reasoning_effort, SSE/JSON parsing
-- Rewrote llama_cpp_provider.py v3.0: SINGLE model only (removed dual-model support)
-- Rewrote router.py v41.0: Pollinations PRIMARY → LlamaCpp FALLBACK → static fallback
-- Updated config.py v41.0: POLLINATIONS_API_KEY, removed MODEL2_PATH/MODEL_PREFERENCE, POLLINATIONS_MAX_TOKENS=512
-- Updated chat.py v9.0: photo CAPTION processing via AI, photo rate limiting, extra_context param, truncation=2000
-- Updated main.py v41.0: removed MODEL2_PATH/MODEL_PREFERENCE references
-- Updated start.sh v41.0: single model download, Pollinations config, cloud-only mode note
-- Rewrote bot.yml v41.0: removed Qwen2.5-3B download, added Pollinations API test step, POLLINATIONS_API_KEY env
-- Committed and pushed to GitHub
-- Triggered workflow dispatch — Run #82 started
-- All steps passed: AVX2 install, model download, Pollinations API test, DB cache
-- Bot is RUNNING (Run Nastya Bot step in_progress)
+- Fetched Pollinations.ai API docs (JS-heavy site, limited text extraction)
+- Tested /models endpoint — found 100 models available
+- Tested /v1/chat/completions endpoint with API key — confirmed OpenAI-compatible format
+- Tested working models: openai (PRIMARY), mistral, deepseek, llama, gemma, openai-fast, mistral-4
+- Tested Vision API with openai model — working (base64 image input)
+- Identified models that work within balance: openai, mistral, deepseek, llama, gemma
+- Confirmed endpoint: gen.pollinations.ai/v1/chat/completions with Bearer token auth
 
 Stage Summary:
-- Architecture changed from Qwen3=PRIMARY/Qwen2.5-3B=SECONDARY to Pollinations=PRIMARY/Qwen3=FALLBACK
-- Qwen2.5-3B completely removed from project
-- Photo caption processing added (AI discusses photo captions)
-- Pollinations API key added to GitHub secrets
-- Response truncation raised from 1200 to 2000 chars
-- max_tokens: 512 for Pollinations (cloud), 256 for local Qwen3
-- Bot v41.0 deployed and running
+- Pollinations API fully tested and documented
+- 7 chat models identified for load balancing pool
+- Vision API confirmed working with base64 images
+- API key: sk_Bxe1lAQ3oZ5yslfCLHl7jFPRG9r3dJxH
+
 ---
-Task ID: 1
-Agent: Main Agent
-Task: Major overhaul of nastya-bot v42.0 — Pollinations VISION + human-like behavior
+Task ID: 2
+Agent: Main
+Task: Implement v43.0 — MULTI-MODEL POLLINATIONS + LOAD BALANCING
 
 Work Log:
-- Cloned and studied full codebase (7 files, ~5700 lines)
-- Studied Pollinations.ai API docs — discovered 50+ models including vision-capable ones
-- Updated Pollinations provider v7.0: switched to /v1/chat/completions endpoint, added vision support via multimodal content format
-- Implemented REAL photo understanding: download photo → base64 → Pollinations vision API
-- Added typing delay indicators: "голова разболелась", "отошла на минутку", etc.
-- Expanded proactive messaging with 20+ diverse messages including news discussions
-- Implemented group chat message length limiting (300 char max)
-- Updated system prompt for longer, more emotional news discussions
-- Config: max_tokens=800, model='openai' (GPT-5.4 Nano), reasoning='openai-large' (GPT-5.4)
-- Updated deploy workflow with /v1/chat/completions test + vision API test
-- Updated start.sh for v42
+- Studied full codebase: pollinations_provider.py, router.py, config.py, chat.py, channel.py, main.py, bot.yml, start.sh
+- Created PollinationsProvider v8 with multi-model load balancing:
+  - 7 chat models in pool: openai(4), mistral(3), deepseek(2), llama(2), gemma(2), openai-fast(1), mistral-4(1)
+  - Weighted random model selection
+  - Per-model health tracking with cooldown
+  - Automatic failover on 429/timeout/PAYMENT_REQUIRED
+  - Multi-model vision support
+- Updated config.py v43: POLLINATIONS_MAX_TOKENS=1000, GROUP_MAX_MESSAGE_LENGTH=200
+- Updated router.py v43: Multi-model routing, model stats in status
+- Updated chat.py v11: New config imports
+- Updated main.py v43: Version references
+- Updated bot.yml v43: Multi-model API tests in CI
+- Updated start.sh v43: Multi-model banner
 - Committed and pushed to GitHub
-- Triggered GitHub Actions workflow (run #26798273268 pending)
+- Set POLLINATIONS_API_KEY secret in GitHub
+- Triggered GitHub Actions workflow #87
 
 Stage Summary:
-- v42.0 deployed with REAL VISION, typing indicators, group limits, expanded proactive messaging
-- Pollinations endpoint changed from text.pollinations.ai/openai to gen.pollinations.ai/v1/chat/completions
-- Photo handler now downloads photo, converts to base64, sends to Pollinations vision model
-- Chat handler adds typing delay phrases while AI is processing
-- Group chat responses limited to 300 characters
-- All changes committed and pushed, GitHub Actions triggered
+- All 7 files updated for v43.0
+- Pushed commit 094218f to main branch
+- Workflow #87 triggered and running
+- Key feature: Bot now distributes load across 7 Pollinations models with automatic failover
