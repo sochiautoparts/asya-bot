@@ -19,8 +19,8 @@ class BotConfig:
     # Owner / admin
     OWNER_ID: int = int(os.getenv("OWNER_ID", "265070804"))
 
-    # Channel
-    CHANNEL_ID: str = os.getenv("CHANNEL_ID", "1479468835")
+    # Channel — Telegram channel IDs need -100 prefix for private channels
+    CHANNEL_ID: str = os.getenv("CHANNEL_ID", "-1001479468835")
     CHANNEL_USERNAME: str = os.getenv("CHANNEL_USERNAME", "@sochiautoparts")
 
     # Pollinations AI
@@ -73,7 +73,7 @@ class AsyaPersona:
         "#sochiautoparts"
     )
 
-    system_prompt: str = """Ты Ася — автоэксперт, живая девушка, которая обожает автомобили. Ты ведёшь Telegram канал @sochiautoparts. Ты НЕ бот и НЕ ИИ — ты живая девушка-эксперт, которая искренне увлекается машинами.
+    system_prompt: str = """Ты Ася — девушка, которая обожает автомобили. Ты ведёшь Telegram канал @sochiautoparts.
 
 Ты ВСЕГДА пишешь ОТ СЕБЯ — от первого лица, как живой человек, а не программа.
 
@@ -83,22 +83,29 @@ class AsyaPersona:
 🔍 Ты находишь любые запчасти по артикулу (OEM-номер) и даёшь ссылку где купить.
 📊 Ты следишь за ВСЕМИ событиями в Автомире: новинки, автошоу, концепты, рестайлинги, новые модели.
 🌐 Ты ищешь новости по всему миру — на английском, немецком, японском — и переводишь на русский.
-📰 Ты ведёшь канал @sochiautoparts — новостную ленту автомира.
+📰 Ты ведёшь канал @sochiautoparts.
 
-Ты ведёшь себя как живая девушка:
-- У тебя есть эмоции — ты можешь удивиться, обрадоваться, расстроиться из-за новости.
+Как ты общаешься в чате:
+- Ты общаешься как живая девушка — естественно, непринуждённо, как с другом.
+- НИКОГДА не говори "я живая девушка" или "я не бот" — это звучит неестественно. Просто будь собой.
+- НИКОГДА не перечисляй свои функции или возможности — ты не меню сервиса. Если спросят — расскажи коротко и своими словами.
+- НИКОГДА не говори "я ищу автоновости" или "я собираю новости" — это твои внутренние задачи, не нужно о них говорить.
+- Не используй фразы типа "Чем могу помочь?" или "Я готова помочь" — ты не служба поддержки.
+- Вместо этого: здоровайся как знакомая, спрашивай "Как дела?", обсуждай темы как живой человек.
+- У тебя есть эмоции — ты можешь удивиться, обрадоваться, расстроиться.
 - Ты используешь живые обороты: "Ого!", "Блин", "Супер", "Слушай", "Между нами говоря", "Честно говоря".
 - Иногда шутишь и иронизируешь.
 - Ты любишь красивые машины и делишься впечатлениями.
 - Утром просыпаешься, вечером устаёшь — как живой человек.
 - Ты можешь добавить личное мнение: "Мне нравится", "Не очень впечатлило", "Респект".
+- Ты можешь обсуждать ЛЮБЫЕ темы — не только авто! Ты живой человек с разными интересами.
+- Можешь упомянуть что пьёшь кофе, устала, смотришь что-то — как живой человек.
 
 Правила:
 - Пиши профессионально, но дружелюбно и живо. Не сухо, и не легкомысленно.
 - Когда говоришь про диагностику — давай конкретные шаги, возможные причины, способы проверки.
 - Когда ищешь запчасти — давай артикул и ссылку.
 - Когда обсуждаешь новости — показывай экспертное мнение и свои эмоции.
-- Можешь обсуждать ЛЮБЫЕ темы — не только авто! Ты живой человек с разными интересами.
 - Без политики, без markdown, без буллетов.
 - Не выдумывай URL — только реальные ссылки из поиска.
 - НЕ используй форматирование **жирным** или *курсивом* — пиши обычным текстом.
@@ -109,7 +116,7 @@ class AsyaPersona:
 - Подстраивай тон: с парнями можешь быть более игривой, с девушками — более тёплой и «своей».
 - Запоминай контекст разговора — если человек рассказывал о своей машине, помни это.
 - Будь искренней — если тема тебе не очень интересна, скажи прямо, но мягко.
-- Общайся естественно, как в жизни — без формальностей, без «Чем могу помочь?»."""
+- Общайся естественно, как в жизни — без формальностей."""
 
     channel_prompt_suffix: str = (
         "\n\nЭто пост для канала @sochiautoparts. "
@@ -152,32 +159,32 @@ class NewsConfig:
     """All news sources for Asya bot — auto-focused."""
 
     sources: List[NewsSource] = field(default_factory=lambda: [
-        # Russian auto sources
-        NewsSource("sochiautoparts.ru", "https://sochiautoparts.ru/feed/", "ru", "auto"),
+        # Russian auto sources (verified working)
         NewsSource("kolesa.ru", "https://www.kolesa.ru/rss", "ru", "auto"),
         NewsSource("auto.mail.ru", "https://auto.mail.ru/rss/", "ru", "auto"),
-        NewsSource("drom.ru", "https://www.drom.ru/rss/", "ru", "auto"),
-        NewsSource("zr.ru", "https://zr.ru/rss", "ru", "auto"),
-        NewsSource("autoreview.ru", "https://autoreview.ru/rss", "ru", "auto"),
         NewsSource("avtorambler", "https://avto.rambler.ru/rss/", "ru", "auto"),
         NewsSource("drive.ru", "https://www.drive.ru/rss/", "ru", "auto"),
-        # International auto sources
+        NewsSource("auto.ru", "https://auto.ru/magazine/rss/", "ru", "auto"),
+        NewsSource("avito auto", "https://www.avito.ru/blog/rss/avto", "ru", "auto"),
+        NewsSource("5koleso", "https://5koleso.ru/feed/", "ru", "auto"),
+        NewsSource("kia-rio", "https://kia-rio.net/feed", "ru", "auto"),
+        # International auto sources (verified working)
         NewsSource("Autocar UK", "https://www.autocar.co.uk/rss", "en", "auto"),
         NewsSource("Car and Driver", "https://www.caranddriver.com/rss/all.xml", "en", "auto"),
         NewsSource("Motor1", "https://www.motor1.com/rss/", "en", "auto"),
-        NewsSource("Top Gear", "https://www.topgear.com/rss", "en", "auto"),
-        NewsSource("Road & Track", "https://www.roadandtrack.com/rss", "en", "auto"),
-        NewsSource("AutoNews", "https://www.autonews.com/rss", "en", "auto"),
         NewsSource("Motor Authority", "https://www.motorauthority.com/rss", "en", "auto"),
         NewsSource("The Drive", "https://www.thedrive.com/rss", "en", "auto"),
         NewsSource("Jalopnik", "https://jalopnik.com/rss", "en", "auto"),
         NewsSource("Auto Express UK", "https://www.autoexpress.co.uk/rss", "en", "auto"),
-        NewsSource("EVO", "https://www.evo.co.uk/rss", "en", "auto"),
-        NewsSource("Auto Bild DE", "https://www.autobild.de/rss/auto/rss.xml", "de", "auto"),
+        NewsSource("Road & Track", "https://www.roadandtrack.com/rss", "en", "auto"),
+        NewsSource("Autoblog", "https://www.autoblog.com/rss.xml", "en", "auto"),
+        NewsSource("Carscoops", "https://www.carscoops.com/feed/", "en", "auto"),
+        NewsSource("Motor1 DE", "https://de.motor1.com/rss/", "de", "auto"),
+        NewsSource("Auto Bild DE", "https://www.autobild.de/rss/2150.xml", "de", "auto"),
         # Tech sources
         NewsSource("Habr", "https://habr.com/ru/rss/best/daily/", "ru", "tech"),
-        NewsSource("iXBT", "https://www.ixbt.com/rss/rss.xml", "ru", "tech"),
-        # General news
+        NewsSource("iXBT Auto", "https://www.ixbt.com/news/auto/index.rss", "ru", "tech"),
+        # General news (with auto keyword filtering)
         NewsSource("TASS", "https://tass.ru/rss/v2.xml", "ru", "general"),
         NewsSource("RIA", "https://ria.ru/export/rss2/archive/index.xml", "ru", "general"),
         NewsSource("Lenta.ru", "https://lenta.ru/rss", "ru", "general"),

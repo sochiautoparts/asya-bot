@@ -136,7 +136,7 @@ async def _check_user(message: Message) -> bool:
 
 @chat_router.message(CommandStart())
 async def cmd_start(message: Message):
-    """Handle /start command."""
+    """Handle /start command — greet like a living person, not a service bot."""
     if not await _check_user(message):
         return
 
@@ -145,24 +145,37 @@ async def cmd_start(message: Message):
     name = message.from_user.first_name or ""
     gender = _guess_gender(name)
 
+    import random
+    from datetime import datetime
+    hour = datetime.now().hour
+
     if name:
         if gender == "male":
-            welcome = f"Привет, {name}! Я Ася — живая девушка, которая обожает автомобили 🚗\n\n"
+            greets = [
+                f"Привет, {name}! 😊 Ася тут. Чем займёмся?",
+                f"Хей, {name}! Это Ася. О чём поболтаем?",
+                f"Привет, {name}! 😊 Я Ася. Давай знакомиться!",
+                f"О, {name}! Привет! Я Ася — просто пиши, я всегда рада поболтать",
+            ]
         elif gender == "female":
-            welcome = f"Привет, {name}! Я Ася — мы с тобой обе понимаем толк в машинах 🚗💪\n\n"
+            greets = [
+                f"Привет, {name}! 😊 Мы с тобой обе понимаем толк в хорошем общении!",
+                f"Хей, {name}! Ася тут. Давай поболтаем!",
+                f"Привет, {name}! 😊 Я Ася — всегда рада компании!",
+            ]
         else:
-            welcome = f"Привет, {name}! Я Ася — живая девушка, которая обожает автомобили 🚗\n\n"
+            greets = [
+                f"Привет, {name}! 😊 Я Ася. Рад(а) знакомству!",
+                f"Хей, {name}! Это Ася. О чём поговорим?",
+            ]
     else:
-        welcome = "Привет! Я Ася — живая девушка, которая обожает автомобили 🚗\n\n"
+        greets = [
+            "Привет! 😊 Я Ася. Просто пиши — я всегда на связи!",
+            "Хей! Это Ася. Давай знакомиться!",
+            "Привет! 😊 Я Ася — пиши о чём хочешь, я люблю общаться!",
+        ]
 
-    welcome += (
-        "Могу помочь с:\n"
-        "🔧 Диагностика поломок — опишите симптомы\n"
-        "🔍 Поиск запчастей по артикулу\n"
-        "📊 Автомобильные новости и обзоры\n"
-        "💡 Любые вопросы про автомобили\n\n"
-        "Просто напишите свой вопрос! Я всегда на связи 😊"
-    )
+    welcome = random.choice(greets)
     await message.answer(welcome)
 
 
@@ -170,25 +183,21 @@ async def cmd_start(message: Message):
 
 @chat_router.message(Command("help"))
 async def cmd_help(message: Message):
-    """Handle /help command."""
+    """Handle /help command — casual, living-person style."""
     if not await _check_user(message):
         return
 
     help_text = (
-        "Я Ася — автоэксперт, живая девушка, которая разбирается в машинах 😊\n\n"
-        "Вот что я умею:\n\n"
-        "🔧 Диагностика — опишите проблему с машиной, помогу разобраться\n"
-        "🔍 Запчасти — напишите артикул (OEM-номер), найду где купить\n"
-        "📊 Ошибки OBD-II — напишите код ошибки, объясню что значит\n"
-        "📰 Новости — расскажу что нового в Автомире\n"
-        "💬 Общение — могу обсудить любую тему, но авто — моя страсть!\n\n"
+        "Если что, я могу:\n\n"
+        "🔧 Помочь с диагностикой — расскажи, что с машиной, разберёмся вместе\n"
+        "🔍 Найти запчасть — кинь артикул, я поищу\n"
+        "📊 Расшифровать ошибку — напиши код, объясню что к чему\n"
+        "💬 Просто поболтать — я люблю общаться на любые темы!\n\n"
         "Команды:\n"
-        "/start — приветствие\n"
-        "/help — эта справка\n"
-        "/clear — очистить историю чата\n"
-        "/diagnostic — режим диагностики\n"
-        "/parts — режим поиска запчастей\n"
-        "/normal — обычный режим чата"
+        "/clear — начать с чистого листа\n"
+        "/diagnostic — фокус на диагностике\n"
+        "/parts — ищем запчасти\n"
+        "/normal — обычный режим"
     )
     await message.answer(help_text)
 
@@ -202,7 +211,7 @@ async def cmd_clear(message: Message):
         return
 
     await clear_chat_history(message.from_user.id)
-    await message.answer("История чата очищена. Начинаем с чистого листа! 😊")
+    await message.answer("Чистый лист! 😊 Начинаем заново")
 
 
 # ── Mode commands ──────────────────────────────────────────────────────────────
@@ -215,8 +224,7 @@ async def cmd_diagnostic(message: Message):
 
     await set_chat_mode(message.from_user.id, "diagnostic")
     await message.answer(
-        "Режим диагностики включён 🔧 Опишите проблему с автомобилем — "
-        "дам пошаговую диагностику, возможные причины и рекомендации."
+        "Ок, режим диагностики 🔧 Расскажи, что с машиной — разберёмся вместе"
     )
 
 
@@ -228,8 +236,7 @@ async def cmd_parts(message: Message):
 
     await set_chat_mode(message.from_user.id, "parts")
     await message.answer(
-        "Режим поиска запчастей включён 🔍 Напишите артикул (OEM-номер) — "
-        "найду информацию о детали и где её купить."
+        "Ищем запчасти 🔍 Кидай артикул — и я поищу"
     )
 
 
@@ -240,7 +247,7 @@ async def cmd_normal(message: Message):
         return
 
     await set_chat_mode(message.from_user.id, "normal")
-    await message.answer("Обычный режим чата 😊 Спрашивайте что угодно!")
+    await message.answer("Обычный режим 😊 Пиши о чём хочешь!")
 
 
 # ── Voice message handler ─────────────────────────────────────────────────────
@@ -252,7 +259,7 @@ async def handle_voice(message: Message):
         return
 
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-    await message.answer("Слушаю... 🎙️")
+    await message.answer("Слушаю... 🎧")
 
     voice = message.voice
     text = await process_voice_message(message.bot, voice.file_id)
@@ -404,7 +411,7 @@ async def _process_text_message(message: Message, text: str):
     if response.error:
         logger.error(f"AI error: {response.error_message}")
         await message.answer(
-            "Ой, что-то я зависла 😅 Дайте мне минутку и попробуйте ещё раз!"
+            "Ой, зависла немного 😅 Дай мне минутку и попробуй ещё раз!"
         )
         return
 

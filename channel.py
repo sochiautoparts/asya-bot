@@ -41,14 +41,16 @@ ASYA_COMMENTS = [
     "Вот это да! Неожиданно, но интересно 🔥",
     "Слежу за этой темой — будет ещё много новостей!",
     "Мне нравится, куда движется автопром. А вам? 👀",
-    "Интересная тема для обсуждения! Пишите в @asiaexp_bot 💬",
-    "Это точно стоит внимания! Подробности у меня в @asiaexp_bot",
+    "Интересная тема для обсуждения! 💬",
+    "Это точно стоит внимания!",
     "Автомир не стоит на месте! Свежие новости каждый день 🏎️",
-    "Супер! Если хотите обсудить — жду в личке @asiaexp_bot 💬",
-    "Трендовая тема! Спрашивайте подробности у меня 🚗",
-    "Вот это поворот! Кто что думает? Пишите @asiaexp_bot",
+    "Супер! Кто что думает?",
+    "Трендовая тема! 📣",
+    "Вот это поворот! Кто что думает?",
     "Мнения разделились, но мне нравится! А вам? 🤔",
     "Эта тема точно заслуживает внимания! 📣",
+    "Честно говоря, не ожидала! 👀",
+    "Обожаю такие новости! 🚗",
 ]
 
 # ── Poll topics for channel engagement ──────────────────────────────────────
@@ -126,10 +128,16 @@ class ChannelManager:
             async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
                 response = await client.get(image_url)
                 if response.status_code == 200 and len(response.content) > 500:
-                    # Only accept actual image data (not tiny SVGs or errors)
                     content_type = response.headers.get("content-type", "")
-                    if "image" in content_type or len(response.content) > 5000:
+                    # Accept actual image formats (png, jpg, gif, webp)
+                    if any(ft in content_type for ft in ["image/png", "image/jpeg", "image/gif", "image/webp"]):
                         return response.content
+                    # Also accept if content is large enough (likely an image even without proper content-type)
+                    elif len(response.content) > 5000:
+                        return response.content
+                    # Skip SVGs and tiny files
+                    else:
+                        logger.debug(f"Skipping partner image: content-type={content_type}, size={len(response.content)}")
         except Exception as e:
             logger.debug(f"Could not download partner image: {e}")
         return None

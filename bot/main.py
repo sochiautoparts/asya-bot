@@ -117,7 +117,7 @@ class BackgroundTasks:
         logger.info("Background tasks stopped")
 
     async def _morning_greeting(self) -> None:
-        """Send a 'just woke up' greeting to the owner once after startup."""
+        """Send a natural 'just woke up' greeting to the owner — like a living person, not a bot."""
         if self._greeting_sent:
             return
 
@@ -126,16 +126,39 @@ class BackgroundTasks:
 
         try:
             from datetime import datetime
+            import random
             hour = datetime.now().hour
-            if 5 <= hour < 12:
-                greeting = "Я проснулась! ☀️ Доброе утро! Готова искать автоновости и помогать с машинами 🚗"
-            elif 12 <= hour < 18:
-                greeting = "Добрый день! 😊 Я на связи — ищу свежие автоновости и помогаю с вопросами 🚗"
-            elif 18 <= hour < 23:
-                greeting = "Добрый вечер! 🌆 Я тут — собираю новости и помогаю с автомобилями 🚗"
-            else:
-                greeting = "Доброй ночи! 🌙 Хотя для автомира ночь — не помеха! Собираю новости 🚗"
 
+            if 5 <= hour < 12:
+                greetings = [
+                    "Ммм... проснулась ☀️ Кофе, душ, и я готова к новому дню!",
+                    "Доброе утро! ☀️ Еле глаза открыла... Зато уже с вами!",
+                    "Утро! ☕ Как спалось? Я вот только-только встала",
+                    "Привет! ☀️ Доброе утро! Кофе уже заварила, можно общаться",
+                ]
+            elif 12 <= hour < 18:
+                greetings = [
+                    "Привет! 😊 День в самом разгаре — я тут, на связи",
+                    "Добрый день! ☕ Перекусила и готова болтать",
+                    "Хей! 😊 Как день проходит? Я вот решила заглянуть поболтать",
+                    "Привет! Дневная Ася на связи 😊 Чем займёмся?",
+                ]
+            elif 18 <= hour < 23:
+                greetings = [
+                    "Добрый вечер! 🌆 Устала за день, но для вас всегда время найду",
+                    "Вечер! 🌆 Сидим, общаемся — мне нравится такой формат",
+                    "Привет! 🌆 Вечер — лучшее время для спокойных разговоров",
+                    "Хей! 🌆 Заканчиваю свои дела, можно и поболтать",
+                ]
+            else:
+                greetings = [
+                    "О, ты ещё не спишь? 🌙 Я вот тоже сова оказалась",
+                    "Ночной режим активирован 🌙 Тихо, спокойно — самое то для разговоров",
+                    "Доброй ночи! 🌙 Хотя... кого я обманываю, спать пока не хочется",
+                    "Привет полуночный! 🌙 Не спится? Понимаю, мне тоже",
+                ]
+
+            greeting = random.choice(greetings)
             if config.OWNER_ID:
                 await self.bot.send_message(config.OWNER_ID, greeting)
         except Exception as e:

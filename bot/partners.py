@@ -23,7 +23,17 @@ class PartnerProgram:
         self.id = str(data.get("id", ""))
         self.name = data.get("name", "")
         self.slug = data.get("slug", "")
-        self.image = data.get("image", "") or data.get("image_url", "") or data.get("logo", "") or data.get("brand_logo", "")
+        # Try multiple image fields from admitad data
+        self.image = (
+            data.get("image") or
+            data.get("image_url") or
+            data.get("logo") or
+            data.get("brand_logo") or
+            data.get("icon") or
+            data.get("cover_image") or
+            data.get("promo_image") or
+            ""
+        )
         self.description = data.get("description", "")
         self.goto_link = data.get("goto_link", "")
         self.categories = self._extract_categories(data)
@@ -257,6 +267,10 @@ class PartnerManager:
         link = self.format_affiliate_link(program)
 
         footer = f"[Ася - Автоэксперт](https://t.me/asiaexp_bot)\n@sochiautoparts\n#sochiautoparts"
+
+        image_note = ""
+        if program.image:
+            image_note = f"\n\n[Картинка партнёра: {program.image}]"
 
         templates = [
             f"Рекомендую обратить внимание на {program.name} — отличный вариант, если речь идёт о {cat_label.lower()}. "

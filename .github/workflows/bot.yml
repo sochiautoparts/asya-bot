@@ -16,7 +16,7 @@ permissions:
 env:
   BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
   OWNER_ID: ${{ secrets.OWNER_ID }}
-  CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+  CHANNEL_ID: "-1001479468835"
   CHANNEL_USERNAME: ${{ secrets.CHANNEL_USERNAME }}
   POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
   GH_PAT_TOKEN: ${{ secrets.GH_PAT_TOKEN }}
@@ -53,18 +53,20 @@ jobs:
           curl -sL "https://raw.githubusercontent.com/creastudioai-beep/pr/main/data/admitad_ads.json" \
             -o admitad_ads.json || echo "Failed to download admitad data, will use cached version"
 
-      - name: Restore database cache
+      - name: Restore database from cache
         uses: actions/cache@v4
         with:
           path: asya_bot.db
-          key: asya-bot-db-${{ github.run_id }}
+          key: asya-bot-db-v2
           restore-keys: |
             asya-bot-db-
 
-      - name: Commit and push database changes
+      - name: Ensure .gitignore allows database
         run: |
-          git config user.name "Asya Bot"
-          git config user.email "asya-bot@users.noreply.github.com"
+          # Remove asya_bot.db from .gitignore if present
+          if [ -f .gitignore ]; then
+            sed -i '/asya_bot\.db/d' .gitignore
+          fi
 
       - name: Run Asya Bot with auto-restart
         run: |
@@ -98,8 +100,11 @@ jobs:
         if: always()
         run: |
           if [ -f asya_bot.db ]; then
+            git config user.name "Asya Bot"
+            git config user.email "asya-bot@users.noreply.github.com"
             git add asya_bot.db || true
             git diff --staged --quiet || git commit -m "db: update $(date +%Y-%m-%d_%H:%M)" || true
+            git pull --rebase origin main || true
             git push || true
           fi
 
