@@ -156,11 +156,12 @@ class AIRouter:
 
         # If primary failed, try fallback models
         if response.error:
-            fallback_models = ["openai-mini", "mistral-4", "deepseek", "nova-fast", "grok", "grok-large",
+            fallback_models = ["mistral-4", "deepseek", "nova-fast", "grok", "grok-large",
                               "grok-4.3", "minimax", "llama-scout", "gemma", "kimi", "kimi-k2.6", "glm",
                               "mistral-small", "step-flash", "polly", "mistral-large",
                               "qwen-large", "minimax-m3", "step-3.5-flash", "gpt-5.4-mini",
-                              "deepseek-pro", "gpt-5.5", "perplexity-deep", "perplexity-reasoning"]
+                              "deepseek-pro", "deepseek-v4", "qwen3-coder", "llama-3.3", "nova-2",
+                              "mistral-small-3.2", "gpt-5.5", "perplexity-deep", "perplexity-reasoning"]
             for fallback_model in fallback_models:
                 if fallback_model == model:
                     continue
@@ -267,7 +268,7 @@ class AIRouter:
             user_id=user_id,
             message=f"Расшифруй VIN: {vin_clean}",
             system_prompt=persona.system_prompt + persona.vin_prompt_suffix,
-            model="openai-reasoning",  # Use reasoning model for VIN decoding
+            model="gpt-5.5",  # Use reasoning model for VIN decoding
             temperature=0.3,  # More precise for VIN
             extra_context=vin_context,
         )
@@ -618,7 +619,7 @@ class AIRouter:
             user_id=user_id,
             message=symptoms,
             system_prompt=persona.system_prompt + persona.diagnostic_prompt_suffix,
-            model=model or "openai-reasoning",  # Use reasoning for diagnostics
+            model=model or "gpt-5.5",  # Use reasoning for diagnostics
             temperature=0.5,  # More precise for diagnostics
             extra_context=extra_context,
         )

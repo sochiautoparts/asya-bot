@@ -219,7 +219,8 @@ class ChannelManager:
     # Content models rotation — each post uses a different model for variety
     _CONTENT_MODELS_ROTATION = [
         "openai-large", "gpt-5.5", "mistral-4", "deepseek",
-        "qwen-large", "deepseek-pro", "openai-reasoning", "minimax-m3",
+        "qwen-large", "deepseek-pro", "deepseek-v4", "minimax-m3",
+        "qwen3-coder", "llama-3.3", "nova-2",
     ]
 
     def set_bot(self, bot: Bot) -> None:
@@ -857,6 +858,14 @@ class ChannelManager:
                     post_type="news",
                     source_url=news_item.get("url", ""),
                 )
+
+                # ── DEDUPLICATION: Store fingerprint for fallback post too ──
+                await add_post_fingerprint(
+                    title=news_item.get("title", ""),
+                    content=post_text,
+                    post_id=sent.message_id,
+                )
+
                 if news_item.get("url"):
                     await mark_news_posted(news_item["url"])
                 self._last_post_time = time.time()
@@ -882,26 +891,27 @@ class ChannelManager:
             results = await web_search(query, max_results=5)
 
             if results:
-                result = random.choice(results)
-                if not result.title:
-                    return None
+                random.shuffle(results)
+                for result in results:
+                    if not result.title:
+                        continue
 
-                news_item = {
-                    "title": result.title,
-                    "url": result.url,  # Unique URL from search result
-                    "summary": result.snippet or "",
-                    "category": "auto",
-                    "lang": "ru" if any(c >= '\u0400' for c in result.title) else "en",
-                    "image_urls": [],  # Will be filled by scraping if available
-                }
+                    news_item = {
+                        "title": result.title,
+                        "url": result.url,  # Unique URL from search result
+                        "summary": result.snippet or "",
+                        "category": "auto",
+                        "lang": "ru" if any(c >= '\u0400' for c in result.title) else "en",
+                        "image_urls": [],  # Will be filled by scraping if available
+                    }
 
-                # Check for duplicate BEFORE returning
-                if await is_duplicate_post(result.title, hours=48):
-                    logger.info(f"Internet news is duplicate: {result.title[:60]}")
-                    continue
+                    # Check for duplicate BEFORE returning
+                    if await is_duplicate_post(result.title, hours=48):
+                        logger.info(f"Internet news is duplicate: {result.title[:60]}")
+                        continue
 
-                logger.info(f"Found internet news: {news_item['title'][:50]}")
-                return news_item
+                    logger.info(f"Found internet news: {news_item['title'][:50]}")
+                    return news_item
 
             # Strategy 2: Perplexity AI search (web-augmented)
             try:
