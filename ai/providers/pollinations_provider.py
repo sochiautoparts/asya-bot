@@ -45,6 +45,11 @@ CHAT_MODELS = [
     "kimi",                # Kimi K2.5, 262K context, tools, reasoning
     "kimi-k2.6",           # Kimi K2.6, 262K context, tools, reasoning
     "step-3.5-flash",      # Step 3.5 Flash, 262K context, tools, reasoning
+    "openai-mini",         # GPT Mini, 400K context, tools — very fast, great for quick responses
+    "step-flash",          # Step Flash, 256K context, tools, reasoning, text+image
+    "polly",               # Polly, reasoning model with tools
+    "grok-large",          # Grok Large, 262K context, tools, reasoning, text+image
+    "grok-4.3",            # Grok 4.3, 262K context, tools, reasoning, text+image
 ]
 
 # Reasoning models — for complex analysis and diagnostics
@@ -55,6 +60,10 @@ REASONING_MODELS = [
     "deepseek",            # DeepSeek V4, reasoning
     "deepseek-pro",        # DeepSeek V4 Pro, reasoning
     "mistral-4",           # Mistral 4, reasoning
+    "step-flash",          # Step Flash, reasoning + image
+    "polly",               # Polly, reasoning
+    "grok-large",          # Grok Large, reasoning
+    "grok-4.3",            # Grok 4.3, reasoning
 ]
 
 # Vision models — can understand images
@@ -72,6 +81,8 @@ VISION_MODELS = [
     "minimax-m3",          # Vision capable
     "gemma",               # Vision capable
     "grok",                # Vision capable
+    "openai-mini",         # Vision capable
+    "step-flash",          # Vision capable
 ]
 
 # Content creation models — for generating channel posts
@@ -81,6 +92,8 @@ CONTENT_MODELS = [
     "qwen-large",          # Good for detailed content — NEW
     "deepseek",            # Good analysis
     "mistral-4",           # Good writing
+    "step-flash",          # Good for content
+    "polly",               # Slow but thorough
 ]
 
 # Perplexity models — web-search augmented
@@ -99,6 +112,7 @@ IMAGE_MODELS = [
     "kontext",             # Kontext — text+image→image
     "zimage",              # ZImage — text→image
     "nova-canvas",         # Nova Canvas — text+image→image
+    "klein",               # Klein — text→image
 ]
 
 # Audio / transcription models
@@ -117,7 +131,7 @@ POLLINATIONS_MODELS = (
 POLLINATIONS_MODELS = list(dict.fromkeys(POLLINATIONS_MODELS))
 
 DEFAULT_MODEL = "openai"
-FALLBACK_MODELS = ["mistral-4", "deepseek", "nova-fast", "grok", "minimax", "llama-scout", "gemma", "kimi", "glm", "mistral-small"]
+FALLBACK_MODELS = ["openai-mini", "mistral-4", "deepseek", "nova-fast", "grok", "minimax", "llama-scout", "gemma", "kimi", "glm", "mistral-small", "step-flash"]
 
 # Track model failures for circuit breaking
 _model_failures: Dict[str, float] = {}

@@ -156,8 +156,8 @@ class AIRouter:
 
         # If primary failed, try fallback models
         if response.error:
-            fallback_models = ["mistral-4", "deepseek", "nova-fast", "grok", "minimax",
-                              "llama-scout", "gemma", "kimi", "glm", "mistral-small"]
+            fallback_models = ["openai-mini", "mistral-4", "deepseek", "nova-fast", "grok", "minimax",
+                              "llama-scout", "gemma", "kimi", "glm", "mistral-small", "step-flash"]
             for fallback_model in fallback_models:
                 if fallback_model == model:
                     continue
@@ -270,63 +270,213 @@ class AIRouter:
         )
 
     def _parse_vin_basic(self, vin: str) -> str:
-        """Parse basic VIN info (WMI - World Manufacturer Identifier)."""
+        """Parse VIN info: WMI manufacturer, model year, assembly plant, check digit.
+        
+        VIN structure (17 chars):
+        - Pos 1-3: WMI (World Manufacturer Identifier)
+        - Pos 4-8: Vehicle Descriptor (model, body, engine)
+        - Pos 9: Check digit (0-9 or X)
+        - Pos 10: Model Year
+        - Pos 11: Assembly Plant
+        - Pos 12-17: Production Serial Number
+        """
         if len(vin) < 3:
             return ""
 
+        parts = []
+
+        # ── WMI (Positions 1-3) ──
         wmi = vin[:3]
         wmi_map = {
             # Japanese
-            "JHM": "Honda (Япония)", "JHN": "Honda (США)", "JHG": "Honda",
-            "JT1": "Toyota", "JT2": "Toyota", "JT3": "Toyota", "JT4": "Toyota",
-            "JT5": "Toyota", "JT6": "Toyota", "JT7": "Toyota", "JT8": "Toyota",
-            "JN1": "Nissan (Япония)", "JN8": "Nissan",
-            "JM1": "Mazda", "JM2": "Mazda", "JM3": "Mazda",
-            "JF1": "Subaru", "JF2": "Subaru",
-            "JS2": "Suzuki", "JS3": "Suzuki", "JS4": "Suzuki",
-            "JA3": "Mitsubishi", "JA4": "Mitsubishi",
+            "JHM": "Honda (Япония)", "JHN": "Honda (США)", "JHG": "Honda (Япония)",
+            "JT1": "Toyota (Япония)", "JT2": "Toyota (Япония)", "JT3": "Toyota",
+            "JT4": "Toyota", "JT5": "Toyota", "JT6": "Toyota", "JT7": "Toyota",
+            "JT8": "Toyota", "JTD": "Toyota (США)", "JTE": "Toyota (США)",
+            "JN1": "Nissan (Япония)", "JN8": "Nissan (США)", "JNK": "Infiniti (Япония)",
+            "JM1": "Mazda (Япония)", "JM2": "Mazda (США)", "JM3": "Mazda (США)",
+            "JF1": "Subaru (Япония)", "JF2": "Subaru (США)",
+            "JS2": "Suzuki (Япония)", "JS3": "Suzuki", "JS4": "Suzuki",
+            "JA3": "Mitsubishi (Япония)", "JA4": "Mitsubishi (США)",
+            "JJA": "Isuzu (Япония)", "JAL": "Alfa Romeo (Япония)",
             # German
-            "WBA": "BMW", "WBS": "BMW M", "WBX": "BMW SUV",
-            "WVW": "Volkswagen", "WV1": "Volkswagen Commercial",
-            "WAU": "Audi", "WAU": "Audi",
-            "WDD": "Mercedes-Benz", "WDB": "Mercedes-Benz",
-            "WP0": "Porsche",
+            "WBA": "BMW (Германия)", "WBS": "BMW M (Германия)", "WBX": "BMW SUV (Германия)",
+            "WBY": "BMW i (Германия)", "WBA": "BMW (Германия)",
+            "WVW": "Volkswagen (Германия)", "WV1": "Volkswagen Commercial",
+            "WV2": "Volkswagen Bus/Van",
+            "WAU": "Audi (Германия)", "WAU": "Audi (Германия)",
+            "WDD": "Mercedes-Benz (Германия)", "WDB": "Mercedes-Benz (Германия)",
+            "WDC": "Mercedes-Benz (США)", "WDF": "Mercedes-Benz Van",
+            "WP0": "Porsche (Германия)", "WP1": "Porsche SUV (Германия)",
+            "W0L": "Opel (Германия)", "W0V": "Opel (Германия)",
             # American
-            "1G1": "Chevrolet", "1G2": "Pontiac", "1G3": "Oldsmobile",
-            "1G4": "Buick", "1G6": "Cadillac",
-            "1FA": "Ford", "1FT": "Ford Truck", "1F1": "Ford",
+            "1G1": "Chevrolet (США)", "1G2": "Pontiac (США)", "1G3": "Oldsmobile",
+            "1G4": "Buick (США)", "1G6": "Cadillac (США)", "1GC": "Chevrolet Truck",
+            "1FA": "Ford (США)", "1FT": "Ford Truck (США)", "1F1": "Ford (США)",
+            "1FM": "Ford SUV (США)", "1FD": "Ford Commercial",
             "2G1": "Chevrolet (Канада)", "2G2": "Pontiac (Канада)",
+            "2FA": "Ford (Канада)", "2FM": "Ford (Канада)",
             "3FA": "Ford (Мексика)", "3FE": "Ford (Мексика)",
+            "3VW": "Volkswagen (Мексика)", "3MB": "Mitsubishi (Мексика)",
+            "1N4": "Nissan (США)", "1N6": "Nissan Truck (США)",
+            "1HG": "Honda (США)", "1HY": "Acura (США)",
+            "1J4": "Jeep (США)", "1C4": "Chrysler (США)", "1C6": "RAM (США)",
+            "5YJ": "Tesla (США)", "7SAY": "Tesla (США)",
             # Korean
-            "KMH": "Hyundai", "KNA": "Kia", "KNB": "Kia", "KNC": "Kia",
-            "5NP": "Hyundai (США)", "5XM": "Hyundai",
-            "KLA": "Hyundai", "KL1": "Chevrolet (Корея)",
+            "KMH": "Hyundai (Корея)", "KNA": "Kia (Корея)", "KNB": "Kia (Корея)",
+            "KNC": "Kia (Корея)", "KND": "Kia (США)",
+            "5NP": "Hyundai (США)", "5XM": "Hyundai (США)",
+            "5XY": "Kia (США)", "5XK": "Kia (США)",
+            "KLA": "Hyundai (Корея)", "KL1": "Chevrolet (Корея)",
+            "KNM": "Renault Samsung (Корея)", "KPH": "SsangYong (Корея)",
             # Chinese
-            "LBE": "BAIC", "LSG": "GM (Китай)", "LJ1": "FAW",
-            "LVSH": "Great Wall", "LZG": "Geely",
+            "LBE": "BAIC (Китай)", "LSG": "GM (Китай)", "LJ1": "FAW (Китай)",
+            "LVSH": "Great Wall (Китай)", "LZG": "Geely (Китай)",
+            "LFV": "Volkswagen (Китай)", "LSV": "Volkswagen (Китай)",
+            "LGB": "Geely (Китай)", "LFP": "Chery (Китай)",
+            "LJX": "Haval (Китай)", "LZW": "SAIC (Китай)",
+            "LVV": "Chery (Китай)", "LDC": "Dongfeng Peugeot (Китай)",
+            "LNB": "Brilliance (Китай)", "LJU": "BYD (Китай)",
             # Russian
-            "XTA": "АвтоВАЗ (LADA)", "XTC": "АвтоВАЗ",
+            "XTA": "АвтоВАЗ LADA (Россия)", "XTC": "АвтоВАЗ (Россия)",
+            "XTB": "АвтоВАЗ (Россия)", "XTD": "АвтоВАЗ (Россия)",
             "X7L": "Renault (Россия)", "X7M": "Hyundai (Россия)",
-            "Z8T": "УАЗ",
+            "Z8T": "УАЗ (Россия)", "X7M": "Hyundai (Россия)",
+            "XUF": "Chevrolet (Россия)", "XWB": "Kia (Россия)",
+            "XWE": "Hyundai (Россия)", "XWU": "Renault (Россия)",
             # Swedish
-            "YV1": "Volvo", "YV4": "Volvo SUV",
+            "YV1": "Volvo (Швеция)", "YV4": "Volvo SUV (Швеция)",
+            "YV2": "Volvo Truck (Швеция)", "YV3": "Volvo Bus (Швеция)",
             # French
-            "VF1": "Renault", "VF3": "Peugeot", "VF7": "Citroen",
+            "VF1": "Renault (Франция)", "VF3": "Peugeot (Франция)",
+            "VF7": "Citroen (Франция)", "VF6": "Renault Truck (Франция)",
+            "VF8": "Renault (Франция)",
+            "VR1": "Renault (Франция)", "VR7": "Peugeot (Франция)",
             # British
-            "SAL": "Land Rover", "SAA": "Jaguar", "SCA": "Rolls-Royce",
-            "SAJ": "Jaguar",
+            "SAL": "Land Rover (Великобритания)", "SAA": "Jaguar (Великобритания)",
+            "SCA": "Rolls-Royce (Великобритания)", "SAJ": "Jaguar (Великобритания)",
+            "SDB": "Aston Martin (Великобритания)", "SCC": "McLaren (Великобритания)",
+            "SAX": "MG (Великобритания)",
             # Italian
-            "ZAR": "Alfa Romeo", "ZAM": "Maserati", "ZFF": "Ferrari",
-            "ZFA": "Fiat",
+            "ZAR": "Alfa Romeo (Италия)", "ZAM": "Maserati (Италия)",
+            "ZFF": "Ferrari (Италия)", "ZFA": "Fiat (Италия)",
+            "ZLA": "Lancia (Италия)", "ZAP": "Piaggio (Италия)",
+            "ZCG": "Lamborghini (Италия)",
             # Czech
-            "TM9": "Škoda", "TMB": "Škoda",
+            "TM9": "Škoda (Чехия)", "TMB": "Škoda (Чехия)",
+            "TMK": "Škoda (Чехия)", "TMP": "Škoda (Чехия)",
+            # Spanish
+            "VSS": "SEAT (Испания)", "VSE": "SEAT (Испания)",
         }
 
         manufacturer = wmi_map.get(wmi, "")
         if manufacturer:
-            return f"Производитель (WMI {wmi}): {manufacturer}"
+            parts.append(f"Производитель (WMI {wmi}): {manufacturer}")
+        else:
+            # Try to determine region from first character
+            first_char = vin[0]
+            region_map = {
+                "1": "Северная Америка (США)", "2": "Северная Америка (Канада)",
+                "3": "Северная Америка (Мексика)", "4": "США",
+                "5": "США", "6": "Австралия", "7": "Новая Зеландия",
+                "8": "Южная Америка", "9": "Южная Америка",
+                "J": "Япония", "K": "Корея", "L": "Китай",
+                "M": "Индия", "N": "Индонезия/Турция",
+                "P": "Европа/Азия", "R": "Тайвань/Вьетнам",
+                "S": "Великобритания", "T": "Чехия/Венгрия",
+                "U": "Дания/Финляндия", "V": "Франция/Испания",
+                "W": "Германия", "X": "Россия/Нидерланды",
+                "Y": "Швеция/Норвегия", "Z": "Италия/Бельгия",
+            }
+            region = region_map.get(first_char, "Неизвестный регион")
+            parts.append(f"WMI {wmi} — регион: {region}")
 
-        return ""
+        # ── Model Year (Position 10) ──
+        if len(vin) >= 10:
+            year_code = vin[9]
+            year_map = {
+                "A": 2010, "B": 2011, "C": 2012, "D": 2013, "E": 2014,
+                "F": 2015, "G": 2016, "H": 2017, "J": 2018, "K": 2019,
+                "L": 2020, "M": 2021, "N": 2022, "P": 2023, "R": 2024,
+                "S": 2025, "T": 2026, "V": 2027, "W": 2028, "X": 2029,
+                "Y": 2030, "1": 2001, "2": 2002, "3": 2003, "4": 2004,
+                "5": 2005, "6": 2006, "7": 2007, "8": 2008, "9": 2009,
+                "0": 2000,
+            }
+            model_year = year_map.get(year_code)
+            if model_year:
+                # Could be model_year or model_year+30 (e.g. 1980 = 2010)
+                if model_year < 1990:
+                    actual_year = model_year + 30  # 1980s cycle
+                else:
+                    actual_year = model_year
+                parts.append(f"Модельный год: {actual_year} (код: {year_code})")
+
+        # ── Check Digit Validation (Position 9) ──
+        if len(vin) >= 9:
+            check_char = vin[8]
+            if check_char != "X" and not check_char.isdigit():
+                parts.append(f"⚠️ Контрольный символ ({check_char}) выглядит некорректно")
+            else:
+                is_valid = self._validate_vin_check_digit(vin)
+                if not is_valid and len(vin) == 17:
+                    parts.append("⚠️ Контрольная сумма VIN не совпадает — возможна ошибка в коде")
+                elif len(vin) == 17:
+                    parts.append("✅ Контрольная сумма VIN корректна")
+
+        # ── Assembly Plant (Position 11) ──
+        if len(vin) >= 11:
+            plant_code = vin[10]
+            parts.append(f"Код завода сборки: {plant_code}")
+
+        # ── Serial Number (Positions 12-17) ──
+        if len(vin) >= 17:
+            serial = vin[11:17]
+            parts.append(f"Серийный номер: {serial}")
+
+        return "\n".join(parts) if parts else ""
+
+    @staticmethod
+    def _validate_vin_check_digit(vin: str) -> bool:
+        """Validate VIN check digit (position 9).
+        
+        Uses the standard VIN check digit algorithm:
+        - Assign weights to each position
+        - Multiply each digit value by its weight
+        - Sum all products
+        - Check digit = sum mod 11 (X for 10)
+        """
+        if len(vin) != 17:
+            return False
+
+        # Position weights
+        weights = [8, 7, 6, 5, 4, 3, 2, 10, 0, 9, 8, 7, 6, 5, 4, 3, 2]
+
+        # Character values (I, O, Q are not used in VIN)
+        values = {
+            "0": 0, "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7,
+            "8": 8, "9": 9,
+            "A": 1, "B": 2, "C": 3, "D": 4, "E": 5, "F": 6, "G": 7, "H": 8,
+            "J": 1, "K": 2, "L": 3, "M": 4, "N": 5, "P": 7, "R": 9,
+            "S": 2, "T": 3, "U": 4, "V": 5, "W": 6, "X": 7, "Y": 8, "Z": 9,
+        }
+
+        vin_upper = vin.upper()
+
+        total = 0
+        for i in range(17):
+            char = vin_upper[i]
+            if char not in values:
+                return False
+            total += values[char] * weights[i]
+
+        expected_check = total % 11
+        if expected_check == 10:
+            expected_char = "X"
+        else:
+            expected_char = str(expected_check)
+
+        return vin_upper[8] == expected_char
 
     async def generate_channel_post(
         self,

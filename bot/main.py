@@ -186,9 +186,12 @@ class BackgroundTasks:
                 await asyncio.sleep(1)
 
     async def _channel_poster(self) -> None:
-        """Periodically post to channel."""
+        """Periodically post to channel.
+        
+        Uses config.CHANNEL_POST_INTERVAL_MINUTES for the interval.
+        """
         # Wait a bit after startup
-        await asyncio.sleep(60)
+        await asyncio.sleep(30)
 
         while self._running:
             try:
@@ -198,8 +201,9 @@ class BackgroundTasks:
             except Exception as e:
                 logger.error(f"Channel poster error: {e}")
 
-            # Wait for next cycle (check every 10 minutes)
-            for _ in range(600):
+            # Wait for next cycle — check every configured interval
+            interval = config.CHANNEL_POST_INTERVAL_MINUTES * 60
+            for _ in range(interval):
                 if not self._running:
                     break
                 await asyncio.sleep(1)

@@ -42,6 +42,11 @@ chat_router = Router()
 # ── VIN / Body number detection ───────────────────────────────────────────────
 
 _VIN_PATTERN = re.compile(r'\b[A-HJ-NPR-Z0-9]{17}\b', re.IGNORECASE)
+# Also match VINs with spaces or dashes (users often type them separated)
+_VIN_FLEX_PATTERN = re.compile(
+    r'(?:VIN[-:]?\s*|вин[-:]?\s*|вин-код[-:]?\s*)?([A-HJ-NPR-Z0-9](?:[A-HJ-NPR-Z0-9\s\-]{14,22})[A-HJ-NPR-Z0-9])',
+    re.IGNORECASE
+)
 _BODY_NUMBER_PATTERN = re.compile(
     r'(?:номер\s+кузова|кузовн?ой\s+номер|body\s*number|кузов)\s*[:\s]*([A-Z0-9\-/]{5,20})',
     re.IGNORECASE
@@ -70,9 +75,15 @@ def _detect_body_number(text: str) -> Optional[str]:
 def _is_vin_query(text: str) -> bool:
     """Check if text is asking about VIN/body number decoding."""
     text_lower = text.lower()
-    keywords = ["vin", "вин", "номер кузова", "кузовной номер", "расшифруй vin",
-                "расшифруй вин", "пробей vin", "пробей вин", "декодировать vin",
-                "vin код", "вин код", "vin-код", "вин-код"]
+    keywords = [
+        "vin", "вин", "номер кузова", "кузовной номер", "расшифруй vin",
+        "расшифруй вин", "пробей vin", "пробей вин", "декодировать vin",
+        "vin код", "вин код", "vin-код", "вин-код",
+        "что за vin", "что за вин", "какая машина vin", "какая машина вин",
+        "какой автомобиль vin", "определи vin", "определи вин",
+        "что за машина vin", "проверь vin", "проверь вин",
+        "история vin", "история автомобиля", "пробить машину",
+    ]
     return any(kw in text_lower for kw in keywords)
 
 
@@ -428,10 +439,26 @@ async def _process_text_message(message: Message, text: str):
 
     if is_vin_query:
         vin_or_body = vin_code or body_number or text.strip()
+        
+        # Try web search for VIN info (car history, specs, etc.)
+        vin_search_context = ""
+        if vin_code and len(vin_code) == 17:
+            try:
+                search_query = f"VIN {vin_code} расшифровка автомобиль характеристики"
+                results = await web_search(search_query, max_results=3)
+                if results:
+                    vin_search_context = "Результаты поиска по VIN:\n" + format_search_results(results, max_items=3)
+            except Exception as e:
+                logger.debug(f"VIN web search error: {e}")
+        
+        all_context = extra_context_parts.copy()
+        if vin_search_context:
+            all_context.append(vin_search_context)
+        
         response = await ai_router.decode_vin(
             user_id=user_id,
             vin_code=vin_or_body,
-            extra_context="\n".join(extra_context_parts),
+            extra_context="\n".join(all_context),
         )
         await _send_response(message, response)
         return
