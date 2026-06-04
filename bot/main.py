@@ -204,6 +204,7 @@ async def on_startup(bot: Bot) -> None:
         BotCommand(command="parts", description="Поиск запчастей"),
         BotCommand(command="normal", description="Обычный режим"),
         BotCommand(command="admin", description="Панель админа"),
+        BotCommand(command="switch", description="Сменить AI модель"),
     ]
     await bot.set_my_commands(commands)
     logger.info("Bot commands set")

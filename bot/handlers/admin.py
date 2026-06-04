@@ -68,6 +68,7 @@ async def cmd_admin(message: Message):
         f"/block <user_id> — заблокировать пользователя\n"
         f"/unblock <user_id> — разблокировать\n"
         f"/models — список AI моделей\n"
+        f"/switch <модель> — переключить AI модель\n"
         f"/reload_partners — перезагрузить партнёров"
     )
     await message.answer(text)
@@ -371,13 +372,64 @@ async def cmd_unblock(message: Message):
 
 @admin_router.message(Command("models"))
 async def cmd_models(message: Message):
-    """Show available AI models."""
+    """Show available AI models grouped by provider."""
     if not await _is_admin(message):
         return
 
     models = ai_router.get_available_models()
-    text = "🤖 Доступные AI модели:\n\n" + "\n".join(f"  • {m}" for m in models)
-    await message.answer(text)
+    # Group by category
+    categories = {
+        "OpenAI": ["openai", "openai-fast", "openai-large", "gpt-5.4-mini", "gpt-5.5"],
+        "Mistral": ["mistral", "mistral-large", "mistral-4"],
+        "DeepSeek": ["deepseek", "deepseek-pro"],
+        "Qwen": ["qwen-coder", "qwen-large", "qwen-vision", "qwen-vision-pro"],
+        "Llama": ["llama", "llama-scout"],
+        "Nova": ["nova", "nova-fast"],
+        "Grok": ["grok", "grok-large", "grok-4.3"],
+        "Perplexity": ["perplexity", "perplexity-fast", "perplexity-deep", "perplexity-reasoning"],
+        "Other": ["gemma", "minimax", "minimax-m3", "kimi", "kimi-k2.6", "glm", "polly", "step-flash", "step-3.5-flash"],
+        "Image": ["flux", "gptimage", "gptimage-large", "kontext", "zimage", "nova-canvas"],
+        "Audio": ["whisper", "universal-2", "universal-3-pro"],
+    }
+
+    lines = ["🤖 Доступные AI модели:\n"]
+    for cat, cat_models in categories.items():
+        cat_available = [m for m in cat_models if m in models]
+        if cat_available:
+            lines.append(f"📋 {cat}:")
+            for m in cat_available:
+                lines.append(f"  • {m}")
+
+    lines.append("\n/switch <модель> — переключить модель")
+    await message.answer("\n".join(lines))
+
+
+# ── /switch command ───────────────────────────────────────────────────────────
+
+@admin_router.message(Command("switch"))
+async def cmd_switch_model(message: Message):
+    """Switch the default AI model for chat."""
+    if not await _is_admin(message):
+        return
+
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer("Использование: /switch <модель>\nПример: /switch mistral-4")
+        return
+
+    model_name = args[1].strip()
+    available = ai_router.get_available_models()
+
+    if model_name not in available:
+        await message.answer(f"Модель '{model_name}' не найдена. Используйте /models для списка.")
+        return
+
+    # Update default model in provider
+    from ai.providers.pollinations_provider import DEFAULT_MODEL
+    import ai.providers.pollinations_provider as pp
+    pp.DEFAULT_MODEL = model_name
+
+    await message.answer(f"✅ Модель переключена на: {model_name}")
 
 
 # ── /reload_partners command ──────────────────────────────────────────────────

@@ -96,9 +96,9 @@ class AIRouter:
             max_tokens=max_tokens,
         )
 
-        # If primary failed, try fallback models
+        # If primary failed, try fallback models in priority order
         if response.error:
-            for fallback_model in ["mistral", "deepseek", "qwen", "llama"]:
+            for fallback_model in ["mistral-4", "deepseek", "nova-fast", "grok", "minimax", "llama-scout", "gemma"]:
                 if fallback_model == model:
                     continue
                 logger.info(f"Trying fallback model: {fallback_model}")
@@ -149,7 +149,7 @@ class AIRouter:
 
         response = await self._primary.chat(
             messages=messages,
-            model=model or "openai",
+            model=model or "openai-large",
             temperature=0.8,
             max_tokens=1500,
         )

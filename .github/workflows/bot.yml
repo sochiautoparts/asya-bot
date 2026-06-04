@@ -20,8 +20,10 @@ env:
   GH_PAT_TOKEN: ${{ secrets.GH_PAT_TOKEN }}
   CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
   CHANNEL_USERNAME: ${{ secrets.CHANNEL_USERNAME }}
+  ADMITAD_ADS_FILE: admitad_ads.json
   DB_PATH: asya_bot.db
   PYTHONUNBUFFERED: "1"
+  LOG_LEVEL: INFO
 
 jobs:
   run-bot:
@@ -44,6 +46,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Download Admitad partner data
+        run: |
+          curl -sL "https://raw.githubusercontent.com/creastudioai-beep/pr/main/data/admitad_ads.json" \
+            -o admitad_ads.json || echo "Failed to download admitad data, will use cached version"
 
       - name: Restore database cache
         uses: actions/cache@v4

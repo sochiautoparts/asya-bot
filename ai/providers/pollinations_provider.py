@@ -17,41 +17,64 @@ logger = logging.getLogger("asya.ai.pollinations")
 # ── Available models ───────────────────────────────────────────────────────────
 
 POLLINATIONS_MODELS = [
-    "openai",
-    "mistral",
-    "mistral-large",
-    "mistral-small",
-    "llama",
-    "llama-16k",
-    "deepseek",
-    "deepseek-r1",
-    "deepseek-v3",
-    "qwen",
-    "qwen-coder",
-    "gpt-5.4-mini",
-    "gpt-4.1-mini",
-    "gpt-4.1",
-    "gpt-4o-mini",
-    "gpt-4o",
-    "o3-mini",
-    "o4-mini",
-    "claude-hybridspace",
-    "gemini",
-    "gemini-thinking",
-    "command-r",
-    "command-r-plus",
-    "phi",
-    "phi-mini",
-    "unity",
-    "midijourney",
-    "rtist",
-    "searchgpt",
-    "evil",
-    "p1",
+    # ── OpenAI family ──────────────────────────────────────────────────────
+    "openai",              # GPT-5.4, 400K context, tools, text+image
+    "openai-fast",         # GPT-5 nano, 400K context, tools — fastest OpenAI
+    "openai-large",        # GPT-5.4 reasoning, 400K context, tools
+    "gpt-5.4-mini",        # GPT-5.4 mini, 400K context, tools
+    "gpt-5.5",             # GPT-5.5, 1M context, tools, reasoning
+    # ── Mistral family ─────────────────────────────────────────────────────
+    "mistral",             # Mistral Small, 128K context, tools, text+image
+    "mistral-large",       # Mistral Large, 256K context, tools, reasoning
+    "mistral-4",           # Mistral 4, 262K context, tools, reasoning
+    # ── DeepSeek family ───────────────────────────────────────────────────
+    "deepseek",            # DeepSeek V4, 1M context, tools, reasoning
+    "deepseek-pro",        # DeepSeek V4 Pro, 1M context, tools, reasoning
+    # ── Qwen family ───────────────────────────────────────────────────────
+    "qwen-coder",          # Qwen Coder, 262K context, tools
+    "qwen-large",          # Qwen 3.6+, 1M context, tools, reasoning, text+image
+    "qwen-vision",         # Qwen Vision, 131K context, tools, text+image
+    "qwen-vision-pro",     # Qwen Vision Pro, 262K context, reasoning, text+image
+    # ── Llama family ──────────────────────────────────────────────────────
+    "llama",               # Llama 4, 131K context, tools
+    "llama-scout",         # Llama 4 Scout, 328K context, tools, text+image
+    # ── Amazon Nova family ────────────────────────────────────────────────
+    "nova",                # Nova 2, 1M context, tools, reasoning, text+image
+    "nova-fast",           # Nova Micro, 128K context, tools — very fast
+    # ── Grok family ───────────────────────────────────────────────────────
+    "grok",                # Grok 4, 262K context, tools, text+image
+    "grok-large",          # Grok 4 Large, 262K context, tools, reasoning
+    "grok-4.3",            # Grok 4.3, 262K context, tools, reasoning, text+image
+    # ── Perplexity (search-augmented) ──────────────────────────────────────
+    "perplexity",          # Sonar Pro, 200K context — web search
+    "perplexity-fast",     # Sonar, 128K context — fast web search
+    "perplexity-deep",     # Sonar Deep, 128K context — deep web search
+    "perplexity-reasoning",# Sonar Reasoning, 128K context
+    # ── Other reasoning models ─────────────────────────────────────────────
+    "gemma",               # Gemma 4, 262K context, tools, reasoning, text+image
+    "minimax",             # MiniMax M2, 200K context, tools, reasoning
+    "minimax-m3",          # MiniMax M3, 1M context, tools, reasoning, text+image
+    "kimi",                # Kimi, 262K context, tools, reasoning, text+image
+    "kimi-k2.6",           # Kimi K2.6, 262K context, tools, reasoning, text+image
+    "glm",                 # GLM 5, 198K context, tools, reasoning — Russian OK
+    "polly",               # Polly, tools, reasoning, text+image
+    "step-flash",          # Step Flash, 256K context, tools, reasoning, text+image
+    "step-3.5-flash",      # Step 3.5 Flash, 262K context, tools, reasoning
+    # ── Image generation models ─────────────────────────────────────────────
+    "flux",                # Flux — text→image
+    "gptimage",            # GPT Image — text→image
+    "gptimage-large",      # GPT Image Large — text→image
+    "kontext",             # Kontext — text+image→image
+    "zimage",              # ZImage — text→image
+    "nova-canvas",         # Nova Canvas — text+image→image
+    # ── Audio / transcription ──────────────────────────────────────────────
+    "whisper",             # Whisper — audio→text
+    "universal-2",         # Universal 2 — audio→text
+    "universal-3-pro",     # Universal 3 Pro — audio→text
 ]
 
 DEFAULT_MODEL = "openai"
-FALLBACK_MODELS = ["mistral", "deepseek", "qwen", "llama", "gpt-4o-mini"]
+FALLBACK_MODELS = ["mistral-4", "deepseek", "nova-fast", "grok", "minimax", "llama-scout"]
 
 # Track model failures for circuit breaking
 _model_failures: Dict[str, float] = {}

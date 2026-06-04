@@ -17,10 +17,10 @@ class BotConfig:
     BOT_USERNAME: str = "@asiaexp_bot"
 
     # Owner / admin
-    OWNER_ID: int = int(os.getenv("OWNER_ID", "0"))
+    OWNER_ID: int = int(os.getenv("OWNER_ID", "265070804"))
 
     # Channel
-    CHANNEL_ID: str = os.getenv("CHANNEL_ID", "@sochiautoparts")
+    CHANNEL_ID: str = os.getenv("CHANNEL_ID", "1479468835")
     CHANNEL_USERNAME: str = os.getenv("CHANNEL_USERNAME", "@sochiautoparts")
 
     # Pollinations AI
