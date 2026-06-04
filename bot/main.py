@@ -32,6 +32,7 @@ from bot.partners import partner_manager
 from ai.router import ai_router
 from news import run_news_cycle
 from channel import channel_manager
+from miniapp.server import start_miniapp_server
 
 # ── Logging setup ──────────────────────────────────────────────────────────────
 
@@ -249,11 +250,19 @@ async def on_startup(bot: Bot) -> None:
     # Resolve conflicts
     await resolve_conflicts(bot)
 
+    # Start Mini App server (web app for Telegram)
+    try:
+        await start_miniapp_server(port=int(os.getenv("MINIAPP_PORT", "8080")))
+        logger.info("Mini App server started")
+    except Exception as e:
+        logger.warning(f"Mini App server failed to start: {e}")
+
     # Set bot commands
     from aiogram.types import BotCommand
     commands = [
         BotCommand(command="start", description="Приветствие"),
         BotCommand(command="help", description="Справка"),
+        BotCommand(command="app", description="Открыть мини-приложение"),
         BotCommand(command="clear", description="Очистить историю"),
         BotCommand(command="diagnostic", description="Режим диагностики"),
         BotCommand(command="parts", description="Поиск запчастей"),

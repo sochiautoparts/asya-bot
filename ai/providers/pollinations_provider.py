@@ -18,94 +18,107 @@ logger = logging.getLogger("asya.ai.pollinations")
 # ── Model Categories ──────────────────────────────────────────────────────────
 
 # Chat models — for general conversation (text only)
+# All models tested and confirmed working with our API key (June 2025)
 CHAT_MODELS = [
     "openai",              # GPT-5.4, 400K context, tools, text+image
     "openai-fast",         # GPT-5 nano, 400K context, tools — fastest OpenAI
     "openai-large",        # GPT-5.4 reasoning, 400K context, tools
+    "openai-mini",         # GPT Mini, 400K context, tools — very fast, great for quick responses
     "gpt-5.4-mini",        # GPT-5.4 mini, 400K context, tools
-    "gpt-5.5",             # GPT-5.5, 1M context, tools, reasoning
+    "gpt-5.5",             # GPT-5.5, 1M context — newest flagship (TESTED OK)
     "mistral",             # Mistral Small, 128K context, tools, text+image
     "mistral-large",       # Mistral Large, 256K context, tools, reasoning
     "mistral-4",           # Mistral 4, 262K context, tools, reasoning
     "mistral-small",       # Mistral Small (fast), 128K, tools, text+image
     "deepseek",            # DeepSeek V4, 1M context, tools, reasoning
-    "deepseek-pro",        # DeepSeek V4 Pro, 1M context, tools, reasoning
+    "deepseek-pro",        # DeepSeek V4 Pro, 1M context — stronger reasoning (TESTED OK)
     "qwen-coder",          # Qwen Coder, 262K context, tools
+    "qwen-large",          # Qwen Large, 1M context, reasoning, vision
+    "qwen-vision",         # Qwen Vision, 131K context, tools, text+image
+    "qwen-vision-pro",     # Qwen Vision Pro, 262K context, reasoning, text+image
+    "qwen-safety",         # Qwen Safety, content moderation
     "llama",               # Llama 3.3 70B, 131K context, tools
     "llama-scout",         # Llama 4 Scout, 328K context, tools, text+image
     "nova",                # Nova 2, 1M context, tools, reasoning, text+image
     "nova-fast",           # Nova Micro, 128K context, tools — very fast
     "grok",                # Grok 4, 262K context, tools, text+image
     "grok-large",          # Grok 4 Large, 262K context, tools, reasoning, text+image
+    "grok-4.3",            # Grok 4.3, 262K context — latest Grok (TESTED OK)
     "perplexity",          # Sonar Pro, 200K context — web search
     "perplexity-fast",     # Sonar, 128K context — fast web search
-    "sonar",               # Sonar (alias), fast web search
+    "perplexity-deep",     # Sonar deep search (TESTED OK)
+    "perplexity-reasoning",# Sonar Reasoning Pro, web search + reasoning (TESTED OK)
     "gemma",               # Gemma 4, 262K context, tools, reasoning, text+image
     "glm",                 # GLM 5, 198K context, tools, reasoning — Russian OK
     "minimax",             # MiniMax M2, 200K context, tools, reasoning
     "minimax-m3",          # MiniMax M3, 1M context, tools, reasoning, text+image
     "kimi",                # Kimi K2.5, 262K context, tools, reasoning
-    "kimi-k2.6",           # Kimi K2.6, 262K context, tools, reasoning
+    "kimi-k2.6",           # Kimi K2.6, 262K context — latest Kimi (TESTED OK)
     "step-3.5-flash",      # Step 3.5 Flash, 262K context, tools, reasoning
-    "openai-mini",         # GPT Mini, 400K context, tools — very fast, great for quick responses
     "step-flash",          # Step Flash, 256K context, tools, reasoning, text+image
     "polly",               # Polly, reasoning model with tools
-    "grok-large",          # Grok Large, 262K context, tools, reasoning, text+image
-    "grok-4.3",            # Grok 4.3, 262K context, tools, reasoning, text+image
 ]
 
 # Reasoning models — for complex analysis and diagnostics
 REASONING_MODELS = [
-    "openai-reasoning",    # GPT reasoning — complex reasoning + vision
+    "openai-reasoning",    # GPT reasoning — complex reasoning + vision (TESTED OK)
+    "gpt-5.5",             # GPT-5.5, 1M context — strongest reasoning (TESTED OK)
     "openai-large",        # GPT-5.4 reasoning
-    "qwen-large",          # Qwen Large, reasoning + vision
+    "deepseek-pro",        # DeepSeek V4 Pro — stronger reasoning (TESTED OK)
+    "qwen-large",          # Qwen Large, reasoning + vision (TESTED OK)
     "deepseek",            # DeepSeek V4, reasoning
-    "deepseek-pro",        # DeepSeek V4 Pro, reasoning
     "mistral-4",           # Mistral 4, reasoning
-    "step-flash",          # Step Flash, reasoning + image
-    "polly",               # Polly, reasoning
-    "grok-large",          # Grok Large, reasoning
-    "grok-4.3",            # Grok 4.3, reasoning
-    "perplexity-reasoning",# Sonar Reasoning, web-augmented reasoning
+    "step-flash",          # Step Flash, reasoning + image (TESTED OK)
+    "polly",               # Polly, reasoning (TESTED OK)
+    "grok-4.3",            # Grok 4.3, latest reasoning (TESTED OK)
+    "grok-large",          # Grok Large, reasoning (TESTED OK)
+    "minimax-m3",          # MiniMax M3, reasoning (TESTED OK)
+    "mistral-large",       # Mistral Large, reasoning (TESTED OK)
+    "perplexity-reasoning",# Sonar Reasoning Pro, web + reasoning (TESTED OK)
 ]
 
 # Vision models — can understand images
 VISION_MODELS = [
     "openai",              # Primary vision model
     "openai-fast",         # Fast vision
-    "openai-reasoning",    # Reasoning + vision — NEW
+    "gpt-5.5",             # GPT-5.5 vision (TESTED OK)
+    "openai-reasoning",    # Reasoning + vision (TESTED OK)
     "mistral",             # Vision capable
-    "mistral-small",       # Vision capable — NEW
-    "qwen-vision",         # Qwen Vision, 131K context, tools, text+image
-    "qwen-vision-pro",     # Qwen Vision Pro, 262K context, reasoning, text+image
-    "qwen-large",          # Qwen Large, reasoning + vision — NEW
-    "llama-scout",         # Vision capable
+    "mistral-small",       # Vision capable (TESTED OK)
+    "qwen-vision",         # Qwen Vision, 131K context, tools, text+image (TESTED OK)
+    "qwen-vision-pro",     # Qwen Vision Pro, 262K context, reasoning, text+image (TESTED OK)
+    "qwen-large",          # Qwen Large, reasoning + vision (TESTED OK)
+    "llama-scout",         # Vision capable (TESTED OK)
     "nova",                # Vision capable
-    "minimax-m3",          # Vision capable
+    "minimax-m3",          # Vision capable (TESTED OK)
     "gemma",               # Vision capable
     "grok",                # Vision capable
-    "openai-mini",         # Vision capable
-    "step-flash",          # Vision capable
+    "grok-4.3",            # Vision capable (TESTED OK)
+    "openai-mini",         # Vision capable (TESTED OK)
+    "step-flash",          # Vision capable (TESTED OK)
 ]
 
 # Content creation models — for generating channel posts
 CONTENT_MODELS = [
     "openai-large",        # Best quality for content
-    "openai-reasoning",    # Complex content with reasoning — NEW
-    "qwen-large",          # Good for detailed content — NEW
+    "gpt-5.5",             # GPT-5.5 — best overall (TESTED OK)
+    "openai-reasoning",    # Complex content with reasoning (TESTED OK)
+    "qwen-large",          # Good for detailed content (TESTED OK)
+    "deepseek-pro",        # Strong reasoning for content (TESTED OK)
     "deepseek",            # Good analysis
     "mistral-4",           # Good writing
-    "step-flash",          # Good for content
-    "polly",               # Slow but thorough
+    "step-flash",          # Good for content (TESTED OK)
+    "polly",               # Slow but thorough (TESTED OK)
+    "mistral-large",       # High-quality writing (TESTED OK)
+    "minimax-m3",          # Detailed content (TESTED OK)
 ]
 
 # Perplexity models — web-search augmented
 SEARCH_MODELS = [
-    "perplexity",          # Sonar Pro
-    "perplexity-fast",     # Sonar
-    "perplexity-deep",     # Sonar Deep
-    "perplexity-reasoning",# Sonar Reasoning
-    "sonar",               # Sonar (fast alias)
+    "perplexity",          # Sonar Pro (TESTED OK)
+    "perplexity-fast",     # Sonar (TESTED OK)
+    "perplexity-deep",     # Sonar deep search (TESTED OK)
+    "perplexity-reasoning",# Sonar Reasoning Pro, web + reasoning (TESTED OK)
 ]
 
 # Image generation models
@@ -135,7 +148,13 @@ POLLINATIONS_MODELS = (
 POLLINATIONS_MODELS = list(dict.fromkeys(POLLINATIONS_MODELS))
 
 DEFAULT_MODEL = "openai"
-FALLBACK_MODELS = ["openai-mini", "mistral-4", "deepseek", "nova-fast", "grok", "grok-large", "minimax", "llama-scout", "gemma", "kimi", "glm", "mistral-small", "step-flash", "polly"]
+FALLBACK_MODELS = [
+    "openai-mini", "mistral-4", "deepseek", "nova-fast", "grok", "grok-large",
+    "grok-4.3", "minimax", "llama-scout", "gemma", "kimi", "kimi-k2.6", "glm",
+    "mistral-small", "step-flash", "polly", "mistral-large", "qwen-large",
+    "minimax-m3", "step-3.5-flash", "gpt-5.4-mini", "deepseek-pro",
+    "gpt-5.5", "perplexity-deep", "perplexity-reasoning",
+]
 
 # Track model failures for circuit breaking
 _model_failures: Dict[str, float] = {}

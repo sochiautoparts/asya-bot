@@ -39,10 +39,16 @@ logger = logging.getLogger("asya.channel")
 
 POST_REACTIONS = ["👍", "🔥", "🚗", "😍", "👏", "💯", "🤩", "⚡"]
 
-# ── How many images to generate per news post ────────────────────────────────
-# Telegram allows up to 10 media per post. We generate 2-4 for variety.
-NEWS_IMAGES_MIN = 2
-NEWS_IMAGES_MAX = 4
+# ── How many images per news post ───────────────────────────────────────────
+# Telegram allows up to 10 media per post. But too many looks spammy.
+# We use 1-3 images: real photo from source, or 1-2 AI-generated.
+# AI-generated images: only 1 per post (no spam)
+NEWS_IMAGES_MIN = 1
+NEWS_IMAGES_MAX = 1
+# Maximum total images in a channel post (hard limit)
+MAX_IMAGES_PER_POST = 3
+# Maximum real images to download from RSS (not the Telegram limit!)
+MAX_RSS_IMAGES = 2
 
 # ── Poll topics for channel engagement ──────────────────────────────────────
 
@@ -207,6 +213,13 @@ class ChannelManager:
         self._last_partner_time: float = 0
         self._last_poll_time: float = 0
         self._poll_count: int = 0
+        self._post_model_index: int = 0  # For rotating content models
+
+    # Content models rotation — each post uses a different model for variety
+    _CONTENT_MODELS_ROTATION = [
+        "openai-large", "gpt-5.5", "mistral-4", "deepseek",
+        "qwen-large", "deepseek-pro", "openai-reasoning", "minimax-m3",
+    ]
 
     def set_bot(self, bot: Bot) -> None:
         """Set the bot instance for sending messages."""
@@ -225,19 +238,27 @@ class ChannelManager:
         except Exception as e:
             logger.debug(f"Could not add reaction: {e}")
 
-    async def _download_news_images(self, image_urls: List[str], max_count: int = 10) -> List[bytes]:
+    async def _download_news_images(self, image_urls: List[str], max_count: int = 3) -> List[bytes]:
         """Download real images from news source URLs.
         
-        Tries each URL, downloads only valid images (min 5KB to skip icons/pixels).
+        Tries each URL, downloads only valid content images.
+        Filters out: icons, logos, banners, buttons, social media, tracking pixels,
+        and images with abnormal dimensions (too wide/narrow = banners/ads).
         Returns list of image data bytes.
         """
         images = []
         if not image_urls:
             return images
 
-        for url in image_urls[:max_count * 2]:  # Try extra URLs in case some fail
+        for url in image_urls[:max_count * 3]:  # Try extra URLs in case some fail
             if len(images) >= max_count:
                 break
+
+            # Skip obviously non-content image URLs
+            if self._is_junk_image_url(url):
+                logger.debug(f"Skipping junk image URL: {url[:80]}")
+                continue
+
             try:
                 async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
                     response = await client.get(url, headers={
@@ -249,9 +270,15 @@ class ChannelManager:
                     content = response.content
                     content_type = response.headers.get("content-type", "")
 
-                    # Validate: must be an image and at least 5KB (skip tiny icons/pixels)
-                    if len(content) < 5000:
+                    # Validate: must be an image and at least 20KB (skip tiny icons/pixels/logos/thumbnails)
+                    if len(content) < 20000:
+                        logger.debug(f"Skipping small image ({len(content)} bytes): {url[:80]}")
                         continue
+
+                    # Skip SVG (vector graphics = logos/icons)
+                    if b'<svg' in content[:500] or 'svg' in content_type:
+                        continue
+
                     if not any(ft in content_type for ft in ["image/jpeg", "image/png", "image/webp", "image/gif"]):
                         # Check magic bytes if content-type is missing/wrong
                         if content[:3] == b'\xff\xd8\xff' or content[:4] == b'\x89PNG':
@@ -263,6 +290,11 @@ class ChannelManager:
                         else:
                             continue
 
+                    # Validate image dimensions — skip banners, buttons, tiny thumbnails
+                    if not self._is_content_image(content):
+                        logger.debug(f"Skipping non-content image: {url[:80]}...")
+                        continue
+
                     images.append(content)
                     logger.info(f"Downloaded news image: {url[:80]}... ({len(content)} bytes)")
 
@@ -273,11 +305,91 @@ class ChannelManager:
         logger.info(f"Downloaded {len(images)} real images from news")
         return images
 
-    async def _scrape_article_images(self, article_url: str, max_count: int = 5) -> List[bytes]:
+    @staticmethod
+    def _is_junk_image_url(url: str) -> bool:
+        """Check if an image URL is likely a non-content image (logo, icon, banner, ad, etc.)."""
+        url_lower = url.lower()
+
+        # Skip common junk patterns in URL path
+        junk_keywords = [
+            "icon", "logo", "favicon", "avatar", "badge", "button", "btn",
+            "banner", "spinner", "loading", "placeholder", "pixel", "tracker",
+            "analytics", "social", "share", "facebook", "twitter", "vk.",
+            "telegram", "whatsapp", "instagram", "youtube", "tiktok",
+            "ad.", "ads/", "advert", "sponsor", "promo",
+            "emoji", "smileys", "captcha", "recaptcha",
+            "1x1", "spacer", "blank", "transparent", "dot.", "clear",
+            "rss", "feed", "subscribe", "newsletter",
+            "watermark", "overlay", "frame", "border",
+        ]
+        for kw in junk_keywords:
+            if kw in url_lower:
+                return True
+
+        # Skip URLs with very small size indicators (e.g., 16x16, 32x32, 48x48)
+        import re
+        size_pattern = re.compile(r'[/=_x](\d{1,3})x(\d{1,3})[/._]')
+        size_match = size_pattern.search(url_lower)
+        if size_match:
+            w, h = int(size_match.group(1)), int(size_match.group(2))
+            if w < 100 or h < 100:
+                return True  # Too small = icon/thumbnail
+
+        return False
+
+    @staticmethod
+    def _is_content_image(image_data: bytes) -> bool:
+        """Validate that image data represents a proper content photo, not a banner/ad/logo.
+        
+        Checks:
+        - Minimum size: 20KB (hard filter before this function)
+        - Minimum dimensions: 300x200px
+        - Maximum aspect ratio: 3:1 (skip wide banners) and 1:3 (skip tall skyscraper ads)
+        - Minimum pixel area: 100000px (skip small thumbnails even if file is big)
+        """
+        # Hard minimum size — nothing under 20KB is a content image
+        if len(image_data) < 20000:
+            return False
+
+        try:
+            from PIL import Image
+            import io
+
+            img = Image.open(io.BytesIO(image_data))
+            width, height = img.size
+
+            # Skip tiny images (icons, thumbnails)
+            if width < 300 or height < 200:
+                return False
+
+            # Skip extremely wide images (banners, ad strips)
+            if width / max(height, 1) > 3.0:
+                return False
+
+            # Skip extremely tall images (skyscraper ads)
+            if height / max(width, 1) > 3.0:
+                return False
+
+            # Skip very small area images (likely icons/buttons even if > 20KB)
+            if width * height < 100000:
+                return False
+
+            return True
+
+        except ImportError:
+            # PIL not available — REJECT image (safe default: don't post junk)
+            logger.warning("PIL not available, REJECTING image (can't validate dimensions)")
+            return False
+        except Exception:
+            # Can't read image — skip it
+            return False
+
+    async def _scrape_article_images(self, article_url: str, max_count: int = 2) -> List[bytes]:
         """Scrape images from a news article page as fallback.
         
-        Extracts og:image and large <img> tags from the article HTML.
-        Returns list of image data bytes.
+        Extracts og:image and twitter:image from the article HTML.
+        Only uses <img> tags as last resort, with strict filtering.
+        Returns list of image data bytes (max 2).
         """
         images = []
         try:
@@ -298,10 +410,20 @@ class ChannelManager:
                 tw_images = re.findall(r'<meta[^>]+name=["\x27]twitter:image["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]', html, re.IGNORECASE)
                 tw_images += re.findall(r'<meta[^>]+content=["\x27]([^"\x27]+)["\x27][^>]+name=["\x27]twitter:image["\x27]', html, re.IGNORECASE)
                 
-                # Extract all <img> tags as last resort
-                all_img_urls = re.findall(r'<img[^>]+src=["\x27]([^"\x27]+)["\x27]', html, re.IGNORECASE)
+                # Extract <img> tags with strict filtering — only from article body areas
+                # Look for images inside <article>, <main>, or with class containing 'content'/'article'
+                article_html = ""
+                for pattern in [r'<article[^>]*>(.*?)</article>', r'<main[^>]*>(.*?)</main>', r'<div[^>]+class=["\x27][^"\x27]*(?:content|article|post|entry)[^"\x27]*["\x27][^>]*>(.*?)</div>']:
+                    matches = re.findall(pattern, html, re.IGNORECASE | re.DOTALL)
+                    for match in matches:
+                        article_html += match + "\n"
                 
-                # Prioritize: og:image > twitter:image > all images
+                # If no article body found, skip <img> tags entirely (too risky)
+                all_img_urls = []
+                if article_html:
+                    all_img_urls = re.findall(r'<img[^>]+src=["\x27]([^"\x27]+)["\x27]', article_html, re.IGNORECASE)
+                
+                # Prioritize: og:image > twitter:image > article body images
                 candidate_urls = []
                 seen = set()
                 for url_list in [og_images, tw_images, all_img_urls]:
@@ -309,10 +431,13 @@ class ChannelManager:
                         if url and url not in seen and len(url) > 30:
                             if url.startswith("//"):
                                 url = "https:" + url
+                            # Skip obvious junk even before downloading
+                            if self._is_junk_image_url(url):
+                                continue
                             seen.add(url)
                             candidate_urls.append(url)
                 
-                # Download the images
+                # Download the images (max 2 from scraping)
                 images = await self._download_news_images(candidate_urls, max_count=max_count)
 
         except Exception as e:
@@ -320,7 +445,7 @@ class ChannelManager:
 
         return images
 
-    async def _generate_post_images(self, news_title: str, count: int = 3) -> List[bytes]:
+    async def _generate_post_images(self, news_title: str, count: int = 1) -> List[bytes]:
         """Generate multiple images for a news post using AI (fallback).
         Returns list of image data bytes, up to `count` images.
         """
@@ -376,7 +501,7 @@ class ChannelManager:
             try:
                 image_list = await self._download_news_images(
                     rss_image_urls, 
-                    max_count=config.TELEGRAM_MAX_MEDIA_PER_POST
+                    max_count=MAX_RSS_IMAGES  # Only 2 real images max from RSS
                 )
                 if image_list:
                     source = "real"
@@ -384,12 +509,12 @@ class ChannelManager:
             except Exception as e:
                 logger.warning(f"Failed to download RSS images: {e}")
         
-        # Strategy 2: Scrape article page for images (if not enough from RSS)
-        if len(image_list) < 2 and news_item.get("url"):
+        # Strategy 2: Scrape article page for images (only if no real images from RSS)
+        if not image_list and news_item.get("url"):
             try:
                 scraped = await self._scrape_article_images(
                     news_item["url"], 
-                    max_count=config.TELEGRAM_MAX_MEDIA_PER_POST - len(image_list)
+                    max_count=2
                 )
                 if scraped:
                     image_list.extend(scraped)
@@ -398,12 +523,11 @@ class ChannelManager:
             except Exception as e:
                 logger.debug(f"Article scraping skipped: {e}")
         
-        # Strategy 3: AI generation as fallback
+        # Strategy 3: AI generation as fallback (1 image only — no spam!)
         if not image_list:
-            num_images = random.randint(NEWS_IMAGES_MIN, NEWS_IMAGES_MAX)
             try:
                 image_list = await self._generate_post_images(
-                    news_item.get("title", ""), count=num_images
+                    news_item.get("title", ""), count=1  # Always 1 AI image
                 )
                 if image_list:
                     source = "ai"
@@ -411,26 +535,46 @@ class ChannelManager:
             except Exception as e:
                 logger.warning(f"AI image generation skipped: {e}")
         
-        # Limit to Telegram max
-        image_list = image_list[:config.TELEGRAM_MAX_MEDIA_PER_POST]
+        # HARD LIMIT: never more than MAX_IMAGES_PER_POST (3 max — no spam!)
+        image_list = image_list[:MAX_IMAGES_PER_POST]
+        
+        if len(image_list) > MAX_IMAGES_PER_POST:
+            logger.warning(f"Image limit exceeded! Had {len(image_list)}, capping to {MAX_IMAGES_PER_POST}")
         
         return image_list, source
 
     async def _download_partner_image(self, image_url: str) -> Optional[bytes]:
-        """Download a partner program image (logo/banner)."""
+        """Download a partner program image (logo/banner).
+        Applies same strict validation as news images to avoid posting junk."""
         if not image_url:
             return None
         try:
             async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
                 response = await client.get(image_url)
-                if response.status_code == 200 and len(response.content) > 500:
-                    content_type = response.headers.get("content-type", "")
-                    if any(ft in content_type for ft in ["image/png", "image/jpeg", "image/gif", "image/webp"]):
-                        return response.content
-                    elif len(response.content) > 5000:
-                        return response.content
-                    else:
-                        logger.debug(f"Skipping partner image: content-type={content_type}, size={len(response.content)}")
+                if response.status_code != 200:
+                    return None
+                content = response.content
+                content_type = response.headers.get("content-type", "")
+
+                # Strict size check — nothing under 20KB
+                if len(content) < 20000:
+                    logger.debug(f"Skipping small partner image ({len(content)} bytes)")
+                    return None
+
+                # Must be an image type
+                if not any(ft in content_type for ft in ["image/png", "image/jpeg", "image/gif", "image/webp"]):
+                    # Check magic bytes
+                    if not (content[:3] == b'\xff\xd8\xff' or content[:4] == b'\x89PNG' or
+                            (content[:4] == b'RIFF' and content[8:12] == b'WEBP')):
+                        logger.debug(f"Skipping partner image: not an image, content-type={content_type}")
+                        return None
+
+                # Validate dimensions (same as news images)
+                if not self._is_content_image(content):
+                    logger.debug(f"Skipping non-content partner image")
+                    return None
+
+                return content
         except Exception as e:
             logger.debug(f"Could not download partner image: {e}")
         return None
@@ -578,12 +722,17 @@ class ChannelManager:
         # Smart character limit enforcement — always preserve footer
         post_text = _enforce_char_limit(post_text, has_media)
 
+        # HARD SAFETY CHECK: never post more than MAX_IMAGES_PER_POST images
+        if has_media and image_list and len(image_list) > MAX_IMAGES_PER_POST:
+            logger.warning(f"SAFETY: Truncating {len(image_list)} images to {MAX_IMAGES_PER_POST}")
+            image_list = image_list[:MAX_IMAGES_PER_POST]
+
         # Post to channel
         try:
             if has_media and image_list:
                 # Save images to temp files
                 tmp_paths = []
-                for i, img_data in enumerate(image_list[:config.TELEGRAM_MAX_MEDIA_PER_POST]):
+                for i, img_data in enumerate(image_list[:MAX_IMAGES_PER_POST]):
                     tmp_path = os.path.join(tempfile.gettempdir(), f"asya_post_{int(time.time())}_{i}.png")
                     with open(tmp_path, "wb") as f:
                         f.write(img_data)

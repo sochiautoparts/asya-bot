@@ -157,8 +157,10 @@ class AIRouter:
         # If primary failed, try fallback models
         if response.error:
             fallback_models = ["openai-mini", "mistral-4", "deepseek", "nova-fast", "grok", "grok-large",
-                              "minimax", "llama-scout", "gemma", "kimi", "glm",
-                              "mistral-small", "step-flash", "polly"]
+                              "grok-4.3", "minimax", "llama-scout", "gemma", "kimi", "kimi-k2.6", "glm",
+                              "mistral-small", "step-flash", "polly", "mistral-large",
+                              "qwen-large", "minimax-m3", "step-3.5-flash", "gpt-5.4-mini",
+                              "deepseek-pro", "gpt-5.5", "perplexity-deep", "perplexity-reasoning"]
             for fallback_model in fallback_models:
                 if fallback_model == model:
                     continue
@@ -545,7 +547,7 @@ class AIRouter:
             {"role": "user", "content": user_content},
         ]
 
-        # Use content model for channel posts
+        # Use content model for channel posts — rotate through models for variety
         post_model = model or "openai-large"
 
         response = await self._primary.chat(

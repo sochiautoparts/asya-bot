@@ -11,9 +11,10 @@ from typing import Optional
 
 from aiogram import Router, F, types
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message, CallbackQuery, PhotoSize
+from aiogram.types import Message, CallbackQuery, PhotoSize, WebAppInfo
 from aiogram.enums import ChatAction
 from aiogram.client.default import DefaultBotProperties
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.config import config, persona
 from bot.database import (
@@ -203,7 +204,13 @@ async def cmd_start(message: Message):
     import random
     from datetime import datetime
     from zoneinfo import ZoneInfo
+    import os
     hour = datetime.now(ZoneInfo("Europe/Moscow")).hour
+
+    # Add Mini App button to /start
+    miniapp_url = os.getenv("MINIAPP_URL", "https://asiaexp-bot-miniapp.onrender.com")
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🚗 Открыть Асю", web_app=WebAppInfo(url=miniapp_url))
 
     if name:
         if gender == "male":
@@ -232,7 +239,7 @@ async def cmd_start(message: Message):
         ]
 
     welcome = random.choice(greets)
-    await message.answer(welcome)
+    await message.answer(welcome, reply_markup=builder.as_markup())
 
 
 # ── /help command ──────────────────────────────────────────────────────────────
@@ -253,6 +260,7 @@ async def cmd_help(message: Message):
         "🚗 Сохранить твою машину — /mycar Марка Модель Год\n"
         "📱 Работаю в любом чате — набери @asiaexp_bot и вопрос!\n\n"
         "Команды:\n"
+        "/app — открыть мини-приложение\n"
         "/clear — начать с чистого листа\n"
         "/diagnostic — фокус на диагностике\n"
         "/parts — ищем запчасти\n"
@@ -262,6 +270,27 @@ async def cmd_help(message: Message):
         "/mileage <номер> <км> — обновить пробег"
     )
     await message.answer(help_text)
+
+
+# ── /app command — Open Mini App ────────────────────────────────────────────────
+
+@chat_router.message(Command("app"))
+async def cmd_app(message: Message):
+    """Handle /app command — open the Mini App."""
+    if not await _check_user(message):
+        return
+
+    import os
+    miniapp_url = os.getenv("MINIAPP_URL", "https://asiaexp-bot-miniapp.onrender.com")
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🚗 Открыть Асю", web_app=WebAppInfo(url=miniapp_url))
+
+    await message.answer(
+        "Открой мини-приложение Аси — там всё удобнее!\n\n"
+        "🔧 Диагностика\n🔑 VIN-расшифровка\n🔍 Поиск запчастей\n💬 Чат с Асей",
+        reply_markup=builder.as_markup(),
+    )
 
 
 # ── /clear command ─────────────────────────────────────────────────────────────

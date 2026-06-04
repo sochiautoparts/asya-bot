@@ -394,7 +394,7 @@ def _extract_entry_images(entry) -> List[str]:
         elif isinstance(content_value, str):
             _extract_img_urls(content_value, _add_image)
 
-    return images[:10]  # Max 10 images per news item
+    return images[:3]  # Max 3 candidate images per news item (further filtered on download)
 
 
 def _has_image_ext(url: str) -> bool:

@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Ася — Автоэксперт</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--tg-theme-bg-color, #1a1a2e);
+            color: var(--tg-theme-text-color, #eaeaea);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #ff6b35 0%, #e8175d 100%);
+            padding: 20px 16px;
+            text-align: center;
+        }
+        .header-avatar {
+            width: 80px; height: 80px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.2);
+            margin: 0 auto 12px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 36px;
+            border: 3px solid rgba(255,255,255,0.4);
+        }
+        .header h1 { font-size: 22px; font-weight: 700; color: #fff; }
+        .header p { font-size: 13px; color: rgba(255,255,255,0.8); margin-top: 4px; }
+        .section {
+            padding: 16px;
+            border-bottom: 1px solid var(--tg-theme-secondary-bg-color, #16213e);
+        }
+        .section-title {
+            font-size: 14px; font-weight: 600;
+            color: var(--tg-theme-hint-color, #8e8e93);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+        }
+        .quick-actions {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+        .action-card {
+            background: var(--tg-theme-secondary-bg-color, #16213e);
+            border-radius: 12px;
+            padding: 16px 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.15s;
+            border: 1px solid transparent;
+        }
+        .action-card:active {
+            transform: scale(0.96);
+            border-color: var(--tg-theme-button-color, #ff6b35);
+        }
+        .action-card .icon { font-size: 28px; margin-bottom: 6px; }
+        .action-card .label { font-size: 13px; font-weight: 500; }
+        .action-card .desc { font-size: 11px; color: var(--tg-theme-hint-color, #8e8e93); margin-top: 2px; }
+
+        .chat-box {
+            background: var(--tg-theme-secondary-bg-color, #16213e);
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+        .chat-input-wrap {
+            display: flex; gap: 8px;
+            margin-top: 10px;
+        }
+        .chat-input {
+            flex: 1;
+            background: var(--tg-theme-bg-color, #1a1a2e);
+            border: 1px solid var(--tg-theme-hint-color, #444);
+            border-radius: 10px;
+            padding: 10px 14px;
+            color: var(--tg-theme-text-color, #eaeaea);
+            font-size: 14px;
+            outline: none;
+        }
+        .chat-input:focus { border-color: var(--tg-theme-button-color, #ff6b35); }
+        .chat-input::placeholder { color: var(--tg-theme-hint-color, #666); }
+        .send-btn {
+            background: var(--tg-theme-button-color, #ff6b35);
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.15s;
+        }
+        .send-btn:active { opacity: 0.8; }
+        .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .msg {
+            padding: 8px 0;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .msg.user {
+            text-align: right;
+            color: var(--tg-theme-button-color, #ff6b35);
+        }
+        .msg.bot {
+            text-align: left;
+            color: var(--tg-theme-text-color, #eaeaea);
+        }
+        .typing { color: var(--tg-theme-hint-color, #8e8e93); font-style: italic; }
+
+        .vin-input {
+            display: flex; gap: 8px;
+        }
+        .vin-input input {
+            flex: 1;
+            background: var(--tg-theme-bg-color, #1a1a2e);
+            border: 1px solid var(--tg-theme-hint-color, #444);
+            border-radius: 10px;
+            padding: 10px 14px;
+            color: var(--tg-theme-text-color, #eaeaea);
+            font-size: 14px;
+            font-family: monospace;
+            text-transform: uppercase;
+            outline: none;
+        }
+        .vin-input input:focus { border-color: var(--tg-theme-button-color, #ff6b35); }
+
+        .news-item {
+            background: var(--tg-theme-secondary-bg-color, #16213e);
+            border-radius: 10px;
+            padding: 12px;
+            margin-bottom: 8px;
+            cursor: pointer;
+        }
+        .news-item:active { opacity: 0.8; }
+        .news-item .title { font-size: 14px; font-weight: 500; line-height: 1.4; }
+        .news-item .meta { font-size: 11px; color: var(--tg-theme-hint-color, #8e8e93); margin-top: 4px; }
+
+        .channel-link {
+            display: block;
+            background: linear-gradient(135deg, #ff6b35, #e8175d);
+            color: #fff;
+            text-align: center;
+            padding: 14px;
+            border-radius: 12px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 15px;
+            margin-top: 8px;
+        }
+        .channel-link:active { opacity: 0.85; }
+
+        .footer {
+            padding: 16px;
+            text-align: center;
+            font-size: 11px;
+            color: var(--tg-theme-hint-color, #8e8e93);
+        }
+
+        .hidden { display: none !important; }
+        .loader { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.6s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div class="header-avatar">&#x1F697;</div>
+    <h1>Ася</h1>
+    <p>Автоэксперт &#x2022; @asiaexp_bot</p>
+</div>
+
+<!-- Quick Actions -->
+<div class="section">
+    <div class="section-title">Быстрые действия</div>
+    <div class="quick-actions">
+        <div class="action-card" onclick="openChat()">
+            <div class="icon">&#x1F4AC;</div>
+            <div class="label">Задать вопрос</div>
+            <div class="desc">Чат с Асей</div>
+        </div>
+        <div class="action-card" onclick="openVIN()">
+            <div class="icon">&#x1F511;</div>
+            <div class="label">Расшифровать VIN</div>
+            <div class="desc">Узнать всё об авто</div>
+        </div>
+        <div class="action-card" onclick="openDiagnostic()">
+            <div class="icon">&#x1F527;</div>
+            <div class="label">Диагностика</div>
+            <div class="desc">Что случилось с машиной?</div>
+        </div>
+        <div class="action-card" onclick="openParts()">
+            <div class="icon">&#x1F50D;</div>
+            <div class="label">Найти запчасть</div>
+            <div class="desc">Поиск по артикулу</div>
+        </div>
+    </div>
+</div>
+
+<!-- Chat Section -->
+<div class="section hidden" id="chatSection">
+    <div class="section-title">Чат с Асей</div>
+    <div class="chat-box" id="chatBox">
+        <div class="msg bot">Привет! Задай вопрос про автомобили, и я помогу &#x1F60A;</div>
+    </div>
+    <div class="chat-input-wrap">
+        <input class="chat-input" id="chatInput" placeholder="Спроси про авто..." onkeydown="if(event.key==='Enter')sendChat()">
+        <button class="send-btn" id="chatSendBtn" onclick="sendChat()">&#x27A4;</button>
+    </div>
+</div>
+
+<!-- VIN Decoder -->
+<div class="section hidden" id="vinSection">
+    <div class="section-title">Расшифровка VIN</div>
+    <div class="chat-box" id="vinResult">
+        <div class="msg bot">Введи VIN-код (17 символов) или номер кузова, и я расскажу всё об автомобиле.</div>
+    </div>
+    <div class="vin-input">
+        <input id="vinInput" placeholder="Например: WVWZZZ3CZWE123456" maxlength="17" onkeydown="if(event.key==='Enter')decodeVIN()">
+        <button class="send-btn" onclick="decodeVIN()">Проверить</button>
+    </div>
+</div>
+
+<!-- Diagnostic -->
+<div class="section hidden" id="diagSection">
+    <div class="section-title">Диагностика</div>
+    <div class="chat-box" id="diagResult">
+        <div class="msg bot">Опиши проблему — стук, вибрация, не заводится, горит чек... Я помогу разобраться.</div>
+    </div>
+    <div class="chat-input-wrap">
+        <input class="chat-input" id="diagInput" placeholder="Опиши симптомы..." onkeydown="if(event.key==='Enter')sendDiagnostic()">
+        <button class="send-btn" onclick="sendDiagnostic()">Спросить</button>
+    </div>
+</div>
+
+<!-- Parts Search -->
+<div class="section hidden" id="partsSection">
+    <div class="section-title">Поиск запчастей</div>
+    <div class="chat-box" id="partsResult">
+        <div class="msg bot">Укажи артикул (OEM-номер) запчасти — я найду информацию и подскажу где купить.</div>
+    </div>
+    <div class="chat-input-wrap">
+        <input class="chat-input" id="partsInput" placeholder="Артикул запчасти..." onkeydown="if(event.key==='Enter')searchParts()">
+        <button class="send-btn" onclick="searchParts()">Найти</button>
+    </div>
+</div>
+
+<!-- Channel Link -->
+<div class="section">
+    <div class="section-title">Наш канал</div>
+    <a class="channel-link" href="https://t.me/sochiautoparts" target="_blank">
+        &#x1F4F0; Автомобильные новости &#x2022; @sochiautoparts
+    </a>
+</div>
+
+<div class="footer">
+    Ася &#x2022; Автоэксперт &#x2022; @asiaexp_bot<br>
+    Powered by Pollinations AI
+</div>
+
+<script>
+// Initialize Telegram WebApp
+const tg = window.Telegram && window.Telegram.WebApp;
+if (tg) {
+    tg.ready();
+    tg.expand();
+    // Set header color
+    if (tg.setHeaderColor) tg.setHeaderColor('#ff6b35');
+}
+
+// Navigation
+function showSection(id) {
+    ['chatSection','vinSection','diagSection','partsSection'].forEach(s => {
+        document.getElementById(s).classList.add('hidden');
+    });
+    document.getElementById(id).classList.remove('hidden');
+    document.getElementById(id).scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+function openChat() { showSection('chatSection'); document.getElementById('chatInput').focus(); }
+function openVIN() { showSection('vinSection'); document.getElementById('vinInput').focus(); }
+function openDiagnostic() { showSection('diagSection'); document.getElementById('diagInput').focus(); }
+function openParts() { showSection('partsSection'); document.getElementById('partsInput').focus(); }
+
+// Send to bot chat
+function sendToBot(text) {
+    if (tg) {
+        tg.sendData(JSON.stringify({action: 'chat', text: text}));
+    } else {
+        window.open('https://t.me/asiaexp_bot?start=' + encodeURIComponent(text), '_blank');
+    }
+}
+
+// Chat
+async function sendChat() {
+    const input = document.getElementById('chatInput');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    addMsg('chatBox', text, 'user');
+    addMsg('chatBox', '<span class="typing">Ася думает...</span>', 'bot', true);
+    try {
+        const resp = await fetch('/api/chat', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({message: text, user_id: (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) || 0})
+        });
+        const data = await resp.json();
+        removeTyping('chatBox');
+        addMsg('chatBox', data.text || 'Не удалось получить ответ', 'bot');
+    } catch(e) {
+        removeTyping('chatBox');
+        addMsg('chatBox', 'Ошибка соединения. Попробуй позже или напиши в @asiaexp_bot', 'bot');
+    }
+}
+
+// VIN
+async function decodeVIN() {
+    const input = document.getElementById('vinInput');
+    const vin = input.value.trim().toUpperCase();
+    if (!vin) return;
+    input.value = '';
+    addMsg('vinResult', 'VIN: ' + vin, 'user');
+    addMsg('vinResult', '<span class="typing">Расшифровываю VIN...</span>', 'bot', true);
+    try {
+        const resp = await fetch('/api/vin', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({vin: vin, user_id: (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) || 0})
+        });
+        const data = await resp.json();
+        removeTyping('vinResult');
+        addMsg('vinResult', data.text || 'Не удалось расшифровать VIN', 'bot');
+    } catch(e) {
+        removeTyping('vinResult');
+        addMsg('vinResult', 'Ошибка. Напиши VIN в @asiaexp_bot', 'bot');
+    }
+}
+
+// Diagnostic
+async function sendDiagnostic() {
+    const input = document.getElementById('diagInput');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    addMsg('diagResult', text, 'user');
+    addMsg('diagResult', '<span class="typing">Диагностирую...</span>', 'bot', true);
+    try {
+        const resp = await fetch('/api/diagnostic', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({symptoms: text, user_id: (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) || 0})
+        });
+        const data = await resp.json();
+        removeTyping('diagResult');
+        addMsg('diagResult', data.text || 'Не удалось диагностировать', 'bot');
+    } catch(e) {
+        removeTyping('diagResult');
+        addMsg('diagResult', 'Ошибка. Напиши в @asiaexp_bot', 'bot');
+    }
+}
+
+// Parts
+async function searchParts() {
+    const input = document.getElementById('partsInput');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    addMsg('partsResult', text, 'user');
+    addMsg('partsResult', '<span class="typing">Ищу запчасть...</span>', 'bot', true);
+    try {
+        const resp = await fetch('/api/parts', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({article: text, user_id: (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) || 0})
+        });
+        const data = await resp.json();
+        removeTyping('partsResult');
+        addMsg('partsResult', data.text || 'Не удалось найти запчасть', 'bot');
+    } catch(e) {
+        removeTyping('partsResult');
+        addMsg('partsResult', 'Ошибка. Напиши в @asiaexp_bot', 'bot');
+    }
+}
+
+// Helpers
+function addMsg(boxId, text, role, isHtml) {
+    const box = document.getElementById(boxId);
+    const div = document.createElement('div');
+    div.className = 'msg ' + role;
+    if (isHtml) div.innerHTML = text;
+    else div.textContent = text;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+}
+function removeTyping(boxId) {
+    const box = document.getElementById(boxId);
+    const typings = box.querySelectorAll('.typing');
+    typings.forEach(t => t.closest('.msg').remove());
+}
+</script>
+</body>
+</html>

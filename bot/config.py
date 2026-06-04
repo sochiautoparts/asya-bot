@@ -46,7 +46,7 @@ class BotConfig:
     # Telegram character limits
     TELEGRAM_TEXT_LIMIT: int = 4096       # Max chars for text-only message
     TELEGRAM_CAPTION_LIMIT: int = 1024    # Max chars for media caption
-    TELEGRAM_MAX_MEDIA_PER_POST: int = 10  # Max photos/videos per post (media group)
+    TELEGRAM_MAX_MEDIA_PER_POST: int = 3  # Max photos/videos per post (keep it clean, not spammy)
 
     # Partner / admitad
     ADMITAD_ADS_FILE: str = os.getenv("ADMITAD_ADS_FILE", "admitad_ads.json")
@@ -184,8 +184,8 @@ class AsyaPersona:
         "- НИКОГДА не превышай лимит! Если текст длинный — сократи его, а не обрезай подпись\n"
         "- Подпись в конце ОБЯЗАТЕЛЬНА — никогда её не обрезай\n\n"
         "МЕДИА В ПОСТАХ:\n"
-        "- В Telegram можно прикрепить до 10 фото и/или видео в одном посте (альбом/карусель)\n"
-        "- Используй это! Если новость про новую модель — добавь несколько ракурсов\n"
+        "- Используй 1-3 фото в посте — больше не значит лучше\n"
+        "- Если новость про новую модель — 1-2 фото достаточно\n"
         "- Текст (подпись) пишется только один — к первому медиа в группе\n"
         "- Остальные медиа прикрепляются без подписи\n\n"
         "РЕАЛЬНЫЕ ФОТО ИЗ НОВОСТЕЙ:\n"
