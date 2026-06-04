@@ -29,6 +29,7 @@ from bot.database import (
     add_channel_post, get_today_post_count, get_unposted_news,
     mark_news_posted, add_partner_post, get_today_partner_post_count,
     is_duplicate_post, add_post_fingerprint, cleanup_old_fingerprints,
+    get_recent_post_titles,
 )
 from ai.router import ai_router
 from bot.partners import partner_manager
@@ -485,18 +486,19 @@ class ChannelManager:
 
     async def _get_post_images(self, news_item: Dict) -> tuple:
         """Get images for a news post with smart strategy.
-        
+
         Strategy:
         1. Try real images from RSS feed (image_urls field)
-        2. If not enough, try scraping article page for images
-        3. If still no images, generate AI images as fallback
-        
+        2. Try scraping article page for images (news_item["url"])
+        3. Try searching for images by photo_keywords (scraping top article results)
+        4. If still no images, generate AI images as fallback
+
         Returns (image_list: List[bytes], source: str)
-        source is 'real', 'scraped', or 'ai' for logging.
+        source is 'real', 'scraped', 'searched', or 'ai' for logging.
         """
         image_list = []
         source = "none"
-        
+
         # Strategy 1: Use real images from RSS feed
         rss_image_urls = news_item.get("image_urls", [])
         if rss_image_urls:
@@ -524,7 +526,23 @@ class ChannelManager:
                     logger.info(f"Scraped {len(scraped)} additional images for: {news_item.get('title', '')[:50]}")
             except Exception as e:
                 logger.debug(f"Article scraping skipped: {e}")
-        
+
+        # Strategy 2.5: Search for images by photo_keywords (scrape top article results)
+        if not image_list and news_item.get("photo_keywords"):
+            try:
+                kw = news_item["photo_keywords"]
+                search_results = await web_search(kw, max_results=3)
+                for sr in search_results[:3]:
+                    if sr.url and not image_list:
+                        scraped = await self._scrape_article_images(sr.url, max_count=1)
+                        if scraped:
+                            image_list.extend(scraped)
+                            source = "searched" if source == "none" else source + "+searched"
+                            logger.info(f"Found image via keyword search '{kw[:30]}' from {sr.url[:50]}")
+                            break  # One good image is enough from search
+            except Exception as e:
+                logger.debug(f"Keyword image search skipped: {e}")
+
         # Strategy 3: AI generation as fallback (1 image only — no spam!)
         if not image_list:
             try:
@@ -647,34 +665,34 @@ class ChannelManager:
 
         # Get news item if not provided
         if not news_item:
-            unposted = await get_unposted_news(limit=10)
-            if unposted:
-                # Filter out duplicates using fingerprint system
-                for item in unposted:
-                    if await is_duplicate_post(item.get("title", ""), hours=48):
-                        logger.info(f"Skipping duplicate news: {item.get('title', '')[:60]}")
-                        # Mark as posted so we don't pick it again
-                        if item.get("url"):
-                            await mark_news_posted(item["url"])
-                        continue
-                    auto_news = [n for n in [item] if n.get("category") == "auto"]
-                    if auto_news:
-                        news_item = auto_news[0]
-                    else:
-                        news_item = item
-                    break
-                
-                # If all were duplicates, try internet search
-                if not news_item:
-                    news_item = await self._search_internet_news()
-                    if not news_item:
-                        logger.info("All unposted news are duplicates, and no internet news found")
-                        return False
-            else:
+            # ── New flow: Aggregation first, then RSS fallback ──
+            # Priority: AI aggregation → RSS unposted → simple web search
+            news_item = await self._aggregate_daily_news()
+
+            if not news_item:
+                # Fallback: try RSS unposted news
+                unposted = await get_unposted_news(limit=10)
+                if unposted:
+                    for item in unposted:
+                        if await is_duplicate_post(item.get("title", ""), hours=48):
+                            logger.info(f"Skipping duplicate news: {item.get('title', '')[:60]}")
+                            if item.get("url"):
+                                await mark_news_posted(item["url"])
+                            continue
+                        auto_news = [n for n in [item] if n.get("category") == "auto"]
+                        if auto_news:
+                            news_item = auto_news[0]
+                        else:
+                            news_item = item
+                        break
+
+            if not news_item:
+                # Last resort: simple web search
                 news_item = await self._search_internet_news()
-                if not news_item:
-                    logger.info("No unposted news available (RSS or internet)")
-                    return False
+
+            if not news_item:
+                logger.info("No news found (aggregation, RSS, and web search all empty)")
+                return False
 
         # ── DEDUPLICATION: Check if this news was already posted ──
         if news_item and news_item.get("title"):
@@ -702,7 +720,16 @@ class ChannelManager:
                 "Сохрани суть и факты, но напиши естественно на русском."
             )
 
-        # Get images: real from news source → scraped from article → AI generated
+        # Aggregated news gets richer instructions
+        if news_item.get("source_urls"):
+            extra_instructions += (
+                "Это АГРЕГИРОВАННАЯ новость — факты собраны из нескольких источников. "
+                "Напиши глубже обычного: подтверждённые факты, разные мнения, анализ. "
+                "Не просто пересказ — аналитика с позицией эксперта. "
+            )
+
+        # ── Smart image decision ──
+        # Get images: real → scraped → keyword search → AI generated → none
         image_list: List[bytes] = []
         image_source = "none"
         has_media = False
@@ -712,10 +739,23 @@ class ChannelManager:
         except Exception as e:
             logger.warning(f"Image retrieval skipped: {e}")
 
+        # Smart decision: if we have images but the content is very rich/important,
+        # it might be better to post without images (4096 chars vs 1024 with media)
+        # Allow no-photo posts for important, information-dense content
+        if has_media:
+            # Check if source content is very detailed (likely needs more space)
+            content_density = len(source_text) if source_text else 0
+            if content_density > 800 and image_source == "ai":
+                # AI-generated image + lots of facts = better without image for more text space
+                logger.info(f"Skipping AI image — content is rich ({content_density} chars), more text space needed")
+                image_list = []
+                has_media = False
+                image_source = "none"
+
         media_count = len(image_list) if has_media else 0
         
         # Tell AI whether images are real or generated so it can adjust tone
-        if image_source in ("real", "scraped", "real+scraped"):
+        if image_source in ("real", "scraped", "real+scraped", "searched"):
             extra_instructions += (
                 "К посту прикреплены РЕАЛЬНЫЕ фотографии из новости. "
                 "Не описывай фото — они уже прикреплены. Пиши текст новости. "
@@ -724,6 +764,12 @@ class ChannelManager:
             extra_instructions += (
                 "К посту прикреплены сгенерированные иллюстрации. "
                 "Не описывай их подробно — они иллюстративные. "
+            )
+        else:
+            extra_instructions += (
+                "Пост БЕЗ фотографии — только текст. "
+                "Используй всё пространство: пиши подробно и содержательно. "
+                "Это позволяет дать больше информации чем пост с фото (4096 vs 1024 символов). "
             )
 
         response = await ai_router.generate_channel_post(
@@ -875,9 +921,215 @@ class ChannelManager:
                 logger.error(f"Error posting without formatting: {e2}")
                 return False
 
+    async def _aggregate_daily_news(self) -> Optional[Dict]:
+        """AI-powered news aggregation: gathers multiple sources, picks the best unique topic.
+
+        Instead of reposting a single article, this method:
+        1. Searches web for 20-30 auto news headlines
+        2. Uses AI to pick the most interesting UNIQUE topic (not yet posted)
+        3. Aggregates facts from multiple sources into a single structured item
+        4. Returns a news_item dict with rich context for post generation
+        """
+        try:
+            now = datetime.now(_MOSCOW_TZ)
+
+            # ── Step 1: Gather headlines from multiple search queries ──
+            queries = [
+                f"автомобильные новости сегодня {now.year}",
+                "новости автопрома новинки авто",
+                "автомобили Россия анонс презентация",
+                "auto news latest today",
+            ]
+            # Run 2 queries in parallel for speed
+            selected = random.sample(queries, min(2, len(queries)))
+            all_results: List[SearchResult] = []
+
+            for query in selected:
+                results = await web_search(query, max_results=8)
+                all_results.extend(results)
+
+            if not all_results:
+                logger.info("No web search results for aggregation")
+                return None
+
+            # Deduplicate search results by URL
+            seen_urls = set()
+            unique_results = []
+            for r in all_results:
+                if r.url not in seen_urls and r.title:
+                    seen_urls.add(r.url)
+                    unique_results.append(r)
+
+            logger.info(f"Aggregation: gathered {len(unique_results)} unique headlines from web search")
+
+            # ── Step 2: AI selects the best unique topic ──
+            # Build a numbered list of headlines for AI to choose from
+            headlines_text = ""
+            for i, r in enumerate(unique_results[:25], 1):
+                headlines_text += f"{i}. {r.title}"
+                if r.snippet:
+                    headlines_text += f" — {r.snippet[:100]}"
+                headlines_text += "\n"
+
+            # Get recent post titles for context
+            recent_titles = await get_recent_post_titles(hours=48, limit=20)
+            posted_context = ""
+            if recent_titles:
+                posted_context = "УЖЕ ОПУБЛИКОВАНО (не выбирай эти темы):\n"
+                for t in recent_titles:
+                    posted_context += f"- {t}\n"
+
+            # Use a fast search model to pick the best topic
+            scout_models = ["perplexity-fast", "nova-fast", "mistral-small", "deepseek-v4"]
+            scout_model = random.choice(scout_models)
+
+            selection_prompt = (
+                "Ты главный редактор автоканала. Тебе нужно выбрать ОДНУ самую интересную "
+                "и свежую тему для поста из списка заголовков новостей.\n\n"
+                "Критерии выбора:\n"
+                "- Тема должна быть ИНТЕРЕСНОЙ широкой аудитории автомобилистов\n"
+                "- Тема НЕ должна повторять уже опубликованные посты\n"
+                "- Предпочтение: новинки, технологии, скандалы, рекорды, уникальные события\n"
+                "- Избегай: скучных статистик, рекламных пресс-релизов, локальных мелочей\n\n"
+                f"{posted_context}\n"
+                "ЗАГОЛОВКИ НОВОСТЕЙ:\n"
+                f"{headlines_text}\n"
+                "Ответь ТОЛЬКО номером выбранной новости (цифра)."
+            )
+
+            try:
+                sel_response = await ai_router._primary.chat(
+                    messages=[
+                        {"role": "system", "content": selection_prompt},
+                        {"role": "user", "content": f"Какую новость выбрать для поста сегодня {now.strftime('%d.%m.%Y')}?"},
+                    ],
+                    model=scout_model,
+                    temperature=0.3,
+                    max_tokens=20,
+                )
+
+                if sel_response.error or not sel_response.text:
+                    logger.warning(f"Scout model {scout_model} failed, falling back to first result")
+                    chosen_idx = 0
+                else:
+                    # Parse the number from AI response
+                    numbers = re.findall(r'\d+', sel_response.text.strip())
+                    if numbers:
+                        chosen_idx = int(numbers[0]) - 1
+                        if chosen_idx < 0 or chosen_idx >= len(unique_results):
+                            chosen_idx = 0
+                    else:
+                        chosen_idx = 0
+            except Exception as e:
+                logger.warning(f"Scout selection failed: {e}")
+                chosen_idx = 0
+
+            chosen = unique_results[chosen_idx]
+            logger.info(f"Scout chose #{chosen_idx + 1}: {chosen.title[:60]}")
+
+            # ── Step 3: Verify this topic is not a duplicate ──
+            if await is_duplicate_post(chosen.title, hours=48):
+                logger.info(f"Aggregated topic is duplicate, trying others: {chosen.title[:60]}")
+                # Try up to 5 other results
+                for alt_idx, alt_result in enumerate(unique_results):
+                    if alt_idx == chosen_idx:
+                        continue
+                    if not await is_duplicate_post(alt_result.title, hours=48):
+                        chosen = alt_result
+                        logger.info(f"Found unique alternative #{alt_idx + 1}: {chosen.title[:60]}")
+                        break
+                else:
+                    logger.info("All aggregated news are duplicates")
+                    return None
+
+            # ── Step 4: Gather detailed facts about the chosen topic ──
+            # Search for more details about this specific topic
+            detail_queries = [
+                chosen.title[:80],
+                f"{chosen.title[:50]} подробности",
+            ]
+            detail_results = []
+            for dq in detail_queries[:1]:  # One detail query is enough
+                dr = await web_search(dq, max_results=5)
+                detail_results.extend(dr)
+
+            # Build aggregated facts context
+            facts_context = f"ОСНОВНАЯ НОВОСТЬ:\n{chosen.title}\n"
+            if chosen.snippet:
+                facts_context += f"Кратко: {chosen.snippet}\n\n"
+
+            if detail_results:
+                facts_context += "ДОПОЛНИТЕЛЬНЫЕ ИСТОЧНИКИ:\n"
+                for i, dr in enumerate(detail_results[:5], 1):
+                    if dr.snippet:
+                        facts_context += f"{i}. {dr.snippet[:200]}\n"
+                    elif dr.title and dr.title != chosen.title:
+                        facts_context += f"{i}. {dr.title}\n"
+
+            # ── Step 5: AI aggregates facts into structured summary ──
+            aggregate_models = ["deepseek", "mistral-4", "qwen-large", "deepseek-v4"]
+            agg_model = random.choice(aggregate_models)
+
+            agg_response = await ai_router._primary.chat(
+                messages=[
+                    {"role": "system", "content": (
+                        "Ты аналитик автоновостей. На основе нескольких источников собери "
+                        "факты об одной новости. Выдели главное: что произошло, какие модели/бренды, "
+                        "цифры, даты, причины. Если факты противоречат — укажи оба варианта. "
+                        "Ответь в формате:\n"
+                        "ТЕМА: (короткое название темы 5-8 слов)\n"
+                        "ФАКТЫ: (3-7 ключевых фактов из разных источников)\n"
+                        "КЛЮЧЕВЫЕ СЛОВА: (3-5 слов для поиска фото)"
+                    )},
+                    {"role": "user", "content": facts_context[:2000]},
+                ],
+                model=agg_model,
+                temperature=0.4,
+                max_tokens=400,
+            )
+
+            topic = chosen.title
+            summary = facts_context
+            photo_keywords = chosen.title
+
+            if not agg_response.error and agg_response.text:
+                text = agg_response.text.strip()
+                # Parse structured response
+                if "ТЕМА:" in text:
+                    topic_match = re.search(r'ТЕМА:\s*(.+?)(?:\n|$)', text)
+                    if topic_match:
+                        topic = topic_match.group(1).strip()
+                if "ФАКТЫ:" in text:
+                    facts_match = re.search(r'ФАКТЫ:\s*(.+?)(?=КЛЮЧЕВЫЕ СЛОВА:|$)', text, re.DOTALL)
+                    if facts_match:
+                        summary = facts_match.group(1).strip()
+                if "КЛЮЧЕВЫЕ СЛОВА:" in text:
+                    kw_match = re.search(r'КЛЮЧЕВЫЕ СЛОВА:\s*(.+?)(?:\n|$)', text)
+                    if kw_match:
+                        photo_keywords = kw_match.group(1).strip()
+
+            # ── Build final news item ──
+            news_item = {
+                "title": topic,
+                "url": chosen.url,
+                "summary": summary,
+                "category": "auto",
+                "lang": "ru" if any(c >= '\u0400' for c in topic) else "en",
+                "image_urls": [],  # Will be searched by photo_keywords
+                "photo_keywords": photo_keywords,
+                "source_urls": [r.url for r in detail_results[:3] if r.url],
+            }
+
+            logger.info(f"Aggregated news: topic={topic[:50]}, keywords={photo_keywords[:50]}")
+            return news_item
+
+        except Exception as e:
+            logger.error(f"News aggregation error: {e}")
+            return None
+
     async def _search_internet_news(self) -> Optional[Dict]:
-        """Search the internet for fresh auto news when RSS feeds are empty.
-        Uses both web search and Perplexity AI for better coverage."""
+        """Fallback: simple web search for a single news item.
+        Used only when _aggregate_daily_news fails."""
         try:
             now = datetime.now(_MOSCOW_TZ)
             queries = [
@@ -887,7 +1139,6 @@ class ChannelManager:
             ]
             query = random.choice(queries)
 
-            # Strategy 1: Web search
             results = await web_search(query, max_results=5)
 
             if results:
@@ -895,71 +1146,19 @@ class ChannelManager:
                 for result in results:
                     if not result.title:
                         continue
-
-                    news_item = {
-                        "title": result.title,
-                        "url": result.url,  # Unique URL from search result
-                        "summary": result.snippet or "",
-                        "category": "auto",
-                        "lang": "ru" if any(c >= '\u0400' for c in result.title) else "en",
-                        "image_urls": [],  # Will be filled by scraping if available
-                    }
-
-                    # Check for duplicate BEFORE returning
                     if await is_duplicate_post(result.title, hours=48):
                         logger.info(f"Internet news is duplicate: {result.title[:60]}")
                         continue
 
-                    logger.info(f"Found internet news: {news_item['title'][:50]}")
-                    return news_item
-
-            # Strategy 2: Perplexity AI search (web-augmented)
-            try:
-                response = await ai_router._primary.chat(
-                    messages=[
-                        {"role": "system", "content": (
-                            "Ты поисковик автоновостей. Найди самую свежую и интересную "
-                            "автомобильную новость за сегодня. Верни ТОЛЬКО название новости "
-                            "и краткое описание (2-3 предложения). Формат:\n"
-                            "ЗАГОЛОВОК: ...\nОПИСАНИЕ: ..."
-                        )},
-                        {"role": "user", "content": f"Найди свежую автоновость ({now.strftime('%d.%m.%Y')})"},
-                    ],
-                    model="perplexity-fast",
-                    temperature=0.5,
-                    max_tokens=300,
-                )
-
-                if not response.error and response.text:
-                    text = response.text.strip()
-                    title = ""
-                    summary = ""
-
-                    if "ЗАГОЛОВОК:" in text:
-                        parts = text.split("ОПИСАНИЕ:")
-                        title = parts[0].replace("ЗАГОЛОВОК:", "").strip()
-                        summary = parts[1].strip() if len(parts) > 1 else ""
-                    else:
-                        # Fallback: use first line as title
-                        lines = text.split('\n', 1)
-                        title = lines[0].strip()
-                        summary = lines[1].strip() if len(lines) > 1 else text
-
-                    if title:
-                        return_dict = {
-                            "title": title,
-                            "url": f"https://t.me/sochiautoparts/perplexity/{int(time.time())}",  # Unique URL
-                            "summary": summary,
-                            "category": "auto",
-                            "lang": "ru",
-                        }
-                        # Check for duplicate before returning
-                        if not await is_duplicate_post(title, hours=48):
-                            return return_dict
-                        else:
-                            logger.info(f"Perplexity news is duplicate: {title[:60]}")
-            except Exception as e:
-                logger.debug(f"Perplexity news search failed: {e}")
+                    return {
+                        "title": result.title,
+                        "url": result.url,
+                        "summary": result.snippet or "",
+                        "category": "auto",
+                        "lang": "ru" if any(c >= '\u0400' for c in result.title) else "en",
+                        "image_urls": [],
+                        "photo_keywords": result.title,
+                    }
 
             return None
 
