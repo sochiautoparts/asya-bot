@@ -266,7 +266,7 @@ class PartnerManager:
 
         link = self.format_affiliate_link(program)
 
-        footer = f"[Ася - Автоэксперт](https://t.me/asiaexp_bot)\n@sochiautoparts\n#sochiautoparts"
+        footer = f"Автор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
 
         image_note = ""
         if program.image:

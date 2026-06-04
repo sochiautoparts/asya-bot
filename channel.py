@@ -1,8 +1,9 @@
 """
 Channel Manager — Posts to @sochiautoparts with proper formatting.
-Handles news posts, partner posts, scheduled content, reactions, comments,
+Handles news posts, partner posts, scheduled content, reactions,
 media, polls, and internet news search.
 Properly enforces Telegram character limits: 1024 with media, 4096 without.
+Posts silently (disable_notification) matching channel settings.
 """
 
 import logging
@@ -36,25 +37,6 @@ logger = logging.getLogger("asya.channel")
 # ── Reactions to add to posts ───────────────────────────────────────────────
 
 POST_REACTIONS = ["👍", "🔥", "🚗", "😍", "👏", "💯", "🤩", "⚡"]
-
-# ── Asya's comment phrases for posts ────────────────────────────────────────
-
-ASYA_COMMENTS = [
-    "Классная новость! Давно ждала чего-то подобного 🚗",
-    "Вот это да! Неожиданно, но интересно 🔥",
-    "Слежу за этой темой — будет ещё много новостей!",
-    "Мне нравится, куда движется автопром. А вам? 👀",
-    "Интересная тема для обсуждения! 💬",
-    "Это точно стоит внимания!",
-    "Автомир не стоит на месте! Свежие новости каждый день 🏎️",
-    "Супер! Кто что думает?",
-    "Трендовая тема! 📣",
-    "Вот это поворот! Кто что думает?",
-    "Мнения разделились, но мне нравится! А вам? 🤔",
-    "Эта тема точно заслуживает внимания! 📣",
-    "Честно говоря, не ожидала! 👀",
-    "Обожаю такие новости! 🚗",
-]
 
 # ── Poll topics for channel engagement ──────────────────────────────────────
 
@@ -142,12 +124,13 @@ def _validate_post_text(text: str) -> bool:
 
 def _ensure_footer(text: str) -> str:
     """Ensure post has proper footer matching @sochiautoparts format."""
-    # Add hashtag if missing
-    if "#sochiautoparts" not in text:
-        text = text.rstrip() + "\n\n#sochiautoparts"
-    # Add channel mention if missing
-    if "@sochiautoparts" not in text:
-        text = text.rstrip() + "\n@sochiautoparts"
+    # Remove any existing footer elements to avoid duplicates
+    text = re.sub(r'\n*Автор\s+@asiaexp_bot', '', text)
+    text = re.sub(r'\n*@sochiautoparts', '', text)
+    text = re.sub(r'\n*#sochiautoparts', '', text)
+    text = text.rstrip()
+    # Add proper footer: Author link + channel mention + hashtag
+    text += "\n\nАвтор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
     return text
 
 
@@ -177,19 +160,6 @@ class ChannelManager:
             logger.info(f"Added reaction {emoji} to message {message_id}")
         except Exception as e:
             logger.debug(f"Could not add reaction: {e}")
-
-    async def _add_comment(self, chat_id, message_id: int, news_title: str = "") -> None:
-        """Add a comment on behalf of the channel to the post."""
-        try:
-            comment = random.choice(ASYA_COMMENTS)
-            await self._bot.send_message(
-                chat_id=chat_id,
-                text=comment,
-                reply_to_message_id=message_id,
-            )
-            logger.info(f"Added comment to message {message_id}")
-        except Exception as e:
-            logger.debug(f"Could not add comment: {e}")
 
     async def _generate_post_image(self, news_title: str) -> Optional[bytes]:
         """Generate an image for a news post using AI."""
@@ -368,6 +338,7 @@ class ChannelManager:
                     photo=photo,
                     caption=post_text[:config.TELEGRAM_CAPTION_LIMIT],
                     parse_mode=ParseMode.HTML,
+                    disable_notification=True,
                 )
 
                 try:
@@ -379,6 +350,7 @@ class ChannelManager:
                     chat_id=config.CHANNEL_ID,
                     text=post_text,
                     parse_mode=ParseMode.HTML,
+                    disable_notification=True,
                 )
 
             # Record in database
@@ -398,9 +370,6 @@ class ChannelManager:
             # Add reaction to own post
             await self._add_reaction(config.CHANNEL_ID, sent.message_id)
 
-            # Add comment from channel
-            await self._add_comment(config.CHANNEL_ID, sent.message_id, news_item.get("title", ""))
-
             # Occasionally create a poll based on the news (every 3rd post)
             self._poll_count += 1
             if self._poll_count % 3 == 0:
@@ -416,6 +385,7 @@ class ChannelManager:
                 sent = await self._bot.send_message(
                     chat_id=config.CHANNEL_ID,
                     text=post_text,
+                    disable_notification=True,
                 )
                 await add_channel_post(
                     content=post_text,
@@ -427,7 +397,6 @@ class ChannelManager:
                     await mark_news_posted(news_item["url"])
                 self._last_post_time = time.time()
                 await self._add_reaction(config.CHANNEL_ID, sent.message_id)
-                await self._add_comment(config.CHANNEL_ID, sent.message_id)
                 return True
             except Exception as e2:
                 logger.error(f"Error posting without formatting: {e2}")
@@ -490,6 +459,7 @@ class ChannelManager:
                 question=f"📊 {question}",
                 options=options,
                 is_anonymous=True,
+                disable_notification=True,
             )
 
             self._last_poll_time = time.time()
@@ -578,6 +548,7 @@ class ChannelManager:
                     photo=photo,
                     caption=post_content[:config.TELEGRAM_CAPTION_LIMIT],
                     parse_mode=ParseMode.HTML,
+                    disable_notification=True,
                 )
 
                 try:
@@ -589,6 +560,7 @@ class ChannelManager:
                     chat_id=config.CHANNEL_ID,
                     text=post_content,
                     parse_mode=ParseMode.HTML,
+                    disable_notification=True,
                 )
 
             await add_partner_post(
@@ -611,7 +583,6 @@ class ChannelManager:
             self._last_partner_time = time.time()
 
             await self._add_reaction(config.CHANNEL_ID, sent.message_id)
-            await self._add_comment(config.CHANNEL_ID, sent.message_id)
 
             logger.info(f"Posted partner content: {program.name}")
             return True
@@ -622,6 +593,7 @@ class ChannelManager:
                 sent = await self._bot.send_message(
                     chat_id=config.CHANNEL_ID,
                     text=post_content,
+                    disable_notification=True,
                 )
                 await add_partner_post(
                     program_id=program.id,

@@ -77,7 +77,8 @@ class AsyaPersona:
 
     # Channel footer format matching @sochiautoparts actual format
     channel_footer: str = (
-        "\n\n@sochiautoparts\n"
+        "\n\nАвтор @asiaexp_bot\n"
+        "@sochiautoparts\n"
         "#sochiautoparts"
     )
 
@@ -150,12 +151,14 @@ class AsyaPersona:
         "\n\nЭто пост для канала @sochiautoparts. "
         "Пиши как живая девушка-автоэксперт — информативно, живо, с эмоциями. "
         "Обязательно заверши пост подписью:\n"
+        "Автор @asiaexp_bot\n"
         "@sochiautoparts\n"
         "#sochiautoparts\n\n"
-        "ВАЖНО: в конце каждого поста обязательно добавляй хештег #sochiautoparts "
-        "и упоминание @sochiautoparts. "
+        "ВАЖНО: в конце каждого поста обязательно добавляй:\n"
+        "1. Автор @asiaexp_bot\n"
+        "2. @sochiautoparts\n"
+        "3. #sochiautoparts\n"
         "Это обязательно для каждого поста без исключений. "
-        "НЕ добавляй ссылку на себя в постах для канала — только @sochiautoparts и #sochiautoparts. "
         "НЕ используй markdown-ссылки [текст](url) — используй обычный текст и прямые URL. "
         "Пиши обычным текстом без форматирования."
     )

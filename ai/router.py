@@ -387,9 +387,10 @@ class AIRouter:
             text = re.sub(r'\*(.+?)\*', r'\1', text)  # Remove italic
 
             if "#sochiautoparts" not in text:
-                text = text.rstrip() + "\n\n#sochiautoparts"
-            if "@sochiautoparts" not in text:
-                text = text.rstrip() + "\n@sochiautoparts"
+                text = text.rstrip() + "\n\nАвтор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
+            elif "@asiaexp_bot" not in text:
+                # Insert Author mention before @sochiautoparts
+                text = text.replace("@sochiautoparts", "Автор @asiaexp_bot\n@sochiautoparts")
 
             # Enforce character limit
             if has_media and len(text) > config.TELEGRAM_CAPTION_LIMIT:
