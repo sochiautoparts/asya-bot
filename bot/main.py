@@ -258,6 +258,9 @@ async def on_startup(bot: Bot) -> None:
         BotCommand(command="diagnostic", description="Режим диагностики"),
         BotCommand(command="parts", description="Поиск запчастей"),
         BotCommand(command="normal", description="Обычный режим"),
+        BotCommand(command="mycar", description="Мои машины"),
+        BotCommand(command="delcar", description="Удалить машину"),
+        BotCommand(command="mileage", description="Обновить пробег"),
         BotCommand(command="admin", description="Панель админа"),
         BotCommand(command="switch", description="Сменить AI модель"),
     ]

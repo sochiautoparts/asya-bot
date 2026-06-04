@@ -156,8 +156,9 @@ class AIRouter:
 
         # If primary failed, try fallback models
         if response.error:
-            fallback_models = ["openai-mini", "mistral-4", "deepseek", "nova-fast", "grok", "minimax",
-                              "llama-scout", "gemma", "kimi", "glm", "mistral-small", "step-flash"]
+            fallback_models = ["openai-mini", "mistral-4", "deepseek", "nova-fast", "grok", "grok-large",
+                              "minimax", "llama-scout", "gemma", "kimi", "glm",
+                              "mistral-small", "step-flash", "polly"]
             for fallback_model in fallback_models:
                 if fallback_model == model:
                     continue
@@ -301,10 +302,10 @@ class AIRouter:
             "JJA": "Isuzu (Япония)", "JAL": "Alfa Romeo (Япония)",
             # German
             "WBA": "BMW (Германия)", "WBS": "BMW M (Германия)", "WBX": "BMW SUV (Германия)",
-            "WBY": "BMW i (Германия)", "WBA": "BMW (Германия)",
+            "WBY": "BMW i (Германия)",
             "WVW": "Volkswagen (Германия)", "WV1": "Volkswagen Commercial",
             "WV2": "Volkswagen Bus/Van",
-            "WAU": "Audi (Германия)", "WAU": "Audi (Германия)",
+            "WAU": "Audi (Германия)",
             "WDD": "Mercedes-Benz (Германия)", "WDB": "Mercedes-Benz (Германия)",
             "WDC": "Mercedes-Benz (США)", "WDF": "Mercedes-Benz Van",
             "WP0": "Porsche (Германия)", "WP1": "Porsche SUV (Германия)",
@@ -335,14 +336,17 @@ class AIRouter:
             "LFV": "Volkswagen (Китай)", "LSV": "Volkswagen (Китай)",
             "LGB": "Geely (Китай)", "LFP": "Chery (Китай)",
             "LJX": "Haval (Китай)", "LZW": "SAIC (Китай)",
-            "LVV": "Chery (Китай)", "LDC": "Dongfeng Peugeot (Китай)",
+            "LVV": "Chery (Китай)", "LZM": "Chery (Китай)",
+            "LDC": "Dongfeng Peugeot (Китай)",
             "LNB": "Brilliance (Китай)", "LJU": "BYD (Китай)",
+            "LLV": "Changan (Китай)",
             # Russian
             "XTA": "АвтоВАЗ LADA (Россия)", "XTC": "АвтоВАЗ (Россия)",
             "XTB": "АвтоВАЗ (Россия)", "XTD": "АвтоВАЗ (Россия)",
             "X7L": "Renault (Россия)", "X7M": "Hyundai (Россия)",
-            "Z8T": "УАЗ (Россия)", "X7M": "Hyundai (Россия)",
+            "Z8T": "УАЗ (Россия)",
             "XUF": "Chevrolet (Россия)", "XWB": "Kia (Россия)",
+            "X4X": "Kia (Россия)",
             "XWE": "Hyundai (Россия)", "XWU": "Renault (Россия)",
             # Swedish
             "YV1": "Volvo (Швеция)", "YV4": "Volvo SUV (Швеция)",

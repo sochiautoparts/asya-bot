@@ -88,6 +88,22 @@ CREATE INDEX IF NOT EXISTS idx_news_items_posted ON news_items(is_posted, publis
 CREATE INDEX IF NOT EXISTS idx_channel_posts_created ON channel_posts(created_at);
 CREATE INDEX IF NOT EXISTS idx_ai_cache_query ON ai_cache(query_hash);
 CREATE INDEX IF NOT EXISTS idx_partner_posts_category ON partner_posts(category, posted_at);
+
+CREATE TABLE IF NOT EXISTS user_cars (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    brand TEXT DEFAULT '',
+    model TEXT DEFAULT '',
+    year INTEGER DEFAULT 0,
+    vin TEXT DEFAULT '',
+    engine TEXT DEFAULT '',
+    mileage INTEGER DEFAULT 0,
+    notes TEXT DEFAULT '',
+    created_at REAL DEFAULT 0,
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_cars_user ON user_cars(user_id);
 """
 
 
@@ -381,6 +397,78 @@ async def get_today_partner_post_count() -> int:
         ) as cursor:
             row = await cursor.fetchone()
             return row[0] if row else 0
+
+
+async def add_user_car(user_id: int, brand: str = "", model: str = "", year: int = 0,
+                       vin: str = "", engine: str = "", mileage: int = 0,
+                       notes: str = "") -> int:
+    """Add a car to user's profile. Returns car ID."""
+    now = time.time()
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            """INSERT INTO user_cars (user_id, brand, model, year, vin, engine, mileage, notes, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, brand, model, year, vin, engine, mileage, notes, now),
+        )
+        await db.commit()
+        return cursor.lastrowid
+
+
+async def get_user_cars(user_id: int) -> List[Dict[str, Any]]:
+    """Get all cars for a user."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM user_cars WHERE user_id = ? ORDER BY created_at DESC",
+            (user_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+
+async def delete_user_car(car_id: int, user_id: int) -> bool:
+    """Delete a car from user's profile. Returns True if deleted."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "DELETE FROM user_cars WHERE id = ? AND user_id = ?",
+            (car_id, user_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def update_car_mileage(car_id: int, user_id: int, mileage: int) -> bool:
+    """Update mileage for a user's car."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "UPDATE user_cars SET mileage = ? WHERE id = ? AND user_id = ?",
+            (mileage, car_id, user_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+# ── Rate Limiting ────────────────────────────────────────────────────────────────
+
+_user_message_times: Dict[int, List[float]] = {}
+RATE_LIMIT_MESSAGES = 10  # Max messages per minute
+RATE_LIMIT_WINDOW = 60    # 1 minute window
+
+
+def check_rate_limit(user_id: int) -> bool:
+    """Check if user is within rate limits. Returns True if allowed."""
+    now = time.time()
+    if user_id not in _user_message_times:
+        _user_message_times[user_id] = [now]
+        return True
+
+    # Clean old timestamps
+    times = _user_message_times[user_id]
+    times = [t for t in times if now - t < RATE_LIMIT_WINDOW]
+    times.append(now)
+    _user_message_times[user_id] = times
+
+    return len(times) <= RATE_LIMIT_MESSAGES
 
 
 async def get_stats() -> Dict[str, Any]:

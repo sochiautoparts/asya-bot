@@ -685,7 +685,8 @@ class ChannelManager:
                 return False
 
     async def _search_internet_news(self) -> Optional[Dict]:
-        """Search the internet for fresh auto news when RSS feeds are empty."""
+        """Search the internet for fresh auto news when RSS feeds are empty.
+        Uses both web search and Perplexity AI for better coverage."""
         try:
             now = datetime.now(_MOSCOW_TZ)
             queries = [
@@ -694,26 +695,71 @@ class ChannelManager:
                 "auto news latest today",
             ]
             query = random.choice(queries)
+
+            # Strategy 1: Web search
             results = await web_search(query, max_results=5)
 
-            if not results:
-                return None
+            if results:
+                result = random.choice(results)
+                if not result.title:
+                    return None
 
-            result = random.choice(results)
-            if not result.title:
-                return None
+                news_item = {
+                    "title": result.title,
+                    "url": result.url,
+                    "summary": result.snippet or "",
+                    "category": "auto",
+                    "lang": "ru" if any(c >= '\u0400' for c in result.title) else "en",
+                    "image_urls": [],  # Will be filled by scraping if available
+                }
 
-            news_item = {
-                "title": result.title,
-                "url": result.url,
-                "summary": result.snippet or "",
-                "category": "auto",
-                "lang": "ru" if any(c >= '\u0400' for c in result.title) else "en",
-                "image_urls": [],  # Will be filled by scraping if available
-            }
+                logger.info(f"Found internet news: {news_item['title'][:50]}")
+                return news_item
 
-            logger.info(f"Found internet news: {news_item['title'][:50]}")
-            return news_item
+            # Strategy 2: Perplexity AI search (web-augmented)
+            try:
+                response = await ai_router._primary.chat(
+                    messages=[
+                        {"role": "system", "content": (
+                            "Ты поисковик автоновостей. Найди самую свежую и интересную "
+                            "автомобильную новость за сегодня. Верни ТОЛЬКО название новости "
+                            "и краткое описание (2-3 предложения). Формат:\n"
+                            "ЗАГОЛОВОК: ...\nОПИСАНИЕ: ..."
+                        )},
+                        {"role": "user", "content": f"Найди свежую автоновость ({now.strftime('%d.%m.%Y')})"},
+                    ],
+                    model="perplexity-fast",
+                    temperature=0.5,
+                    max_tokens=300,
+                )
+
+                if not response.error and response.text:
+                    text = response.text.strip()
+                    title = ""
+                    summary = ""
+
+                    if "ЗАГОЛОВОК:" in text:
+                        parts = text.split("ОПИСАНИЕ:")
+                        title = parts[0].replace("ЗАГОЛОВОК:", "").strip()
+                        summary = parts[1].strip() if len(parts) > 1 else ""
+                    else:
+                        # Fallback: use first line as title
+                        lines = text.split('\n', 1)
+                        title = lines[0].strip()
+                        summary = lines[1].strip() if len(lines) > 1 else text
+
+                    if title:
+                        return {
+                            "title": title,
+                            "url": f"https://t.me/sochiautoparts",
+                            "summary": summary,
+                            "category": "auto",
+                            "lang": "ru",
+                        }
+            except Exception as e:
+                logger.debug(f"Perplexity news search failed: {e}")
+
+            return None
 
         except Exception as e:
             logger.error(f"Internet news search error: {e}")

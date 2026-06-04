@@ -27,7 +27,7 @@ CHAT_MODELS = [
     "mistral",             # Mistral Small, 128K context, tools, text+image
     "mistral-large",       # Mistral Large, 256K context, tools, reasoning
     "mistral-4",           # Mistral 4, 262K context, tools, reasoning
-    "mistral-small",       # Mistral Small (fast), 128K, tools, text+image — NEW
+    "mistral-small",       # Mistral Small (fast), 128K, tools, text+image
     "deepseek",            # DeepSeek V4, 1M context, tools, reasoning
     "deepseek-pro",        # DeepSeek V4 Pro, 1M context, tools, reasoning
     "qwen-coder",          # Qwen Coder, 262K context, tools
@@ -36,8 +36,10 @@ CHAT_MODELS = [
     "nova",                # Nova 2, 1M context, tools, reasoning, text+image
     "nova-fast",           # Nova Micro, 128K context, tools — very fast
     "grok",                # Grok 4, 262K context, tools, text+image
+    "grok-large",          # Grok 4 Large, 262K context, tools, reasoning, text+image
     "perplexity",          # Sonar Pro, 200K context — web search
     "perplexity-fast",     # Sonar, 128K context — fast web search
+    "sonar",               # Sonar (alias), fast web search
     "gemma",               # Gemma 4, 262K context, tools, reasoning, text+image
     "glm",                 # GLM 5, 198K context, tools, reasoning — Russian OK
     "minimax",             # MiniMax M2, 200K context, tools, reasoning
@@ -54,9 +56,9 @@ CHAT_MODELS = [
 
 # Reasoning models — for complex analysis and diagnostics
 REASONING_MODELS = [
-    "openai-reasoning",    # GPT reasoning — complex reasoning + vision — NEW
+    "openai-reasoning",    # GPT reasoning — complex reasoning + vision
     "openai-large",        # GPT-5.4 reasoning
-    "qwen-large",          # Qwen Large, reasoning + vision — NEW
+    "qwen-large",          # Qwen Large, reasoning + vision
     "deepseek",            # DeepSeek V4, reasoning
     "deepseek-pro",        # DeepSeek V4 Pro, reasoning
     "mistral-4",           # Mistral 4, reasoning
@@ -64,6 +66,7 @@ REASONING_MODELS = [
     "polly",               # Polly, reasoning
     "grok-large",          # Grok Large, reasoning
     "grok-4.3",            # Grok 4.3, reasoning
+    "perplexity-reasoning",# Sonar Reasoning, web-augmented reasoning
 ]
 
 # Vision models — can understand images
@@ -102,6 +105,7 @@ SEARCH_MODELS = [
     "perplexity-fast",     # Sonar
     "perplexity-deep",     # Sonar Deep
     "perplexity-reasoning",# Sonar Reasoning
+    "sonar",               # Sonar (fast alias)
 ]
 
 # Image generation models
@@ -131,7 +135,7 @@ POLLINATIONS_MODELS = (
 POLLINATIONS_MODELS = list(dict.fromkeys(POLLINATIONS_MODELS))
 
 DEFAULT_MODEL = "openai"
-FALLBACK_MODELS = ["openai-mini", "mistral-4", "deepseek", "nova-fast", "grok", "minimax", "llama-scout", "gemma", "kimi", "glm", "mistral-small", "step-flash"]
+FALLBACK_MODELS = ["openai-mini", "mistral-4", "deepseek", "nova-fast", "grok", "grok-large", "minimax", "llama-scout", "gemma", "kimi", "glm", "mistral-small", "step-flash", "polly"]
 
 # Track model failures for circuit breaking
 _model_failures: Dict[str, float] = {}

@@ -19,6 +19,8 @@ from bot.config import config, persona
 from bot.database import (
     get_or_create_user, is_user_blocked, add_chat_message,
     clear_chat_history, get_chat_mode, set_chat_mode,
+    add_user_car, get_user_cars, delete_user_car, update_car_mileage,
+    check_rate_limit,
 )
 from bot.asya import (
     is_part_number, extract_part_numbers, identify_car_brand,
@@ -177,6 +179,11 @@ async def _check_user(message: Message) -> bool:
     if await is_user_blocked(message.from_user.id):
         return False
 
+    # Rate limiting
+    if not check_rate_limit(message.from_user.id):
+        await message.answer("Ты слишком быстро пишешь! Дай мне секунду переварить ")
+        return False
+
     return True
 
 
@@ -242,12 +249,17 @@ async def cmd_help(message: Message):
         "🔍 Найти запчасть — кинь артикул, я поищу\n"
         "📊 Расшифровать VIN или номер кузова — просто отправь\n"
         "📸 Посмотреть фото — отправь, я расскажу что вижу\n"
-        "💬 Просто поболтать — я люблю общаться на любые темы!\n\n"
+        "💬 Просто поболтать — я люблю общаться на любые темы!\n"
+        "🚗 Сохранить твою машину — /mycar Марка Модель Год\n"
+        "📱 Работаю в любом чате — набери @asiaexp_bot и вопрос!\n\n"
         "Команды:\n"
         "/clear — начать с чистого листа\n"
         "/diagnostic — фокус на диагностике\n"
         "/parts — ищем запчасти\n"
-        "/normal — обычный режим"
+        "/normal — обычный режим\n"
+        "/mycar — мои машины\n"
+        "/delcar <номер> — удалить машину\n"
+        "/mileage <номер> <км> — обновить пробег"
     )
     await message.answer(help_text)
 
@@ -298,6 +310,137 @@ async def cmd_normal(message: Message):
 
     await set_chat_mode(message.from_user.id, "normal")
     await message.answer("Обычный режим 😊 Пиши о чём хочешь!")
+
+
+# ── /mycar command — User car profiles ────────────────────────────────────────
+
+@chat_router.message(Command("mycar"))
+async def cmd_mycar(message: Message):
+    """Show user's saved cars or add a new one."""
+    if not await _check_user(message):
+        return
+
+    args = message.text.split(maxsplit=1)
+
+    if len(args) < 2:
+        # Show saved cars
+        cars = await get_user_cars(message.from_user.id)
+        if not cars:
+            await message.answer(
+                "У тебя пока нет сохранённых машин. Добавь:\n"
+                "/mycar Toyota Camry 2020\n"
+                "/mycar BMW X5 2019 B58 65000\n"
+                "\nФормат: /mycar Марка Модель Год [Двигатель] [Пробег]"
+            )
+            return
+
+        lines = ["🚗 Твои машины:"]
+        for car in cars:
+            car_info = f"  {car['brand']} {car['model']}"
+            if car['year']:
+                car_info += f" {car['year']}"
+            if car['engine']:
+                car_info += f", {car['engine']}"
+            if car['mileage']:
+                car_info += f", {car['mileage']} км"
+            car_info += f" (#{car['id']})"
+            lines.append(car_info)
+            if car['vin']:
+                lines.append(f"    VIN: {car['vin']}")
+
+        lines.append("\nУдалить: /delcar <номер>")
+        lines.append("Обновить пробег: /mileage <номер> <км>")
+        await message.answer("\n".join(lines))
+        return
+
+    # Parse and add a car
+    car_text = args[1].strip()
+    parts = car_text.split()
+
+    brand = parts[0] if len(parts) > 0 else ""
+    model_name = parts[1] if len(parts) > 1 else ""
+    year = 0
+    engine = ""
+    mileage = 0
+
+    try:
+        year = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+    except (ValueError, IndexError):
+        pass
+
+    # Engine and mileage from remaining parts
+    remaining = parts[3:] if year else parts[2:]
+    for r in remaining:
+        if r.isdigit() and len(r) >= 4:
+            mileage = int(r)
+        elif not engine:
+            engine = r
+        else:
+            engine += f" {r}"
+
+    car_id = await add_user_car(
+        user_id=message.from_user.id,
+        brand=brand,
+        model=model_name,
+        year=year,
+        engine=engine,
+        mileage=mileage,
+    )
+
+    await message.answer(f"Машина добавлена! {brand} {model_name} {year or ''} (#{car_id}) 🚗")
+
+
+# ── /delcar command ────────────────────────────────────────────────────────────
+
+@chat_router.message(Command("delcar"))
+async def cmd_delcar(message: Message):
+    """Delete a car from user's profile."""
+    if not await _check_user(message):
+        return
+
+    args = message.text.split()
+    if len(args) < 2:
+        await message.answer("Использование: /delcar <номер машины>")
+        return
+
+    try:
+        car_id = int(args[1])
+    except ValueError:
+        await message.answer("Нужно указать номер машины (число)")
+        return
+
+    deleted = await delete_user_car(car_id, message.from_user.id)
+    if deleted:
+        await message.answer("Машина удалена из профиля ✅")
+    else:
+        await message.answer("Не найдена такая машина в твоём профиле")
+
+
+# ── /mileage command ──────────────────────────────────────────────────────────
+
+@chat_router.message(Command("mileage"))
+async def cmd_mileage(message: Message):
+    """Update mileage for a saved car."""
+    if not await _check_user(message):
+        return
+
+    args = message.text.split()
+    if len(args) < 3:
+        await message.answer("Использование: /mileage <номер машины> <пробег км>")
+        return
+
+    try:
+        car_id = int(args[1])
+        km = int(args[2])
+    except ValueError:
+        await message.answer("Нужно: номер машины и пробег (числа)")
+        return
+
+    updated = await update_car_mileage(car_id, message.from_user.id, km)
+    if updated:
+        await message.answer(f"Пробег обновлён: {km} км 📝")
+    else:
+        await message.answer("Не найдена такая машина")
 
 
 # ── Photo handler ──────────────────────────────────────────────────────────────
@@ -431,6 +574,26 @@ async def _process_text_message(message: Message, text: str):
     user_context = _get_user_persona_context(message)
     if user_context:
         extra_context_parts.append(user_context)
+
+    # 0.5. User car profile context — so Asya knows their cars
+    try:
+        user_cars = await get_user_cars(user_id)
+        if user_cars:
+            car_lines = ["Машины пользователя:"]
+            for car in user_cars[:3]:
+                car_line = f"- {car['brand']} {car['model']}"
+                if car['year']:
+                    car_line += f" {car['year']}"
+                if car['engine']:
+                    car_line += f", двигатель: {car['engine']}"
+                if car['mileage']:
+                    car_line += f", пробег: {car['mileage']} км"
+                if car['vin']:
+                    car_line += f", VIN: {car['vin']}"
+                car_lines.append(car_line)
+            extra_context_parts.append("\n".join(car_lines))
+    except Exception as e:
+        logger.debug(f"Error loading user cars: {e}")
 
     # 1. Detect VIN code or body number
     vin_code = _detect_vin(text)
