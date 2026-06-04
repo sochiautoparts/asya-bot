@@ -13,7 +13,8 @@ import asyncio
 import tempfile
 import os
 import re
-from typing import Optional, List, Dict
+import httpx
+from typing import Optional, List, Dict, Tuple
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -202,8 +203,103 @@ class ChannelManager:
         except Exception as e:
             logger.debug(f"Could not add reaction: {e}")
 
+    async def _download_news_images(self, image_urls: List[str], max_count: int = 10) -> List[bytes]:
+        """Download real images from news source URLs.
+        
+        Tries each URL, downloads only valid images (min 5KB to skip icons/pixels).
+        Returns list of image data bytes.
+        """
+        images = []
+        if not image_urls:
+            return images
+
+        for url in image_urls[:max_count * 2]:  # Try extra URLs in case some fail
+            if len(images) >= max_count:
+                break
+            try:
+                async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                    response = await client.get(url, headers={
+                        "User-Agent": "Mozilla/5.0 (compatible; AsyaBot/1.0; +https://t.me/asiaexp_bot)",
+                    })
+                    if response.status_code != 200:
+                        continue
+
+                    content = response.content
+                    content_type = response.headers.get("content-type", "")
+
+                    # Validate: must be an image and at least 5KB (skip tiny icons/pixels)
+                    if len(content) < 5000:
+                        continue
+                    if not any(ft in content_type for ft in ["image/jpeg", "image/png", "image/webp", "image/gif"]):
+                        # Check magic bytes if content-type is missing/wrong
+                        if content[:3] == b'\xff\xd8\xff' or content[:4] == b'\x89PNG':
+                            pass  # Valid JPEG/PNG
+                        elif content[:4] == b'RIFF' and content[8:12] == b'WEBP':
+                            pass  # Valid WebP
+                        elif content[:6] in (b'GIF87a', b'GIF89a'):
+                            pass  # Valid GIF
+                        else:
+                            continue
+
+                    images.append(content)
+                    logger.info(f"Downloaded news image: {url[:80]}... ({len(content)} bytes)")
+
+            except Exception as e:
+                logger.debug(f"Failed to download image {url[:50]}: {e}")
+                continue
+
+        logger.info(f"Downloaded {len(images)} real images from news")
+        return images
+
+    async def _scrape_article_images(self, article_url: str, max_count: int = 5) -> List[bytes]:
+        """Scrape images from a news article page as fallback.
+        
+        Extracts og:image and large <img> tags from the article HTML.
+        Returns list of image data bytes.
+        """
+        images = []
+        try:
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                response = await client.get(article_url, headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                })
+                if response.status_code != 200:
+                    return images
+
+                html = response.text
+                
+                # Extract og:image first (usually the main article image)
+                og_images = re.findall(r'<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']', html, re.IGNORECASE)
+                og_images += re.findall(r'<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']', html, re.IGNORECASE)
+                
+                # Extract twitter:image
+                tw_images = re.findall(r'<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']', html, re.IGNORECASE)
+                tw_images += re.findall(r'<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']', html, re.IGNORECASE)
+                
+                # Extract all <img> tags as last resort
+                all_img_urls = re.findall(r'<img[^>]+src=["']([^"']+)["']', html, re.IGNORECASE)
+                
+                # Prioritize: og:image > twitter:image > all images
+                candidate_urls = []
+                seen = set()
+                for url_list in [og_images, tw_images, all_img_urls]:
+                    for url in url_list:
+                        if url and url not in seen and len(url) > 30:
+                            if url.startswith("//"):
+                                url = "https:" + url
+                            seen.add(url)
+                            candidate_urls.append(url)
+                
+                # Download the images
+                images = await self._download_news_images(candidate_urls, max_count=max_count)
+
+        except Exception as e:
+            logger.debug(f"Article scraping failed for {article_url[:50]}: {e}")
+
+        return images
+
     async def _generate_post_images(self, news_title: str, count: int = 3) -> List[bytes]:
-        """Generate multiple images for a news post using AI.
+        """Generate multiple images for a news post using AI (fallback).
         Returns list of image data bytes, up to `count` images.
         """
         images = []
@@ -230,7 +326,7 @@ class ChannelManager:
             except Exception as e:
                 logger.error(f"Image generation #{i+1} failed: {e}")
 
-        logger.info(f"Generated {len(images)}/{count} images for post")
+        logger.info(f"Generated {len(images)}/{count} AI images for post")
         return images
 
     async def _generate_post_image(self, news_title: str) -> Optional[bytes]:
@@ -238,12 +334,71 @@ class ChannelManager:
         images = await self._generate_post_images(news_title, count=1)
         return images[0] if images else None
 
+    async def _get_post_images(self, news_item: Dict) -> tuple:
+        """Get images for a news post with smart strategy.
+        
+        Strategy:
+        1. Try real images from RSS feed (image_urls field)
+        2. If not enough, try scraping article page for images
+        3. If still no images, generate AI images as fallback
+        
+        Returns (image_list: List[bytes], source: str)
+        source is 'real', 'scraped', or 'ai' for logging.
+        """
+        image_list = []
+        source = "none"
+        
+        # Strategy 1: Use real images from RSS feed
+        rss_image_urls = news_item.get("image_urls", [])
+        if rss_image_urls:
+            try:
+                image_list = await self._download_news_images(
+                    rss_image_urls, 
+                    max_count=config.TELEGRAM_MAX_MEDIA_PER_POST
+                )
+                if image_list:
+                    source = "real"
+                    logger.info(f"Using {len(image_list)} real images from RSS for: {news_item.get('title', '')[:50]}")
+            except Exception as e:
+                logger.warning(f"Failed to download RSS images: {e}")
+        
+        # Strategy 2: Scrape article page for images (if not enough from RSS)
+        if len(image_list) < 2 and news_item.get("url"):
+            try:
+                scraped = await self._scrape_article_images(
+                    news_item["url"], 
+                    max_count=config.TELEGRAM_MAX_MEDIA_PER_POST - len(image_list)
+                )
+                if scraped:
+                    image_list.extend(scraped)
+                    source = "scraped" if source == "none" else source + "+scraped"
+                    logger.info(f"Scraped {len(scraped)} additional images for: {news_item.get('title', '')[:50]}")
+            except Exception as e:
+                logger.debug(f"Article scraping skipped: {e}")
+        
+        # Strategy 3: AI generation as fallback
+        if not image_list:
+            num_images = random.randint(NEWS_IMAGES_MIN, NEWS_IMAGES_MAX)
+            try:
+                image_list = await self._generate_post_images(
+                    news_item.get("title", ""), count=num_images
+                )
+                if image_list:
+                    source = "ai"
+                    logger.info(f"Generated {len(image_list)} AI images (no real images found)")
+            except Exception as e:
+                logger.warning(f"AI image generation skipped: {e}")
+        
+        # Limit to Telegram max
+        image_list = image_list[:config.TELEGRAM_MAX_MEDIA_PER_POST]
+        
+        return image_list, source
+
     async def _download_partner_image(self, image_url: str) -> Optional[bytes]:
         """Download a partner program image (logo/banner)."""
         if not image_url:
             return None
         try:
-            import httpx
             async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
                 response = await client.get(image_url)
                 if response.status_code == 200 and len(response.content) > 500:
@@ -354,17 +509,30 @@ class ChannelManager:
                 "Сохрани суть и факты, но напиши естественно на русском."
             )
 
-        # Try to generate multiple images for media group (up to 10)
+        # Get images: real from news source → scraped from article → AI generated
         image_list: List[bytes] = []
-        num_images = random.randint(NEWS_IMAGES_MIN, NEWS_IMAGES_MAX)
+        image_source = "none"
         has_media = False
         try:
-            image_list = await self._generate_post_images(news_item["title"], count=num_images)
+            image_list, image_source = await self._get_post_images(news_item)
             has_media = len(image_list) > 0
         except Exception as e:
-            logger.warning(f"Image generation skipped: {e}")
+            logger.warning(f"Image retrieval skipped: {e}")
 
         media_count = len(image_list) if has_media else 0
+        
+        # Tell AI whether images are real or generated so it can adjust tone
+        if image_source in ("real", "scraped", "real+scraped"):
+            extra_instructions += (
+                "К посту прикреплены РЕАЛЬНЫЕ фотографии из новости. "
+                "Не описывай фото — они уже прикреплены. Пиши текст новости. "
+            )
+        elif has_media:
+            extra_instructions += (
+                "К посту прикреплены сгенерированные иллюстрации. "
+                "Не описывай их подробно — они иллюстративные. "
+            )
+
         response = await ai_router.generate_channel_post(
             topic=news_item["title"],
             source_text=source_text,
@@ -519,6 +687,7 @@ class ChannelManager:
                 "summary": result.snippet or "",
                 "category": "auto",
                 "lang": "ru" if any(c >= '\u0400' for c in result.title) else "en",
+                "image_urls": [],  # Will be filled by scraping if available
             }
 
             logger.info(f"Found internet news: {news_item['title'][:50]}")

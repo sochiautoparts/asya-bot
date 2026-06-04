@@ -47,7 +47,8 @@ CREATE TABLE IF NOT EXISTS news_items (
     fetched_at REAL DEFAULT 0,
     is_posted INTEGER DEFAULT 0,
     category TEXT DEFAULT 'auto',
-    lang TEXT DEFAULT 'ru'
+    lang TEXT DEFAULT 'ru',
+    image_urls TEXT DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS channel_posts (
@@ -224,24 +225,43 @@ async def clear_chat_history(user_id: int) -> None:
 
 
 async def add_news_item(source: str, title: str, url: str, summary: str = "",
-                         published: float = 0, category: str = "auto", lang: str = "ru") -> bool:
-    """Add a news item. Returns True if new, False if duplicate."""
+                         published: float = 0, category: str = "auto", lang: str = "ru",
+                         image_urls: list = None) -> bool:
+    """Add a news item. Returns True if new, False if duplicate.
+    
+    image_urls: list of image URL strings extracted from the RSS feed.
+    """
     now = time.time()
+    image_urls_json = json.dumps(image_urls or [], ensure_ascii=False)
     try:
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute(
-                """INSERT INTO news_items (source, title, url, summary, published, fetched_at, category, lang)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (source, title, url, summary, published, now, category, lang),
+                """INSERT INTO news_items (source, title, url, summary, published, fetched_at, category, lang, image_urls)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (source, title, url, summary, published, now, category, lang, image_urls_json),
             )
             await db.commit()
             return True
     except aiosqlite.IntegrityError:
+        # If already exists, update image_urls if we have new ones
+        if image_urls:
+            try:
+                async with aiosqlite.connect(DB_PATH) as db:
+                    await db.execute(
+                        "UPDATE news_items SET image_urls = ? WHERE url = ? AND image_urls = '[]'",
+                        (image_urls_json, url),
+                    )
+                    await db.commit()
+            except Exception:
+                pass
         return False
 
 
 async def get_unposted_news(limit: int = 10, category: str = "") -> List[Dict[str, Any]]:
-    """Get unposted news items, ordered by publish date."""
+    """Get unposted news items, ordered by publish date.
+    
+    Parses image_urls JSON field back into a Python list.
+    """
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         if category:
@@ -258,7 +278,19 @@ async def get_unposted_news(limit: int = 10, category: str = "") -> List[Dict[st
                 (limit,),
             ) as cursor:
                 rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
+        result = []
+        for r in rows:
+            item = dict(r)
+            # Parse image_urls from JSON string to list
+            if "image_urls" in item and isinstance(item["image_urls"], str):
+                try:
+                    item["image_urls"] = json.loads(item["image_urls"])
+                except (json.JSONDecodeError, TypeError):
+                    item["image_urls"] = []
+            elif "image_urls" not in item:
+                item["image_urls"] = []
+            result.append(item)
+        return result
 
 
 async def mark_news_posted(url: str) -> None:

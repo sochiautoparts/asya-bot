@@ -1,6 +1,7 @@
 """
 News Engine — AUTO-FOCUSED RSS fetching, international news + translation.
 Fetches from multiple sources, deduplicates, stores in DB.
+Extracts real images from RSS feeds and article pages for channel posts.
 """
 
 import feedparser
@@ -118,6 +119,9 @@ async def fetch_rss(source: NewsSource) -> List[Dict]:
                 else:
                     published = time.time()
 
+                # Extract image URLs from RSS entry
+                image_urls = _extract_entry_images(entry)
+
                 items.append({
                     "source": source.name,
                     "title": title,
@@ -126,6 +130,7 @@ async def fetch_rss(source: NewsSource) -> List[Dict]:
                     "published": published,
                     "category": source.category,
                     "lang": source.lang,
+                    "image_urls": image_urls,
                 })
 
             logger.info(f"Fetched {len(items)} items from {source.name}")
@@ -188,6 +193,7 @@ async def fetch_all_news() -> int:
                     published=item["published"],
                     category=item["category"],
                     lang=item["lang"],
+                    image_urls=item.get("image_urls", []),
                 )
                 if added:
                     total_new += 1
@@ -237,6 +243,125 @@ async def run_news_cycle() -> int:
     count = await fetch_all_news()
     logger.info(f"News cycle complete: {count} new items")
     return count
+
+
+# ── Image extraction from RSS entries ──────────────────────────────────────────
+
+# Image extensions that are valid for Telegram posts
+_VALID_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+# Domains to skip (icons, trackers, tiny thumbnails)
+_SKIP_IMAGE_DOMAINS = {
+    "feeds.feedburner.com", "feedburner.google.com",
+    "pixel.wp.com", "stats.wordpress.com",
+    "i0.wp.com", "i1.wp.com", "i2.wp.com",
+}
+# Minimum image URL length (filter out tiny 1x1 tracking pixels etc.)
+_MIN_IMAGE_URL_LEN = 30
+
+
+def _extract_entry_images(entry) -> List[str]:
+    """Extract image URLs from a feedparser entry.
+    
+    Checks multiple locations where RSS/Atom feeds store images:
+    - media_content (Media RSS)
+    - enclosures
+    - media_thumbnail
+    - links with image type
+    - content/summary HTML <img> tags
+    
+    Returns list of image URLs (up to 10).
+    """
+    images = []
+    seen = set()
+
+    def _add_image(url: str):
+        """Add image URL if valid and not already seen."""
+        if not url or len(url) < _MIN_IMAGE_URL_LEN:
+            return
+        # Normalize URL
+        url = url.strip()
+        if url.startswith("//"):
+            url = "https:" + url
+        # Skip tracking pixels and tiny icons
+        from urllib.parse import urlparse
+        try:
+            parsed = urlparse(url)
+            domain = parsed.netloc.lower()
+            if any(skip in domain for skip in _SKIP_IMAGE_DOMAINS):
+                return
+            # Skip very small-looking URLs (often icons/pixels)
+            path_lower = parsed.path.lower()
+            if any(kw in path_lower for kw in ["icon", "avatar", "logo", "favicon", "pixel", "badge", "button", "banner"]):
+                return
+        except Exception:
+            return
+        if url not in seen:
+            seen.add(url)
+            images.append(url)
+
+    # 1. media_content (Media RSS extension — most reliable)
+    media_content = entry.get("media_content", [])
+    for media in media_content:
+        url = media.get("url", "")
+        media_type = media.get("type", "")
+        if url and ("image" in media_type or _has_image_ext(url)):
+            _add_image(url)
+
+    # 2. enclosures
+    for enclosure in entry.get("enclosures", []):
+        url = enclosure.get("href", "") or enclosure.get("url", "")
+        enc_type = enclosure.get("type", "")
+        if url and ("image" in enc_type or _has_image_ext(url)):
+            _add_image(url)
+
+    # 3. media_thumbnail
+    for thumb in entry.get("media_thumbnail", []):
+        url = thumb.get("url", "")
+        if url:
+            _add_image(url)
+
+    # 4. links with image rel or type
+    for link in entry.get("links", []):
+        link_type = link.get("type", "")
+        link_rel = link.get("rel", "")
+        url = link.get("href", "")
+        if url and ("image" in link_type or link_rel == "enclosure"):
+            _add_image(url)
+
+    # 5. Extract <img> tags from content/summary HTML
+    for field_name in ["content", "summary", "description"]:
+        content_value = entry.get(field_name, [])
+        if isinstance(content_value, list):
+            # feedparser sometimes returns list of dicts
+            for item in content_value:
+                html = item.get("value", "") if isinstance(item, dict) else str(item)
+                _extract_img_urls(html, _add_image)
+        elif isinstance(content_value, str):
+            _extract_img_urls(content_value, _add_image)
+
+    return images[:10]  # Max 10 images per news item
+
+
+def _has_image_ext(url: str) -> bool:
+    """Check if URL ends with an image extension."""
+    from urllib.parse import urlparse
+    try:
+        path = urlparse(url).path.lower()
+        # Remove query-like suffixes
+        path = path.split("?")[0].split("#")[0]
+        return any(path.endswith(ext) for ext in _VALID_IMAGE_EXTENSIONS)
+    except Exception:
+        return False
+
+
+def _extract_img_urls(html: str, callback):
+    """Extract src attributes from <img> tags in HTML."""
+    if not html:
+        return
+    for match in re.finditer(r'<img[^>]+src=["\']([^"\']+)["\']', html, re.IGNORECASE):
+        url = match.group(1)
+        if url and len(url) >= _MIN_IMAGE_URL_LEN:
+            callback(url)
 
 
 # ── Utility ────────────────────────────────────────────────────────────────────
