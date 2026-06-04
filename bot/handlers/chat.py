@@ -66,13 +66,13 @@ async def cmd_start(message: Message):
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
 
     welcome = (
-        "Привет! Я Ася — автоэксперт. 🚗\n\n"
+        "Привет! Я Ася — живая девушка, которая обожает автомобили 🚗\n\n"
         "Могу помочь с:\n"
         "🔧 Диагностика поломок — опишите симптомы\n"
         "🔍 Поиск запчастей по артикулу\n"
         "📊 Автомобильные новости и обзоры\n"
         "💡 Любые вопросы про автомобили\n\n"
-        "Просто напишите свой вопрос!"
+        "Просто напишите свой вопрос! Я всегда на связи 😊"
     )
     await message.answer(welcome)
 
@@ -86,12 +86,13 @@ async def cmd_help(message: Message):
         return
 
     help_text = (
-        "Я Ася — автоэксперт. Вот что я умею:\n\n"
+        "Я Ася — автоэксперт, живая девушка, которая разбирается в машинах 😊\n\n"
+        "Вот что я умею:\n\n"
         "🔧 Диагностика — опишите проблему с машиной, помогу разобраться\n"
         "🔍 Запчасти — напишите артикул (OEM-номер), найду где купить\n"
         "📊 Ошибки OBD-II — напишите код ошибки, объясню что значит\n"
         "📰 Новости — расскажу что нового в Автомире\n"
-        "💬 Общение — могу обсудить любую тему, но авто — моя специализация\n\n"
+        "💬 Общение — могу обсудить любую тему, но авто — моя страсть!\n\n"
         "Команды:\n"
         "/start — приветствие\n"
         "/help — эта справка\n"
@@ -112,7 +113,7 @@ async def cmd_clear(message: Message):
         return
 
     await clear_chat_history(message.from_user.id)
-    await message.answer("История чата очищена. Начинаем с чистого листа!")
+    await message.answer("История чата очищена. Начинаем с чистого листа! 😊")
 
 
 # ── Mode commands ──────────────────────────────────────────────────────────────
@@ -125,7 +126,7 @@ async def cmd_diagnostic(message: Message):
 
     await set_chat_mode(message.from_user.id, "diagnostic")
     await message.answer(
-        "Режим диагностики включён. Опишите проблему с автомобилем — "
+        "Режим диагностики включён 🔧 Опишите проблему с автомобилем — "
         "дам пошаговую диагностику, возможные причины и рекомендации."
     )
 
@@ -138,7 +139,7 @@ async def cmd_parts(message: Message):
 
     await set_chat_mode(message.from_user.id, "parts")
     await message.answer(
-        "Режим поиска запчастей включён. Напишите артикул (OEM-номер) — "
+        "Режим поиска запчастей включён 🔍 Напишите артикул (OEM-номер) — "
         "найду информацию о детали и где её купить."
     )
 
@@ -150,7 +151,7 @@ async def cmd_normal(message: Message):
         return
 
     await set_chat_mode(message.from_user.id, "normal")
-    await message.answer("Обычный режим чата. Спрашивайте что угодно!")
+    await message.answer("Обычный режим чата 😊 Спрашивайте что угодно!")
 
 
 # ── Voice message handler ─────────────────────────────────────────────────────
@@ -308,7 +309,7 @@ async def _process_text_message(message: Message, text: str):
     if response.error:
         logger.error(f"AI error: {response.error_message}")
         await message.answer(
-            "Извините, не удалось обработать запрос. Попробуйте ещё раз через минуту."
+            "Ой, что-то я зависла 😅 Дайте мне минутку и попробуйте ещё раз!"
         )
         return
 

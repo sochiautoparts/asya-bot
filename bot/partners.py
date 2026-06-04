@@ -256,22 +256,24 @@ class PartnerManager:
 
         link = self.format_affiliate_link(program)
 
+        footer = f"[Ася - Автоэксперт](https://t.me/asiaexp_bot)\n@sochiautoparts\n#sochiautoparts"
+
         templates = [
             f"Рекомендую обратить внимание на {program.name} — отличный вариант, если речь идёт о {cat_label.lower()}. "
             f"Проверено, надёжный сервис. Загляните: {link}\n\n"
-            f"Ася - Автоэксперт\n@sochiautoparts",
+            f"{footer}",
 
             f"Для тех, кто ищет {cat_label.lower()}, советую {program.name}. "
             f"Удобный сервис, нормальные цены. Ссылка: {link}\n\n"
-            f"Ася - Автоэксперт\n@sochiautoparts",
+            f"{footer}",
 
-            f"Часто спрашиваюте про {cat_label.lower()} — из проверенных вариантов отмечу {program.name}. "
+            f"Часто спрашивают про {cat_label.lower()} — из проверенных вариантов отмечу {program.name}. "
             f"Сама проверяла, всё честно. Вот ссылка: {link}\n\n"
-            f"Ася - Автоэксперт\n@sochiautoparts",
+            f"{footer}",
 
             f"Если нужен {cat_label.lower()} — присмотритесь к {program.name}. "
             f"Хороший сервис, удобная навигация, адекватные цены: {link}\n\n"
-            f"Ася - Автоэксперт\n@sochiautoparts",
+            f"{footer}",
         ]
 
         return random.choice(templates)

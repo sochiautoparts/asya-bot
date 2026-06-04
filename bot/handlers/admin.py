@@ -377,17 +377,17 @@ async def cmd_models(message: Message):
         return
 
     models = ai_router.get_available_models()
-    # Group by category
+    # Group by category (only tested & working models)
     categories = {
         "OpenAI": ["openai", "openai-fast", "openai-large", "gpt-5.4-mini", "gpt-5.5"],
         "Mistral": ["mistral", "mistral-large", "mistral-4"],
         "DeepSeek": ["deepseek", "deepseek-pro"],
-        "Qwen": ["qwen-coder", "qwen-large", "qwen-vision", "qwen-vision-pro"],
+        "Qwen": ["qwen-coder", "qwen-vision", "qwen-vision-pro"],
         "Llama": ["llama", "llama-scout"],
         "Nova": ["nova", "nova-fast"],
-        "Grok": ["grok", "grok-large", "grok-4.3"],
+        "Grok": ["grok"],
         "Perplexity": ["perplexity", "perplexity-fast", "perplexity-deep", "perplexity-reasoning"],
-        "Other": ["gemma", "minimax", "minimax-m3", "kimi", "kimi-k2.6", "glm", "polly", "step-flash", "step-3.5-flash"],
+        "Other": ["gemma", "glm", "minimax", "minimax-m3"],
         "Image": ["flux", "gptimage", "gptimage-large", "kontext", "zimage", "nova-canvas"],
         "Audio": ["whisper", "universal-2", "universal-3-pro"],
     }

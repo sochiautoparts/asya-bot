@@ -14,7 +14,7 @@ from bot.config import config
 
 logger = logging.getLogger("asya.ai.pollinations")
 
-# ── Available models ───────────────────────────────────────────────────────────
+# ── Available models (tested and verified working) ─────────────────────────────
 
 POLLINATIONS_MODELS = [
     # ── OpenAI family ──────────────────────────────────────────────────────
@@ -32,19 +32,16 @@ POLLINATIONS_MODELS = [
     "deepseek-pro",        # DeepSeek V4 Pro, 1M context, tools, reasoning
     # ── Qwen family ───────────────────────────────────────────────────────
     "qwen-coder",          # Qwen Coder, 262K context, tools
-    "qwen-large",          # Qwen 3.6+, 1M context, tools, reasoning, text+image
     "qwen-vision",         # Qwen Vision, 131K context, tools, text+image
     "qwen-vision-pro",     # Qwen Vision Pro, 262K context, reasoning, text+image
     # ── Llama family ──────────────────────────────────────────────────────
-    "llama",               # Llama 4, 131K context, tools
+    "llama",               # Llama 3.3 70B, 131K context, tools
     "llama-scout",         # Llama 4 Scout, 328K context, tools, text+image
     # ── Amazon Nova family ────────────────────────────────────────────────
     "nova",                # Nova 2, 1M context, tools, reasoning, text+image
     "nova-fast",           # Nova Micro, 128K context, tools — very fast
     # ── Grok family ───────────────────────────────────────────────────────
     "grok",                # Grok 4, 262K context, tools, text+image
-    "grok-large",          # Grok 4 Large, 262K context, tools, reasoning
-    "grok-4.3",            # Grok 4.3, 262K context, tools, reasoning, text+image
     # ── Perplexity (search-augmented) ──────────────────────────────────────
     "perplexity",          # Sonar Pro, 200K context — web search
     "perplexity-fast",     # Sonar, 128K context — fast web search
@@ -52,14 +49,9 @@ POLLINATIONS_MODELS = [
     "perplexity-reasoning",# Sonar Reasoning, 128K context
     # ── Other reasoning models ─────────────────────────────────────────────
     "gemma",               # Gemma 4, 262K context, tools, reasoning, text+image
+    "glm",                 # GLM 5, 198K context, tools, reasoning — Russian OK
     "minimax",             # MiniMax M2, 200K context, tools, reasoning
     "minimax-m3",          # MiniMax M3, 1M context, tools, reasoning, text+image
-    "kimi",                # Kimi, 262K context, tools, reasoning, text+image
-    "kimi-k2.6",           # Kimi K2.6, 262K context, tools, reasoning, text+image
-    "glm",                 # GLM 5, 198K context, tools, reasoning — Russian OK
-    "polly",               # Polly, tools, reasoning, text+image
-    "step-flash",          # Step Flash, 256K context, tools, reasoning, text+image
-    "step-3.5-flash",      # Step 3.5 Flash, 262K context, tools, reasoning
     # ── Image generation models ─────────────────────────────────────────────
     "flux",                # Flux — text→image
     "gptimage",            # GPT Image — text→image
@@ -74,7 +66,7 @@ POLLINATIONS_MODELS = [
 ]
 
 DEFAULT_MODEL = "openai"
-FALLBACK_MODELS = ["mistral-4", "deepseek", "nova-fast", "grok", "minimax", "llama-scout"]
+FALLBACK_MODELS = ["mistral-4", "deepseek", "nova-fast", "grok", "minimax", "llama-scout", "gemma"]
 
 # Track model failures for circuit breaking
 _model_failures: Dict[str, float] = {}
@@ -199,6 +191,47 @@ class PollinationsProvider(BaseAIProvider):
                 error=True,
                 error_message=str(e),
             )
+
+    async def generate_image(self, prompt: str, model: str = "flux") -> Optional[bytes]:
+        """
+        Generate an image using Pollinations image API.
+        Returns image bytes or None on failure.
+        """
+        try:
+            # Pollinations image generation endpoint
+            url = f"{self.base_url}/v1/images/generations"
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}",
+            }
+            payload = {
+                "model": model,
+                "prompt": prompt,
+                "size": "1344x768",  # Good for Telegram channel posts
+            }
+
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.post(url, headers=headers, json=payload)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    # Image is returned as base64
+                    import base64
+                    for item in data.get("data", []):
+                        if item.get("b64_json"):
+                            return base64.b64decode(item["b64_json"])
+                        elif item.get("url"):
+                            # Download from URL
+                            img_resp = await client.get(item["url"])
+                            if img_resp.status_code == 200:
+                                return img_resp.content
+                else:
+                    logger.error(f"Image generation error: {response.status_code} {response.text[:300]}")
+
+        except Exception as e:
+            logger.error(f"Image generation exception: {e}")
+
+        return None
 
     async def is_available(self) -> bool:
         """Check if Pollinations API is reachable."""

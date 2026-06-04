@@ -132,7 +132,7 @@ class AIRouter:
     ) -> AIResponse:
         """
         Generate a post for the @sochiautoparts channel.
-        Uses a channel-specific prompt.
+        Uses a channel-specific prompt with proper footer format.
         """
         system_prompt = persona.system_prompt + persona.channel_prompt_suffix
 
@@ -154,12 +154,14 @@ class AIRouter:
             max_tokens=1500,
         )
 
-        # Ensure footer is present
+        # Ensure footer is present with proper format
         if response.text and not response.error:
+            if "#sochiautoparts" not in response.text:
+                response.text += "\n\n#sochiautoparts"
+            if "asiaexp_bot" not in response.text:
+                response.text = response.text.rstrip() + "\n\n[Ася - Автоэксперт](https://t.me/asiaexp_bot)\n@sochiautoparts"
             if "@sochiautoparts" not in response.text:
-                response.text += f"\n\nАся - Автоэксперт\n@sochiautoparts"
-            if "Ася - Автоэксперт" not in response.text and "Ася — Автоэксперт" not in response.text:
-                response.text = response.text.rstrip() + "\n\nАся - Автоэксперт\n@sochiautoparts"
+                response.text = response.text.rstrip() + "\n@sochiautoparts"
 
         return response
 

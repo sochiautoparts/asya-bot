@@ -92,11 +92,13 @@ class BackgroundTasks:
         self.bot = bot
         self._running = False
         self._tasks: list = []
+        self._greeting_sent = False
 
     async def start(self) -> None:
         """Start all background tasks."""
         self._running = True
         self._tasks = [
+            asyncio.create_task(self._morning_greeting(), name="morning_greeting"),
             asyncio.create_task(self._news_fetcher(), name="news_fetcher"),
             asyncio.create_task(self._channel_poster(), name="channel_poster"),
         ]
@@ -113,6 +115,31 @@ class BackgroundTasks:
                 pass
         self._tasks.clear()
         logger.info("Background tasks stopped")
+
+    async def _morning_greeting(self) -> None:
+        """Send a 'just woke up' greeting to the owner once after startup."""
+        if self._greeting_sent:
+            return
+
+        await asyncio.sleep(15)  # Wait a bit after startup
+        self._greeting_sent = True
+
+        try:
+            from datetime import datetime
+            hour = datetime.now().hour
+            if 5 <= hour < 12:
+                greeting = "Я проснулась! ☀️ Доброе утро! Готова искать автоновости и помогать с машинами 🚗"
+            elif 12 <= hour < 18:
+                greeting = "Добрый день! 😊 Я на связи — ищу свежие автоновости и помогаю с вопросами 🚗"
+            elif 18 <= hour < 23:
+                greeting = "Добрый вечер! 🌆 Я тут — собираю новости и помогаю с автомобилями 🚗"
+            else:
+                greeting = "Доброй ночи! 🌙 Хотя для автомира ночь — не помеха! Собираю новости 🚗"
+
+            if config.OWNER_ID:
+                await self.bot.send_message(config.OWNER_ID, greeting)
+        except Exception as e:
+            logger.debug(f"Morning greeting error: {e}")
 
     async def _news_fetcher(self) -> None:
         """Periodically fetch news from RSS sources."""
@@ -209,30 +236,15 @@ async def on_startup(bot: Bot) -> None:
     await bot.set_my_commands(commands)
     logger.info("Bot commands set")
 
-    # Notify owner
-    if config.OWNER_ID:
-        try:
-            await bot.send_message(
-                config.OWNER_ID,
-                "🚗 Asya Bot запущен и готов к работе!\n\n"
-                f"Партнёров загружено: {partner_count}\n"
-                f"Канал: {config.CHANNEL_ID}",
-            )
-        except Exception:
-            pass
+    # NO startup notification to owner — technical info stays in logs only
+    # Asya "wakes up" naturally via the morning greeting background task
 
 
 async def on_shutdown(bot: Bot) -> None:
     """Actions to perform on bot shutdown."""
     logger.info("Asya Bot shutting down...")
 
-    # Notify owner
-    if config.OWNER_ID:
-        try:
-            await bot.send_message(config.OWNER_ID, "🛑 Asya Bot остановлен.")
-        except Exception:
-            pass
-
+    # Quiet shutdown — no technical messages to chat
     # Close bot session
     await bot.session.close()
 
