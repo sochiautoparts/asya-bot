@@ -59,6 +59,33 @@ AUTO_KEYWORDS_DE = [
     "Renn", "Formel", "SUV", "Limousine",
 ]
 
+# ── Blocklist: political/war keywords — news with these are REJECTED ───────────
+
+BLOCK_KEYWORDS_RU = [
+    # Политика
+    "путин", "кремль", "госдума", "едрос", "единая россия", "кпрф",
+    "навальн", "оппозиц", "протест", "митинг", "закон о", "законопроект",
+    "санкци", "эмбарго", "министр", "правительств", "президент",
+    "депутат", "сенатор", "губернатор", "мэр ", "выбор", "голосован",
+    "политик", "парламент", "конституц", "референдум",
+    # Война / СВО
+    "сво ", "специальная военная", "вооруженн", "военные действ",
+    "мобилизац", "призывник", "окоп", "обстрел", "ракетн удар",
+    "взрыв", "террор", "б ое", "погибл", "ранен", "жертв",
+    "украин", "крымск", "донбас", "луганск", "донецк", "херсонск", "запорожск",
+    "белорусс", "нато", "nato",
+    # Общие блокировки
+    "ковид", "коронавирус", "пандем", "вакцин",
+]
+
+BLOCK_KEYWORDS_EN = [
+    "putin", "kremlin", "war in ukraine", "russia-ukraine", "invasion",
+    "sanction", "embargo", "mobiliz", "military", "troop", "missile strike",
+    "nato expansion", "conflict zone", "battlefield", "casualt",
+    "navalny", "opposition", "protest", "election",
+    "covid", "coronavirus", "pandemic", "vaccin",
+]
+
 
 # ── RSS Fetcher ────────────────────────────────────────────────────────────────
 
@@ -166,6 +193,30 @@ def is_auto_relevant(item: Dict, lang: str = "ru") -> bool:
     return False
 
 
+def is_blocked_topic(item: Dict, lang: str = "ru") -> bool:
+    """Check if a news item contains blocked topics (politics, war, etc.).
+    
+    Returns True if the item should be REJECTED.
+    This is a hard filter — items matching these keywords never enter the DB.
+    """
+    text = f"{item.get('title', '')} {item.get('summary', '')}".lower()
+    
+    # Check Russian blocklist (always checked for Russian and general sources)
+    for kw in BLOCK_KEYWORDS_RU:
+        if kw.lower() in text:
+            logger.info(f"Blocked news (RU keyword '{kw}'): {item.get('title', '')[:60]}")
+            return True
+    
+    # Check English blocklist (for international sources)
+    if lang == "en":
+        for kw in BLOCK_KEYWORDS_EN:
+            if kw.lower() in text:
+                logger.info(f"Blocked news (EN keyword '{kw}'): {item.get('title', '')[:60]}")
+                return True
+    
+    return False
+
+
 # ── Main news fetching cycle ───────────────────────────────────────────────────
 
 async def fetch_all_news() -> int:
@@ -180,6 +231,10 @@ async def fetch_all_news() -> int:
             items = await fetch_rss(source)
 
             for item in items:
+                # Hard filter: block political/war topics FIRST
+                if is_blocked_topic(item, source.lang):
+                    continue
+
                 # Filter for auto relevance (skip general news that aren't auto-related)
                 if source.category == "general" and not is_auto_relevant(item, source.lang):
                     continue

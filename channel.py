@@ -96,7 +96,15 @@ def _clean_post_text(text: str) -> str:
 
 
 def _validate_post_text(text: str) -> bool:
-    """Validate post text before sending to channel."""
+    """Validate post text before sending to channel.
+    
+    Checks for:
+    - Empty text
+    - SSE/API artifacts
+    - Blocked topics (politics, war, Putin, etc.)
+    - Provider ad artifacts
+    - Raw JSON
+    """
     if not text or not text.strip():
         return False
 
@@ -124,6 +132,20 @@ def _validate_post_text(text: str) -> bool:
     # Block raw JSON
     if text.strip().startswith(('{', '[', '```', 'data:')):
         return False
+
+    # Block political/war content — LAST CHANCE filter before posting
+    blocked_keywords = [
+        "путин", "кремль", "госдума", "президент росс", "президент сша",
+        "сво ", "специальная военная", "мобилизац", "санкци",
+        "военные действ", "вооруженн", "министр оборон",
+        "украин", "нато", "nato",
+        "навальн", "оппозиц", "протест", "митинг",
+        "политик", "депутат", "законопроект", "выбор ",
+    ]
+    for keyword in blocked_keywords:
+        if keyword in text_lower:
+            logger.warning(f"Post BLOCKED (keyword '{keyword}'): {text[:80]}...")
+            return False
 
     return True
 
