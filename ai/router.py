@@ -335,11 +335,13 @@ class AIRouter:
         extra_instructions: str = "",
         model: str = "",
         has_media: bool = False,
+        media_count: int = 0,
     ) -> AIResponse:
         """
         Generate a post for the @sochiautoparts channel.
         Uses a channel-specific prompt with proper footer format.
         Respects Telegram character limits: 1024 with media, 4096 without.
+        Supports up to 10 media files per post (media group/album).
         """
         system_prompt = persona.system_prompt + persona.channel_prompt_suffix
 
@@ -347,13 +349,36 @@ class AIRouter:
         time_ctx = _get_time_context()
         system_prompt += f"\n\n{time_ctx}"
 
-        # Add character limit instruction
+        # Add character limit instruction — very explicit for AI
         char_limit = config.TELEGRAM_CAPTION_LIMIT if has_media else config.TELEGRAM_TEXT_LIMIT
-        system_prompt += (
-            f"\n\nВАЖНО: Лимит символов для поста — {char_limit}. "
-            f"Пиши в пределах этого лимита, не превышай! "
-            f"{'Это пост с фото/видео — текст будет подписью к медиа.' if has_media else 'Это текстовый пост без медиа.'}"
-        )
+        footer_chars = 55  # Approx chars for "Автор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
+        content_limit = char_limit - footer_chars
+
+        if has_media:
+            limit_instruction = (
+                f"\n\nКРИТИЧЕСКИ ВАЖНО — ЛИМИТ СИМВОЛОВ:\n"
+                f"Это пост С медиа (фото/видео). Текст будет подписью к медиа.\n"
+                f"МАКСИМУМ 1024 символа ВЕСЬ пост, включая подпись.\n"
+                f"Подпись 'Автор @asiaexp_bot / @sochiautoparts / #sochiautoparts' занимает ~55 символов.\n"
+                f"Значит твой полезный текст — НЕ БОЛЕЕ {content_limit} символов.\n"
+                f"Пиши КОМПАКТНО и ЁМКО. Не растягивай. Лучше короче, чем обрезать.\n"
+                f"Подпись в конце ОБЯЗАТЕЛЬНА — никогда не обрезай её."
+            )
+            if media_count > 1:
+                limit_instruction += (
+                    f"\n\nК посту будет прикреплено {media_count} фото/видео (альбом/карусель)."
+                    f"Текст пишется как подпись к первому медиа — один на весь пост."
+                )
+        else:
+            limit_instruction = (
+                f"\n\nЛИМИТ СИМВОЛОВ:\n"
+                f"Это текстовый пост БЕЗ медиа. Максимум 4096 символов весь пост.\n"
+                f"Подпись 'Автор @asiaexp_bot / @sochiautoparts / #sochiautoparts' занимает ~55 символов.\n"
+                f"Значит твой полезный текст — НЕ БОЛЕЕ {content_limit} символов.\n"
+                f"Подпись в конце ОБЯЗАТЕЛЬНА — никогда не обрезай её."
+            )
+
+        system_prompt += limit_instruction
 
         user_content = f"Тема для поста: {topic}"
         if source_text:
@@ -392,11 +417,25 @@ class AIRouter:
                 # Insert Author mention before @sochiautoparts
                 text = text.replace("@sochiautoparts", "Автор @asiaexp_bot\n@sochiautoparts")
 
-            # Enforce character limit
+            # Enforce character limit — smart truncation preserving footer
+            footer = "\n\nАвтор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
             if has_media and len(text) > config.TELEGRAM_CAPTION_LIMIT:
-                text = text[:config.TELEGRAM_CAPTION_LIMIT - 3] + "..."
+                # Strip existing footer, truncate content, re-add footer
+                for foot_part in ["\n\nАвтор @asiaexp_bot", "\n@sochiautoparts", "\n#sochiautoparts"]:
+                    text = text.replace(foot_part, "")
+                text = text.rstrip()
+                max_content = config.TELEGRAM_CAPTION_LIMIT - len(footer)
+                if len(text) > max_content:
+                    text = text[:max_content - 3] + "..."
+                text += footer
             elif not has_media and len(text) > config.TELEGRAM_TEXT_LIMIT:
-                text = text[:config.TELEGRAM_TEXT_LIMIT - 3] + "..."
+                for foot_part in ["\n\nАвтор @asiaexp_bot", "\n@sochiautoparts", "\n#sochiautoparts"]:
+                    text = text.replace(foot_part, "")
+                text = text.rstrip()
+                max_content = config.TELEGRAM_TEXT_LIMIT - len(footer)
+                if len(text) > max_content:
+                    text = text[:max_content - 3] + "..."
+                text += footer
 
             response.text = text
 

@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 
 from aiogram import Bot
 from aiogram.enums import ParseMode
-from aiogram.types import FSInputFile, ReactionTypeEmoji
+from aiogram.types import FSInputFile, ReactionTypeEmoji, InputMediaPhoto
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton
 
@@ -37,6 +37,11 @@ logger = logging.getLogger("asya.channel")
 # ── Reactions to add to posts ───────────────────────────────────────────────
 
 POST_REACTIONS = ["👍", "🔥", "🚗", "😍", "👏", "💯", "🤩", "⚡"]
+
+# ── How many images to generate per news post ────────────────────────────────
+# Telegram allows up to 10 media per post. We generate 2-4 for variety.
+NEWS_IMAGES_MIN = 2
+NEWS_IMAGES_MAX = 4
 
 # ── Poll topics for channel engagement ──────────────────────────────────────
 
@@ -134,6 +139,42 @@ def _ensure_footer(text: str) -> str:
     return text
 
 
+def _enforce_char_limit(text: str, has_media: bool) -> str:
+    """Smart character limit enforcement — always preserves footer.
+    
+    Telegram limits:
+    - 1024 chars with media (caption)
+    - 4096 chars without media (text-only)
+    
+    This function:
+    1. Separates footer from content
+    2. Truncates content if needed
+    3. Re-attaches footer (always intact)
+    """
+    footer = "\n\nАвтор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
+    char_limit = config.TELEGRAM_CAPTION_LIMIT if has_media else config.TELEGRAM_TEXT_LIMIT
+    
+    if len(text) <= char_limit:
+        return text
+    
+    # Strip existing footer parts to get pure content
+    content = text
+    for foot_part in ["\n\nАвтор @asiaexp_bot", "\n@sochiautoparts", "\n#sochiautoparts"]:
+        content = content.replace(foot_part, "")
+    content = content.rstrip()
+    
+    # Calculate max content length (leave room for footer)
+    max_content = char_limit - len(footer)
+    if max_content < 100:
+        # Absolute minimum — just footer
+        return footer.lstrip('\n')
+    
+    if len(content) > max_content:
+        content = content[:max_content - 3] + "..."
+    
+    return content + footer
+
+
 class ChannelManager:
     """Manages posting to the @sochiautoparts channel."""
 
@@ -161,20 +202,41 @@ class ChannelManager:
         except Exception as e:
             logger.debug(f"Could not add reaction: {e}")
 
+    async def _generate_post_images(self, news_title: str, count: int = 3) -> List[bytes]:
+        """Generate multiple images for a news post using AI.
+        Returns list of image data bytes, up to `count` images.
+        """
+        images = []
+        # Different prompts for variety
+        prompts = [
+            f"Automotive news illustration: {news_title}. Professional automotive photography, "
+            f"front three-quarter view, modern car, vibrant colors, high quality, dramatic lighting, no text.",
+            f"Automotive news illustration: {news_title}. Side profile shot, "
+            f"studio lighting, sleek design, magazine quality, no text overlay.",
+            f"Automotive news illustration: {news_title}. Rear angle view, "
+            f"dynamic composition, professional car photography, vivid colors, no text.",
+            f"Automotive news illustration: {news_title}. Interior detail shot, "
+            f"dashboard and steering wheel, premium feel, cinematic lighting, no text.",
+            f"Automotive news illustration: {news_title}. Detail close-up, "
+            f"headlight or wheel, dramatic lighting, high contrast, no text.",
+        ]
+        selected_prompts = prompts[:min(count, len(prompts))]
+
+        for i, prompt in enumerate(selected_prompts):
+            try:
+                image_data = await ai_router._primary.generate_image(prompt, model="flux")
+                if image_data:
+                    images.append(image_data)
+            except Exception as e:
+                logger.error(f"Image generation #{i+1} failed: {e}")
+
+        logger.info(f"Generated {len(images)}/{count} images for post")
+        return images
+
     async def _generate_post_image(self, news_title: str) -> Optional[bytes]:
-        """Generate an image for a news post using AI."""
-        try:
-            image_prompt = (
-                f"Automotive news illustration: {news_title}. "
-                f"Professional automotive photography style, modern car, "
-                f"vibrant colors, high quality, dramatic lighting, "
-                f"magazine cover style, no text overlay."
-            )
-            image_data = await ai_router._primary.generate_image(image_prompt, model="flux")
-            return image_data
-        except Exception as e:
-            logger.error(f"Image generation failed: {e}")
-            return None
+        """Generate a single image for a news post using AI (backward compat)."""
+        images = await self._generate_post_images(news_title, count=1)
+        return images[0] if images else None
 
     async def _download_partner_image(self, image_url: str) -> Optional[bytes]:
         """Download a partner program image (logo/banner)."""
@@ -292,20 +354,23 @@ class ChannelManager:
                 "Сохрани суть и факты, но напиши естественно на русском."
             )
 
-        # Try to generate image
+        # Try to generate multiple images for media group (up to 10)
+        image_list: List[bytes] = []
+        num_images = random.randint(NEWS_IMAGES_MIN, NEWS_IMAGES_MAX)
         has_media = False
-        image_data = None
         try:
-            image_data = await self._generate_post_image(news_item["title"])
-            has_media = image_data is not None
+            image_list = await self._generate_post_images(news_item["title"], count=num_images)
+            has_media = len(image_list) > 0
         except Exception as e:
             logger.warning(f"Image generation skipped: {e}")
 
+        media_count = len(image_list) if has_media else 0
         response = await ai_router.generate_channel_post(
             topic=news_item["title"],
             source_text=source_text,
             extra_instructions=extra_instructions,
             has_media=has_media,
+            media_count=media_count,
         )
 
         if response.error or not response.text:
@@ -320,31 +385,58 @@ class ChannelManager:
             logger.error(f"Post validation failed, skipping")
             return False
 
-        # Enforce character limits
-        char_limit = config.TELEGRAM_CAPTION_LIMIT if has_media else config.TELEGRAM_TEXT_LIMIT
-        if len(post_text) > char_limit:
-            post_text = post_text[:char_limit - 3] + "..."
+        # Smart character limit enforcement — always preserve footer
+        post_text = _enforce_char_limit(post_text, has_media)
 
         # Post to channel
         try:
-            if has_media and image_data:
-                tmp_path = os.path.join(tempfile.gettempdir(), f"asya_post_{int(time.time())}.png")
-                with open(tmp_path, "wb") as f:
-                    f.write(image_data)
+            if has_media and image_list:
+                # Save images to temp files
+                tmp_paths = []
+                for i, img_data in enumerate(image_list[:config.TELEGRAM_MAX_MEDIA_PER_POST]):
+                    tmp_path = os.path.join(tempfile.gettempdir(), f"asya_post_{int(time.time())}_{i}.png")
+                    with open(tmp_path, "wb") as f:
+                        f.write(img_data)
+                    tmp_paths.append(tmp_path)
 
-                photo = FSInputFile(tmp_path, filename="asya_post.png")
-                sent = await self._bot.send_photo(
-                    chat_id=config.CHANNEL_ID,
-                    photo=photo,
-                    caption=post_text[:config.TELEGRAM_CAPTION_LIMIT],
-                    parse_mode=ParseMode.HTML,
-                    disable_notification=True,
-                )
+                if len(tmp_paths) == 1:
+                    # Single image — use send_photo
+                    photo = FSInputFile(tmp_paths[0], filename="asya_post.png")
+                    sent = await self._bot.send_photo(
+                        chat_id=config.CHANNEL_ID,
+                        photo=photo,
+                        caption=post_text[:config.TELEGRAM_CAPTION_LIMIT],
+                        parse_mode=ParseMode.HTML,
+                        disable_notification=True,
+                    )
+                else:
+                    # Multiple images — use send_media_group (album/carousel up to 10)
+                    media_group = []
+                    for i, tmp_path in enumerate(tmp_paths):
+                        photo_file = FSInputFile(tmp_path, filename=f"asya_post_{i}.png")
+                        if i == 0:
+                            # First image gets the caption
+                            media_group.append(InputMediaPhoto(
+                                media=photo_file,
+                                caption=post_text[:config.TELEGRAM_CAPTION_LIMIT],
+                                parse_mode=ParseMode.HTML,
+                            ))
+                        else:
+                            media_group.append(InputMediaPhoto(media=photo_file))
 
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
+                    messages = await self._bot.send_media_group(
+                        chat_id=config.CHANNEL_ID,
+                        media=media_group,
+                        disable_notification=True,
+                    )
+                    sent = messages[0]  # First message in group for DB tracking
+
+                # Clean up temp files
+                for tmp_path in tmp_paths:
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
             else:
                 sent = await self._bot.send_message(
                     chat_id=config.CHANNEL_ID,
@@ -489,30 +581,7 @@ class ChannelManager:
             logger.info("No partner programs available")
             return False
 
-        post_content = await partner_manager.generate_partner_post_content(program)
-
-        response = await ai_router.generate_channel_post(
-            topic=f"Рекомендация сервиса: {program.name}",
-            source_text=f"Партнёрская программа: {program.name}. Описание: {program.description or 'Автомобильный сервис'}",
-            extra_instructions=(
-                "Это партнёрский пост — рекомендация сервиса для автомобилистов. "
-                "Напиши естественно, как живая девушка-автоэксперт, которая советует проверенный сервис. "
-                "Не делай это откровенной рекламой — вставь рекомендацию органично. "
-                f"Ссылка: {partner_manager.format_affiliate_link(program)}"
-            ),
-        )
-
-        if not response.error and response.text:
-            post_content = response.text
-
-        post_content = _clean_post_text(post_content)
-        post_content = _ensure_footer(post_content)
-
-        # Validate
-        if not _validate_post_text(post_content):
-            return False
-
-        # Try to use partner image
+        # Try to use partner image FIRST (before generating text, so we know has_media)
         partner_image_url = program.image if hasattr(program, 'image') else None
         partner_image_data = None
         if partner_image_url:
@@ -528,9 +597,34 @@ class ChannelManager:
                 pass
 
         has_media = partner_image_data is not None
-        char_limit = config.TELEGRAM_CAPTION_LIMIT if has_media else config.TELEGRAM_TEXT_LIMIT
-        if len(post_content) > char_limit:
-            post_content = post_content[:char_limit - 3] + "..."
+
+        post_content = await partner_manager.generate_partner_post_content(program)
+
+        response = await ai_router.generate_channel_post(
+            topic=f"Рекомендация сервиса: {program.name}",
+            source_text=f"Партнёрская программа: {program.name}. Описание: {program.description or 'Автомобильный сервис'}",
+            extra_instructions=(
+                "Это партнёрский пост — рекомендация сервиса для автомобилистов. "
+                "Напиши естественно, как живая девушка-автоэксперт, которая советует проверенный сервис. "
+                "Не делай это откровенной рекламой — вставь рекомендацию органично. "
+                f"Ссылка: {partner_manager.format_affiliate_link(program)}"
+            ),
+            has_media=has_media,
+            media_count=1,
+        )
+
+        if not response.error and response.text:
+            post_content = response.text
+
+        post_content = _clean_post_text(post_content)
+        post_content = _ensure_footer(post_content)
+
+        # Validate
+        if not _validate_post_text(post_content):
+            return False
+
+        # Smart character limit — always preserve footer
+        post_content = _enforce_char_limit(post_content, has_media)
 
         try:
             if has_media and partner_image_data:
