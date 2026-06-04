@@ -23,7 +23,7 @@ class PartnerProgram:
         self.id = str(data.get("id", ""))
         self.name = data.get("name", "")
         self.slug = data.get("slug", "")
-        self.image = data.get("image", "")
+        self.image = data.get("image", "") or data.get("image_url", "") or data.get("logo", "") or data.get("brand_logo", "")
         self.description = data.get("description", "")
         self.goto_link = data.get("goto_link", "")
         self.categories = self._extract_categories(data)

@@ -1,6 +1,6 @@
 """
 Chat Handler — Main user interaction with AI, web search, partner links,
-car diagnostics, and spare part search.
+car diagnostics, spare part search, and personalized communication.
 """
 
 import re
@@ -37,6 +37,83 @@ logger = logging.getLogger("asya.handlers.chat")
 chat_router = Router()
 
 
+# ── Gender detection from Russian first name ────────────────────────────────
+
+MALE_NAME_ENDINGS = ("й", "ь", "н", "л", "р", "с", "т", "в", "к", "м", "г", "б", "д", "п", "з", "ж", "х")
+FEMALE_NAME_ENDINGS = ("а", "я", "ия", "ья", "ина")
+
+COMMON_MALE_NAMES = {
+    "александр", "дмитрий", "максим", "сергей", "андрей", "алексей", "артём",
+    "илья", "кирилл", "михаил", "никита", "матвей", "роман", "егор", "арсений",
+    "иван", "денис", "евгений", "даниил", "тимур", "владимир", "олег", "павел",
+    "руслан", "вадим", "тиmur", "константин", "антон", "ignat", "борис",
+}
+
+COMMON_FEMALE_NAMES = {
+    "анна", "мария", "ольга", "елена", "наталья", "татьяна", "ирина", "светлана",
+    "екатерина", "юлия", "дарья", "алина", "вера", "полина", "кристина", "софия",
+    "валерия", "марина", "людмила", "надежда", "людмила", "настя", "анастасия",
+    "виктория", "маргарита", "диана", "евгения", "алёна", "катерина",
+}
+
+
+def _guess_gender(first_name: str) -> str:
+    """Guess gender from Russian first name. Returns 'male', 'female', or 'unknown'."""
+    if not first_name:
+        return "unknown"
+
+    name_lower = first_name.lower().strip()
+
+    # Check known name lists
+    if name_lower in COMMON_MALE_NAMES:
+        return "male"
+    if name_lower in COMMON_FEMALE_NAMES:
+        return "female"
+
+    # Check ending patterns for Russian names
+    if name_lower.endswith(FEMALE_NAME_ENDINGS):
+        if name_lower.endswith("ь"):  # Could be male (Игорь) or other
+            pass
+        else:
+            return "female"
+
+    if name_lower.endswith("й") or name_lower.endswith("ь"):
+        return "male"
+
+    return "unknown"
+
+
+def _get_user_persona_context(message: Message) -> str:
+    """Build a context string about the user for personalized communication."""
+    parts = []
+
+    first_name = message.from_user.first_name or ""
+    last_name = message.from_user.last_name or ""
+    username = message.from_user.username or ""
+
+    if first_name:
+        parts.append(f"Имя пользователя: {first_name}")
+    if last_name:
+        parts.append(f"Фамилия: {last_name}")
+    if username:
+        parts.append(f"Username: @{username}")
+
+    # Guess gender
+    gender = _guess_gender(first_name)
+    if gender == "male":
+        parts.append("Пол: скорее всего мужчина")
+    elif gender == "female":
+        parts.append("Пол: скорее всего женщина")
+
+    # Is this the owner?
+    if message.from_user.id == config.OWNER_ID:
+        parts.append("Это владелец бота — общайся тепло и уважительно")
+
+    if parts:
+        return "Информация о пользователе для персонализации общения:\n" + "\n".join(parts)
+    return ""
+
+
 # ── Middleware-like: check user and log ─────────────────────────────────────────
 
 async def _check_user(message: Message) -> bool:
@@ -65,8 +142,20 @@ async def cmd_start(message: Message):
 
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
 
-    welcome = (
-        "Привет! Я Ася — живая девушка, которая обожает автомобили 🚗\n\n"
+    name = message.from_user.first_name or ""
+    gender = _guess_gender(name)
+
+    if name:
+        if gender == "male":
+            welcome = f"Привет, {name}! Я Ася — живая девушка, которая обожает автомобили 🚗\n\n"
+        elif gender == "female":
+            welcome = f"Привет, {name}! Я Ася — мы с тобой обе понимаем толк в машинах 🚗💪\n\n"
+        else:
+            welcome = f"Привет, {name}! Я Ася — живая девушка, которая обожает автомобили 🚗\n\n"
+    else:
+        welcome = "Привет! Я Ася — живая девушка, которая обожает автомобили 🚗\n\n"
+
+    welcome += (
         "Могу помочь с:\n"
         "🔧 Диагностика поломок — опишите симптомы\n"
         "🔍 Поиск запчастей по артикулу\n"
@@ -191,7 +280,7 @@ async def handle_text(message: Message):
 
 
 async def _process_text_message(message: Message, text: str):
-    """Core message processing with AI, search, diagnostics, parts."""
+    """Core message processing with AI, search, diagnostics, parts, and personalization."""
     user_id = message.from_user.id
     chat_mode = await get_chat_mode(user_id)
 
@@ -200,6 +289,11 @@ async def _process_text_message(message: Message, text: str):
     # ── Build extra context ────────────────────────────────────────────────
 
     extra_context_parts = []
+
+    # 0. User persona context for personalized communication
+    user_context = _get_user_persona_context(message)
+    if user_context:
+        extra_context_parts.append(user_context)
 
     # 1. Detect car brand
     brand = identify_car_brand(text)
@@ -259,6 +353,7 @@ async def _process_text_message(message: Message, text: str):
             "найди", "поиск", "ищи", "где купить", "сколько стоит",
             "новости", "что нового", "обзор", "сравни", "лучший",
             "рекомендуй", "посоветуй", "купить", "заказать",
+            "когда", "где", "какой", "какая", "какие",
         ])
     )
 
@@ -315,7 +410,7 @@ async def _process_text_message(message: Message, text: str):
 
     reply_text = response.text
 
-    # Ensure Asya doesn't use markdown formatting
+    # Ensure Asya doesn't use markdown formatting in chat
     reply_text = _clean_markdown(reply_text)
 
     # Split long messages (Telegram limit 4096 chars)

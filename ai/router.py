@@ -98,7 +98,7 @@ class AIRouter:
 
         # If primary failed, try fallback models in priority order
         if response.error:
-            for fallback_model in ["mistral-4", "deepseek", "nova-fast", "grok", "minimax", "llama-scout", "gemma"]:
+            for fallback_model in ["mistral-4", "deepseek", "nova-fast", "grok", "minimax", "llama-scout", "gemma", "kimi", "glm", "step-3.5-flash"]:
                 if fallback_model == model:
                     continue
                 logger.info(f"Trying fallback model: {fallback_model}")

@@ -387,7 +387,7 @@ async def cmd_models(message: Message):
         "Nova": ["nova", "nova-fast"],
         "Grok": ["grok"],
         "Perplexity": ["perplexity", "perplexity-fast", "perplexity-deep", "perplexity-reasoning"],
-        "Other": ["gemma", "glm", "minimax", "minimax-m3"],
+        "Other": ["gemma", "glm", "minimax", "minimax-m3", "kimi", "kimi-k2.6", "step-3.5-flash"],
         "Image": ["flux", "gptimage", "gptimage-large", "kontext", "zimage", "nova-canvas"],
         "Audio": ["whisper", "universal-2", "universal-3-pro"],
     }

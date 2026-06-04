@@ -52,6 +52,9 @@ POLLINATIONS_MODELS = [
     "glm",                 # GLM 5, 198K context, tools, reasoning — Russian OK
     "minimax",             # MiniMax M2, 200K context, tools, reasoning
     "minimax-m3",          # MiniMax M3, 1M context, tools, reasoning, text+image
+    "kimi",                # Kimi K2.5, 262K context, tools, reasoning
+    "kimi-k2.6",           # Kimi K2.6, 262K context, tools, reasoning
+    "step-3.5-flash",      # Step 3.5 Flash, 262K context, tools, reasoning
     # ── Image generation models ─────────────────────────────────────────────
     "flux",                # Flux — text→image
     "gptimage",            # GPT Image — text→image
@@ -66,7 +69,7 @@ POLLINATIONS_MODELS = [
 ]
 
 DEFAULT_MODEL = "openai"
-FALLBACK_MODELS = ["mistral-4", "deepseek", "nova-fast", "grok", "minimax", "llama-scout", "gemma"]
+FALLBACK_MODELS = ["mistral-4", "deepseek", "nova-fast", "grok", "minimax", "llama-scout", "gemma", "kimi", "glm"]
 
 # Track model failures for circuit breaking
 _model_failures: Dict[str, float] = {}

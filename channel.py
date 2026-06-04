@@ -1,18 +1,23 @@
 """
 Channel Manager — Posts to @sochiautoparts with Asya's footer.
-Handles news posts, partner posts, scheduled content, reactions, comments, and media.
+Handles news posts, partner posts, scheduled content, reactions, comments,
+media, polls, and internet news search.
 """
 
 import logging
 import time
 import random
 import asyncio
+import tempfile
+import os
 from typing import Optional, List, Dict
 from datetime import datetime
 
 from aiogram import Bot
 from aiogram.enums import ParseMode
-from aiogram.types import InputFile, FSInputFile, ReactionTypeEmoji
+from aiogram.types import FSInputFile, ReactionTypeEmoji
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import InlineKeyboardButton
 
 from bot.config import config, persona
 from bot.database import (
@@ -21,6 +26,7 @@ from bot.database import (
 )
 from ai.router import ai_router
 from bot.partners import partner_manager
+from bot.web_search import web_search, search_news, SearchResult
 
 logger = logging.getLogger("asya.channel")
 
@@ -41,6 +47,18 @@ ASYA_COMMENTS = [
     "Супер! Если хотите обсудить — жду в личке @asiaexp_bot 💬",
     "Трендовая тема! Спрашивайте подробности у меня 🚗",
     "Вот это поворот! Кто что думает? Пишите @asiaexp_bot",
+    "Мнения разделились, но мне нравится! А вам? 🤔",
+    "Эта тема точно заслуживает внимания! 📣",
+]
+
+# ── Poll topics for channel engagement ──────────────────────────────────────
+
+POLL_TEMPLATES = [
+    "Что думаете об этой новости?",
+    "Ваше мнение?",
+    "Как вам такая новость?",
+    "Оцените новость!",
+    "Что скажете?",
 ]
 
 
@@ -51,6 +69,8 @@ class ChannelManager:
         self._bot: Optional[Bot] = None
         self._last_post_time: float = 0
         self._last_partner_time: float = 0
+        self._last_poll_time: float = 0
+        self._poll_count: int = 0
 
     def set_bot(self, bot: Bot) -> None:
         """Set the bot instance for sending messages."""
@@ -85,7 +105,6 @@ class ChannelManager:
     async def _generate_post_image(self, news_title: str) -> Optional[bytes]:
         """Generate an image for a news post using AI."""
         try:
-            # Create a prompt for image generation based on the news topic
             image_prompt = (
                 f"Automotive news illustration: {news_title}. "
                 f"Professional automotive photography style, modern car, "
@@ -98,10 +117,72 @@ class ChannelManager:
             logger.error(f"Image generation failed: {e}")
             return None
 
+    async def _download_partner_image(self, image_url: str) -> Optional[bytes]:
+        """Download a partner program image (logo/banner)."""
+        if not image_url:
+            return None
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+                response = await client.get(image_url)
+                if response.status_code == 200 and len(response.content) > 500:
+                    # Only accept actual image data (not tiny SVGs or errors)
+                    content_type = response.headers.get("content-type", "")
+                    if "image" in content_type or len(response.content) > 5000:
+                        return response.content
+        except Exception as e:
+            logger.debug(f"Could not download partner image: {e}")
+        return None
+
+    async def _create_poll_from_news(self, news_title: str, news_summary: str = "") -> Optional[Dict]:
+        """Generate a poll question and options based on a news item using AI."""
+        try:
+            response = await ai_router._primary.chat(
+                messages=[
+                    {"role": "system", "content": (
+                        "Ты создаёшь опросы для автоканала в Telegram. "
+                        "На основе новости создай опрос: вопрос и 4 варианта ответа. "
+                        "Формат строго JSON: {\"question\": \"...\", \"options\": [\"...\", \"...\", \"...\", \"...\"]}. "
+                        "Никакого текста кроме JSON. Вопрос короткий и живой. "
+                        "Варианты ответа короткие (до 20 символов)."
+                    )},
+                    {"role": "user", "content": f"Новость: {news_title}\n{news_summary[:300]}"},
+                ],
+                model="openai-fast",
+                temperature=0.8,
+                max_tokens=200,
+            )
+
+            if response.error or not response.text:
+                return None
+
+            # Parse JSON from response
+            import json
+            text = response.text.strip()
+            # Try to extract JSON from response
+            if "```" in text:
+                text = text.split("```")[1].strip()
+                if text.startswith("json"):
+                    text = text[4:].strip()
+
+            start = text.find("{")
+            end = text.rfind("}") + 1
+            if start >= 0 and end > start:
+                data = json.loads(text[start:end])
+                question = data.get("question", "")
+                options = data.get("options", [])
+                if question and len(options) >= 2:
+                    return {"question": question, "options": options[:4]}
+
+        except Exception as e:
+            logger.error(f"Poll generation error: {e}")
+
+        return None
+
     async def post_news(self, news_item: Optional[Dict] = None) -> bool:
         """
         Post a news item to the channel.
-        If no item specified, picks the best unposted news.
+        If no item specified, picks the best unposted news or searches internet.
         """
         if not self._bot:
             logger.error("Bot not set in ChannelManager")
@@ -122,16 +203,19 @@ class ChannelManager:
         # Get news item if not provided
         if not news_item:
             unposted = await get_unposted_news(limit=5)
-            if not unposted:
-                logger.info("No unposted news available")
-                return False
-
-            # Prefer auto category, then tech, then general
-            auto_news = [n for n in unposted if n.get("category") == "auto"]
-            if auto_news:
-                news_item = random.choice(auto_news)
+            if unposted:
+                # Prefer auto category, then tech, then general
+                auto_news = [n for n in unposted if n.get("category") == "auto"]
+                if auto_news:
+                    news_item = random.choice(auto_news)
+                else:
+                    news_item = unposted[0]
             else:
-                news_item = unposted[0]
+                # No unposted RSS news — search internet for fresh auto news
+                news_item = await self._search_internet_news()
+                if not news_item:
+                    logger.info("No unposted news available (RSS or internet)")
+                    return False
 
         # Generate post content using AI
         source_text = ""
@@ -139,9 +223,13 @@ class ChannelManager:
             source_text = news_item["summary"]
 
         # For international news, add translation instruction
-        extra_instructions = ""
-        if news_item.get("lang") != "ru":
-            extra_instructions = (
+        extra_instructions = (
+            "Уникализируй текст — перепиши своими словами, сохранив факты. "
+            "Не копируй оригинальные формулировки. "
+            "Добавь своё мнение и эмоции как живой девушки-автоэксперта. "
+        )
+        if news_item.get("lang") and news_item.get("lang") != "ru":
+            extra_instructions += (
                 "Это новость из зарубежного источника. "
                 "Переведи на русский язык и адаптируй для русскоязычной аудитории. "
                 "Сохрани суть и факты, но напиши естественно на русском."
@@ -159,7 +247,7 @@ class ChannelManager:
 
         post_text = response.text
 
-        # Ensure footer with proper format: [Ася - Автоэксперт](https://t.me/asiaexp_bot) + @sochiautoparts + #sochiautoparts
+        # Ensure footer with proper format
         if "#sochiautoparts" not in post_text:
             post_text = post_text.rstrip() + "\n\n#sochiautoparts"
         if "asiaexp_bot" not in post_text:
@@ -176,11 +264,7 @@ class ChannelManager:
 
         # Post to channel
         try:
-            import tempfile
-            import os
-
             if image_data:
-                # Save image to temp file and send with caption
                 tmp_path = os.path.join(tempfile.gettempdir(), f"asya_post_{int(time.time())}.png")
                 with open(tmp_path, "wb") as f:
                     f.write(image_data)
@@ -193,13 +277,11 @@ class ChannelManager:
                     parse_mode=ParseMode.MARKDOWN,
                 )
 
-                # Clean up temp file
                 try:
                     os.unlink(tmp_path)
                 except OSError:
                     pass
             else:
-                # Send text-only post
                 sent = await self._bot.send_message(
                     chat_id=config.CHANNEL_ID,
                     text=post_text,
@@ -225,6 +307,11 @@ class ChannelManager:
 
             # Add comment from channel
             await self._add_comment(config.CHANNEL_ID, sent.message_id, news_item.get("title", ""))
+
+            # Occasionally create a poll based on the news (every 3rd post)
+            self._poll_count += 1
+            if self._poll_count % 3 == 0:
+                asyncio.create_task(self._post_poll(news_item))
 
             logger.info(f"Posted news to channel: {news_item['title'][:50]}...")
             return True
@@ -253,9 +340,76 @@ class ChannelManager:
                 logger.error(f"Error posting without markdown: {e2}")
                 return False
 
+    async def _search_internet_news(self) -> Optional[Dict]:
+        """Search the internet for fresh auto news when RSS feeds are empty."""
+        try:
+            # Search for latest auto news
+            queries = [
+                "автомобильные новости сегодня 2024 2025 2026",
+                "новости автопрома новинки авто",
+                "auto news latest today",
+            ]
+            query = random.choice(queries)
+            results = await web_search(query, max_results=5)
+
+            if not results:
+                return None
+
+            # Pick a random result
+            result = random.choice(results)
+            if not result.title:
+                return None
+
+            news_item = {
+                "title": result.title,
+                "url": result.url,
+                "summary": result.snippet or "",
+                "category": "auto",
+                "lang": "ru" if any(c >= '\u0400' for c in result.title) else "en",
+            }
+
+            logger.info(f"Found internet news: {news_item['title'][:50]}")
+            return news_item
+
+        except Exception as e:
+            logger.error(f"Internet news search error: {e}")
+            return None
+
+    async def _post_poll(self, news_item: Dict) -> None:
+        """Create a poll in the channel based on a news item."""
+        try:
+            # Don't create polls too frequently
+            now = time.time()
+            if now - self._last_poll_time < 3600:  # At least 1 hour between polls
+                return
+
+            poll_data = await self._create_poll_from_news(
+                news_item.get("title", ""),
+                news_item.get("summary", ""),
+            )
+
+            if not poll_data:
+                return
+
+            question = poll_data["question"]
+            options = poll_data["options"]
+
+            await self._bot.send_poll(
+                chat_id=config.CHANNEL_ID,
+                question=f"📊 {question}",
+                options=options,
+                is_anonymous=True,
+            )
+
+            self._last_poll_time = time.time()
+            logger.info(f"Posted poll: {question}")
+
+        except Exception as e:
+            logger.error(f"Poll posting error: {e}")
+
     async def post_partner_content(self) -> bool:
         """
-        Post a partner/admitad post to the channel.
+        Post a partner/admitad post to the channel with partner image.
         Only posts if within daily limits and interval.
         """
         if not self._bot:
@@ -303,12 +457,53 @@ class ChannelManager:
         if "@sochiautoparts" not in post_content:
             post_content = post_content.rstrip() + "\n@sochiautoparts"
 
+        # Try to use partner image from admitad data
+        partner_image_url = program.image if hasattr(program, 'image') else None
+        partner_image_data = None
+        if partner_image_url:
+            try:
+                partner_image_data = await self._download_partner_image(partner_image_url)
+            except Exception as e:
+                logger.debug(f"Partner image download failed: {e}")
+
+        # If no partner image, try AI-generated image
+        if not partner_image_data:
+            try:
+                partner_image_data = await self._generate_post_image(f"{program.name} automotive service")
+            except Exception:
+                pass
+
         try:
-            sent = await self._bot.send_message(
-                chat_id=config.CHANNEL_ID,
-                text=post_content,
-                parse_mode=ParseMode.MARKDOWN,
-            )
+            if partner_image_data:
+                # Determine extension
+                ext = ".png"
+                if partner_image_url and ".jpg" in partner_image_url.lower():
+                    ext = ".jpg"
+                elif partner_image_url and ".svg" in partner_image_url.lower():
+                    ext = ".png"  # We'll send as-is, Telegram handles it
+
+                tmp_path = os.path.join(tempfile.gettempdir(), f"asya_partner_{int(time.time())}{ext}")
+                with open(tmp_path, "wb") as f:
+                    f.write(partner_image_data)
+
+                photo = FSInputFile(tmp_path, filename=f"partner_{program.name[:20]}.{ext.lstrip('.')}")
+                sent = await self._bot.send_photo(
+                    chat_id=config.CHANNEL_ID,
+                    photo=photo,
+                    caption=post_content[:1024],
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+            else:
+                sent = await self._bot.send_message(
+                    chat_id=config.CHANNEL_ID,
+                    text=post_content,
+                    parse_mode=ParseMode.MARKDOWN,
+                )
 
             await add_partner_post(
                 program_id=program.id,
@@ -338,7 +533,7 @@ class ChannelManager:
 
         except Exception as e:
             logger.error(f"Error posting partner content: {e}")
-            # Retry without markdown
+            # Retry without markdown and image
             try:
                 sent = await self._bot.send_message(
                     chat_id=config.CHANNEL_ID,
