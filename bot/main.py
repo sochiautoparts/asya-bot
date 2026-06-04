@@ -126,8 +126,9 @@ class BackgroundTasks:
 
         try:
             from datetime import datetime
+            from zoneinfo import ZoneInfo
             import random
-            hour = datetime.now().hour
+            hour = datetime.now(ZoneInfo("Europe/Moscow")).hour
 
             if 5 <= hour < 12:
                 greetings = [

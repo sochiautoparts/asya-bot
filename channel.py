@@ -1,7 +1,8 @@
 """
-Channel Manager — Posts to @sochiautoparts with Asya's footer.
+Channel Manager — Posts to @sochiautoparts with proper formatting.
 Handles news posts, partner posts, scheduled content, reactions, comments,
 media, polls, and internet news search.
+Properly enforces Telegram character limits: 1024 with media, 4096 without.
 """
 
 import logging
@@ -10,8 +11,10 @@ import random
 import asyncio
 import tempfile
 import os
+import re
 from typing import Optional, List, Dict
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from aiogram import Bot
 from aiogram.enums import ParseMode
@@ -62,6 +65,90 @@ POLL_TEMPLATES = [
     "Оцените новость!",
     "Что скажете?",
 ]
+
+# Moscow timezone
+_MOSCOW_TZ = ZoneInfo("Europe/Moscow")
+
+
+def _clean_post_text(text: str) -> str:
+    """Clean post text: remove markdown links, formatting artifacts, SSE garbage."""
+    if not text:
+        return text
+
+    # Remove markdown links [text](url) → text (Telegram doesn't support them properly)
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\1', text)
+
+    # Remove bold/italic
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    text = re.sub(r'\*(.+?)\*', r'\1', text)
+
+    # Remove SSE/streaming artifacts
+    text = re.sub(r'data:\s*\{[^}]*\}', '', text)
+    text = re.sub(r'\[DONE\]', '', text)
+
+    # Remove AI disclaimers
+    for phrase in ["As an AI", "Как AI", "Как искусственный интеллект",
+                   "powered by pollinations", "pollinations.ai"]:
+        text = re.sub(rf'.*{re.escape(phrase)}.*', '', text, flags=re.IGNORECASE)
+
+    # Remove think tags
+    text = re.sub(r'<think\b[^>]*>.*?</think\s*>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'</?think[^>]*>', '', text, flags=re.IGNORECASE)
+
+    # Remove "Настя:" or "Ася:" prefixes
+    for prefix in ["Настя:", "Ася:", "Nastya:", "Asya:", "Assistant:"]:
+        if text.startswith(prefix):
+            text = text[len(prefix):].strip()
+
+    # Clean up whitespace
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    text = text.strip()
+
+    return text
+
+
+def _validate_post_text(text: str) -> bool:
+    """Validate post text before sending to channel."""
+    if not text or not text.strip():
+        return False
+
+    text_lower = text.lower()
+
+    # Block SSE artifacts
+    sse_patterns = [r'data:\s*\{', r'\[DONE\]', r'"type"\s*:\s*"start"', r'"type"\s*:\s*"error"']
+    for pattern in sse_patterns:
+        if re.search(pattern, text_lower):
+            return False
+
+    # Block API errors
+    error_patterns = ["authentication error", "no api key", "model not found",
+                      "rate limit", "internal server error", "bad request"]
+    for pattern in error_patterns:
+        if pattern in text_lower:
+            return False
+
+    # Block provider ad artifacts
+    ad_patterns = ["pollinations.ai", "powered by pollinations", "keep ai accessible"]
+    for pattern in ad_patterns:
+        if pattern in text_lower:
+            return False
+
+    # Block raw JSON
+    if text.strip().startswith(('{', '[', '```', 'data:')):
+        return False
+
+    return True
+
+
+def _ensure_footer(text: str) -> str:
+    """Ensure post has proper footer matching @sochiautoparts format."""
+    # Add hashtag if missing
+    if "#sochiautoparts" not in text:
+        text = text.rstrip() + "\n\n#sochiautoparts"
+    # Add channel mention if missing
+    if "@sochiautoparts" not in text:
+        text = text.rstrip() + "\n@sochiautoparts"
+    return text
 
 
 class ChannelManager:
@@ -129,13 +216,10 @@ class ChannelManager:
                 response = await client.get(image_url)
                 if response.status_code == 200 and len(response.content) > 500:
                     content_type = response.headers.get("content-type", "")
-                    # Accept actual image formats (png, jpg, gif, webp)
                     if any(ft in content_type for ft in ["image/png", "image/jpeg", "image/gif", "image/webp"]):
                         return response.content
-                    # Also accept if content is large enough (likely an image even without proper content-type)
                     elif len(response.content) > 5000:
                         return response.content
-                    # Skip SVGs and tiny files
                     else:
                         logger.debug(f"Skipping partner image: content-type={content_type}, size={len(response.content)}")
         except Exception as e:
@@ -164,10 +248,8 @@ class ChannelManager:
             if response.error or not response.text:
                 return None
 
-            # Parse JSON from response
             import json
             text = response.text.strip()
-            # Try to extract JSON from response
             if "```" in text:
                 text = text.split("```")[1].strip()
                 if text.startswith("json"):
@@ -212,14 +294,12 @@ class ChannelManager:
         if not news_item:
             unposted = await get_unposted_news(limit=5)
             if unposted:
-                # Prefer auto category, then tech, then general
                 auto_news = [n for n in unposted if n.get("category") == "auto"]
                 if auto_news:
                     news_item = random.choice(auto_news)
                 else:
                     news_item = unposted[0]
             else:
-                # No unposted RSS news — search internet for fresh auto news
                 news_item = await self._search_internet_news()
                 if not news_item:
                     logger.info("No unposted news available (RSS or internet)")
@@ -230,7 +310,6 @@ class ChannelManager:
         if news_item.get("summary"):
             source_text = news_item["summary"]
 
-        # For international news, add translation instruction
         extra_instructions = (
             "Уникализируй текст — перепиши своими словами, сохранив факты. "
             "Не копируй оригинальные формулировки. "
@@ -238,41 +317,47 @@ class ChannelManager:
         )
         if news_item.get("lang") and news_item.get("lang") != "ru":
             extra_instructions += (
-                "Это новость из зарубежного источника. "
+                "Это новость из зарубогного источника. "
                 "Переведи на русский язык и адаптируй для русскоязычной аудитории. "
                 "Сохрани суть и факты, но напиши естественно на русском."
             )
+
+        # Try to generate image
+        has_media = False
+        image_data = None
+        try:
+            image_data = await self._generate_post_image(news_item["title"])
+            has_media = image_data is not None
+        except Exception as e:
+            logger.warning(f"Image generation skipped: {e}")
 
         response = await ai_router.generate_channel_post(
             topic=news_item["title"],
             source_text=source_text,
             extra_instructions=extra_instructions,
+            has_media=has_media,
         )
 
         if response.error or not response.text:
             logger.error(f"Failed to generate channel post: {response.error_message}")
             return False
 
-        post_text = response.text
+        post_text = _clean_post_text(response.text)
+        post_text = _ensure_footer(post_text)
 
-        # Ensure footer with proper format
-        if "#sochiautoparts" not in post_text:
-            post_text = post_text.rstrip() + "\n\n#sochiautoparts"
-        if "asiaexp_bot" not in post_text:
-            post_text = post_text.rstrip() + f"\n\n[Ася - Автоэксперт](https://t.me/asiaexp_bot)\n@sochiautoparts"
-        if "@sochiautoparts" not in post_text:
-            post_text = post_text.rstrip() + "\n@sochiautoparts"
+        # Validate before posting
+        if not _validate_post_text(post_text):
+            logger.error(f"Post validation failed, skipping")
+            return False
 
-        # Try to generate and attach an image
-        image_data = None
-        try:
-            image_data = await self._generate_post_image(news_item["title"])
-        except Exception as e:
-            logger.warning(f"Image generation skipped: {e}")
+        # Enforce character limits
+        char_limit = config.TELEGRAM_CAPTION_LIMIT if has_media else config.TELEGRAM_TEXT_LIMIT
+        if len(post_text) > char_limit:
+            post_text = post_text[:char_limit - 3] + "..."
 
         # Post to channel
         try:
-            if image_data:
+            if has_media and image_data:
                 tmp_path = os.path.join(tempfile.gettempdir(), f"asya_post_{int(time.time())}.png")
                 with open(tmp_path, "wb") as f:
                     f.write(image_data)
@@ -281,8 +366,8 @@ class ChannelManager:
                 sent = await self._bot.send_photo(
                     chat_id=config.CHANNEL_ID,
                     photo=photo,
-                    caption=post_text[:1024],  # Telegram caption limit
-                    parse_mode=ParseMode.MARKDOWN,
+                    caption=post_text[:config.TELEGRAM_CAPTION_LIMIT],
+                    parse_mode=ParseMode.HTML,
                 )
 
                 try:
@@ -293,7 +378,7 @@ class ChannelManager:
                 sent = await self._bot.send_message(
                     chat_id=config.CHANNEL_ID,
                     text=post_text,
-                    parse_mode=ParseMode.MARKDOWN,
+                    parse_mode=ParseMode.HTML,
                 )
 
             # Record in database
@@ -326,7 +411,7 @@ class ChannelManager:
 
         except Exception as e:
             logger.error(f"Error posting to channel: {e}")
-            # Try sending without markdown if parsing failed
+            # Try sending without formatting
             try:
                 sent = await self._bot.send_message(
                     chat_id=config.CHANNEL_ID,
@@ -345,15 +430,15 @@ class ChannelManager:
                 await self._add_comment(config.CHANNEL_ID, sent.message_id)
                 return True
             except Exception as e2:
-                logger.error(f"Error posting without markdown: {e2}")
+                logger.error(f"Error posting without formatting: {e2}")
                 return False
 
     async def _search_internet_news(self) -> Optional[Dict]:
         """Search the internet for fresh auto news when RSS feeds are empty."""
         try:
-            # Search for latest auto news
+            now = datetime.now(_MOSCOW_TZ)
             queries = [
-                "автомобильные новости сегодня 2024 2025 2026",
+                f"автомобильные новости сегодня {now.year}",
                 "новости автопрома новинки авто",
                 "auto news latest today",
             ]
@@ -363,7 +448,6 @@ class ChannelManager:
             if not results:
                 return None
 
-            # Pick a random result
             result = random.choice(results)
             if not result.title:
                 return None
@@ -386,9 +470,8 @@ class ChannelManager:
     async def _post_poll(self, news_item: Dict) -> None:
         """Create a poll in the channel based on a news item."""
         try:
-            # Don't create polls too frequently
             now = time.time()
-            if now - self._last_poll_time < 3600:  # At least 1 hour between polls
+            if now - self._last_poll_time < 3600:
                 return
 
             poll_data = await self._create_poll_from_news(
@@ -424,25 +507,20 @@ class ChannelManager:
             logger.error("Bot not set in ChannelManager")
             return False
 
-        # Check if partner posting is allowed
         if not partner_manager.should_post_partner():
             return False
 
-        # Check daily post limit
         today_count = await get_today_post_count()
         if today_count >= config.CHANNEL_MAX_POSTS_PER_DAY:
             return False
 
-        # Get a random partner program
         program = partner_manager.get_random_program()
         if not program:
             logger.info("No partner programs available")
             return False
 
-        # Generate partner post content
         post_content = await partner_manager.generate_partner_post_content(program)
 
-        # Enhance with AI
         response = await ai_router.generate_channel_post(
             topic=f"Рекомендация сервиса: {program.name}",
             source_text=f"Партнёрская программа: {program.name}. Описание: {program.description or 'Автомобильный сервис'}",
@@ -457,15 +535,14 @@ class ChannelManager:
         if not response.error and response.text:
             post_content = response.text
 
-        # Ensure footer with proper format
-        if "#sochiautoparts" not in post_content:
-            post_content = post_content.rstrip() + "\n\n#sochiautoparts"
-        if "asiaexp_bot" not in post_content:
-            post_content = post_content.rstrip() + f"\n\n[Ася - Автоэксперт](https://t.me/asiaexp_bot)\n@sochiautoparts"
-        if "@sochiautoparts" not in post_content:
-            post_content = post_content.rstrip() + "\n@sochiautoparts"
+        post_content = _clean_post_text(post_content)
+        post_content = _ensure_footer(post_content)
 
-        # Try to use partner image from admitad data
+        # Validate
+        if not _validate_post_text(post_content):
+            return False
+
+        # Try to use partner image
         partner_image_url = program.image if hasattr(program, 'image') else None
         partner_image_data = None
         if partner_image_url:
@@ -474,21 +551,22 @@ class ChannelManager:
             except Exception as e:
                 logger.debug(f"Partner image download failed: {e}")
 
-        # If no partner image, try AI-generated image
         if not partner_image_data:
             try:
                 partner_image_data = await self._generate_post_image(f"{program.name} automotive service")
             except Exception:
                 pass
 
+        has_media = partner_image_data is not None
+        char_limit = config.TELEGRAM_CAPTION_LIMIT if has_media else config.TELEGRAM_TEXT_LIMIT
+        if len(post_content) > char_limit:
+            post_content = post_content[:char_limit - 3] + "..."
+
         try:
-            if partner_image_data:
-                # Determine extension
+            if has_media and partner_image_data:
                 ext = ".png"
                 if partner_image_url and ".jpg" in partner_image_url.lower():
                     ext = ".jpg"
-                elif partner_image_url and ".svg" in partner_image_url.lower():
-                    ext = ".png"  # We'll send as-is, Telegram handles it
 
                 tmp_path = os.path.join(tempfile.gettempdir(), f"asya_partner_{int(time.time())}{ext}")
                 with open(tmp_path, "wb") as f:
@@ -498,8 +576,8 @@ class ChannelManager:
                 sent = await self._bot.send_photo(
                     chat_id=config.CHANNEL_ID,
                     photo=photo,
-                    caption=post_content[:1024],
-                    parse_mode=ParseMode.MARKDOWN,
+                    caption=post_content[:config.TELEGRAM_CAPTION_LIMIT],
+                    parse_mode=ParseMode.HTML,
                 )
 
                 try:
@@ -510,7 +588,7 @@ class ChannelManager:
                 sent = await self._bot.send_message(
                     chat_id=config.CHANNEL_ID,
                     text=post_content,
-                    parse_mode=ParseMode.MARKDOWN,
+                    parse_mode=ParseMode.HTML,
                 )
 
             await add_partner_post(
@@ -532,7 +610,6 @@ class ChannelManager:
             partner_manager.mark_posted()
             self._last_partner_time = time.time()
 
-            # Add reaction and comment
             await self._add_reaction(config.CHANNEL_ID, sent.message_id)
             await self._add_comment(config.CHANNEL_ID, sent.message_id)
 
@@ -541,7 +618,6 @@ class ChannelManager:
 
         except Exception as e:
             logger.error(f"Error posting partner content: {e}")
-            # Retry without markdown and image
             try:
                 sent = await self._bot.send_message(
                     chat_id=config.CHANNEL_ID,
@@ -566,25 +642,21 @@ class ChannelManager:
                 await self._add_reaction(config.CHANNEL_ID, sent.message_id)
                 return True
             except Exception as e2:
-                logger.error(f"Error posting partner content without markdown: {e2}")
+                logger.error(f"Error posting partner content without formatting: {e2}")
                 return False
 
     async def run_scheduled_post(self) -> bool:
         """
         Run a scheduled post — either news or partner content.
-        Intelligently chooses what to post based on timing and content availability.
         """
-        # Check if it's time for a partner post
         now = time.time()
         partner_interval = config.PARTNER_POST_INTERVAL_HOURS * 3600
 
         if (now - self._last_partner_time >= partner_interval and
                 partner_manager.should_post_partner()):
-            # Alternate between partner and news
-            if random.random() < 0.3:  # 30% chance for partner post
+            if random.random() < 0.3:
                 return await self.post_partner_content()
 
-        # Default: post news
         return await self.post_news()
 
 

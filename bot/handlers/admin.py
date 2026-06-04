@@ -89,12 +89,15 @@ async def cmd_status(message: Message):
     partner_count = len(partner_manager.programs)
     unposted = await get_unposted_news(limit=1)
 
+    from zoneinfo import ZoneInfo
+    moscow_time = datetime.now(ZoneInfo("Europe/Moscow"))
+
     text = (
         f"✅ Asya Bot работает\n\n"
         f"🤖 AI провайдер: {'доступен' if is_ai else 'недоступен'}\n"
         f"📰 Партнёрских программ: {partner_count}\n"
         f"📝 Непостоянных новостей: {len(unposted)}\n"
-        f"⏰ Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        f"⏰ Москва: {moscow_time.strftime('%Y-%m-%d %H:%M:%S')}"
     )
     await message.answer(text)
 
@@ -378,25 +381,23 @@ async def cmd_models(message: Message):
 
     models = ai_router.get_available_models()
     # Group by category (only tested & working models)
+    categories = ai_router.get_model_categories()
+    # Convert to display format
     categories = {
-        "OpenAI": ["openai", "openai-fast", "openai-large", "gpt-5.4-mini", "gpt-5.5"],
-        "Mistral": ["mistral", "mistral-large", "mistral-4"],
-        "DeepSeek": ["deepseek", "deepseek-pro"],
-        "Qwen": ["qwen-coder", "qwen-vision", "qwen-vision-pro"],
-        "Llama": ["llama", "llama-scout"],
-        "Nova": ["nova", "nova-fast"],
-        "Grok": ["grok"],
-        "Perplexity": ["perplexity", "perplexity-fast", "perplexity-deep", "perplexity-reasoning"],
-        "Other": ["gemma", "glm", "minimax", "minimax-m3", "kimi", "kimi-k2.6", "step-3.5-flash"],
-        "Image": ["flux", "gptimage", "gptimage-large", "kontext", "zimage", "nova-canvas"],
-        "Audio": ["whisper", "universal-2", "universal-3-pro"],
+        "💬 Чат": categories.get("chat", []),
+        "🧠 Рассуждения": categories.get("reasoning", []),
+        "👁️ Vision": categories.get("vision", []),
+        "📝 Контент": categories.get("content", []),
+        "🔍 Поиск": categories.get("search", []),
+        "🖼️ Изображения": categories.get("image", []),
     }
 
     lines = ["🤖 Доступные AI модели:\n"]
     for cat, cat_models in categories.items():
+        # Deduplicate across categories
         cat_available = [m for m in cat_models if m in models]
         if cat_available:
-            lines.append(f"📋 {cat}:")
+            lines.append(f"{cat}:")
             for m in cat_available:
                 lines.append(f"  • {m}")
 

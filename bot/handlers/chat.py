@@ -1,15 +1,17 @@
 """
 Chat Handler — Main user interaction with AI, web search, partner links,
-car diagnostics, spare part search, and personalized communication.
+car diagnostics, spare part search, VIN decoding, photo analysis,
+and personalized communication with conversation context.
 """
 
 import re
 import logging
+import base64
 from typing import Optional
 
 from aiogram import Router, F, types
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, PhotoSize
 from aiogram.enums import ChatAction
 from aiogram.client.default import DefaultBotProperties
 
@@ -37,6 +39,43 @@ logger = logging.getLogger("asya.handlers.chat")
 chat_router = Router()
 
 
+# ── VIN / Body number detection ───────────────────────────────────────────────
+
+_VIN_PATTERN = re.compile(r'\b[A-HJ-NPR-Z0-9]{17}\b', re.IGNORECASE)
+_BODY_NUMBER_PATTERN = re.compile(
+    r'(?:номер\s+кузова|кузовн?ой\s+номер|body\s*number|кузов)\s*[:\s]*([A-Z0-9\-/]{5,20})',
+    re.IGNORECASE
+)
+
+
+def _detect_vin(text: str) -> Optional[str]:
+    """Detect a VIN code (17 chars) in text."""
+    match = _VIN_PATTERN.search(text.upper())
+    if match:
+        vin = match.group(0)
+        # Validate check digit position (9th char)
+        if len(vin) == 17 and vin[8] in '0123456789X':
+            return vin
+    return None
+
+
+def _detect_body_number(text: str) -> Optional[str]:
+    """Detect a body number reference in text."""
+    match = _BODY_NUMBER_PATTERN.search(text)
+    if match:
+        return match.group(1)
+    return None
+
+
+def _is_vin_query(text: str) -> bool:
+    """Check if text is asking about VIN/body number decoding."""
+    text_lower = text.lower()
+    keywords = ["vin", "вин", "номер кузова", "кузовной номер", "расшифруй vin",
+                "расшифруй вин", "пробей vin", "пробей вин", "декодировать vin",
+                "vin код", "вин код", "vin-код", "вин-код"]
+    return any(kw in text_lower for kw in keywords)
+
+
 # ── Gender detection from Russian first name ────────────────────────────────
 
 MALE_NAME_ENDINGS = ("й", "ь", "н", "л", "р", "с", "т", "в", "к", "м", "г", "б", "д", "п", "з", "ж", "х")
@@ -46,13 +85,13 @@ COMMON_MALE_NAMES = {
     "александр", "дмитрий", "максим", "сергей", "андрей", "алексей", "артём",
     "илья", "кирилл", "михаил", "никита", "матвей", "роман", "егор", "арсений",
     "иван", "денис", "евгений", "даниил", "тимур", "владимир", "олег", "павел",
-    "руслан", "вадим", "тиmur", "константин", "антон", "ignat", "борис",
+    "руслан", "вадим", "константин", "антон", "борис",
 }
 
 COMMON_FEMALE_NAMES = {
     "анна", "мария", "ольга", "елена", "наталья", "татьяна", "ирина", "светлана",
     "екатерина", "юлия", "дарья", "алина", "вера", "полина", "кристина", "софия",
-    "валерия", "марина", "людмила", "надежда", "людмила", "настя", "анастасия",
+    "валерия", "марина", "людмила", "надежда", "настя", "анастасия",
     "виктория", "маргарита", "диана", "евгения", "алёна", "катерина",
 }
 
@@ -64,15 +103,13 @@ def _guess_gender(first_name: str) -> str:
 
     name_lower = first_name.lower().strip()
 
-    # Check known name lists
     if name_lower in COMMON_MALE_NAMES:
         return "male"
     if name_lower in COMMON_FEMALE_NAMES:
         return "female"
 
-    # Check ending patterns for Russian names
     if name_lower.endswith(FEMALE_NAME_ENDINGS):
-        if name_lower.endswith("ь"):  # Could be male (Игорь) or other
+        if name_lower.endswith("ь"):
             pass
         else:
             return "female"
@@ -147,32 +184,33 @@ async def cmd_start(message: Message):
 
     import random
     from datetime import datetime
-    hour = datetime.now().hour
+    from zoneinfo import ZoneInfo
+    hour = datetime.now(ZoneInfo("Europe/Moscow")).hour
 
     if name:
         if gender == "male":
             greets = [
                 f"Привет, {name}! 😊 Ася тут. Чем займёмся?",
-                f"Хей, {name}! Это Ася. О чём поболтаем?",
-                f"Привет, {name}! 😊 Я Ася. Давай знакомиться!",
-                f"О, {name}! Привет! Я Ася — просто пиши, я всегда рада поболтать",
+                f"Хей, {name}! О чём поболтаем?",
+                f"О, {name}! Привет! Просто пиши, я всегда рада поболтать",
+                f"Привет, {name}! 😊 Кофе уже пью, можно общаться",
             ]
         elif gender == "female":
             greets = [
                 f"Привет, {name}! 😊 Мы с тобой обе понимаем толк в хорошем общении!",
-                f"Хей, {name}! Ася тут. Давай поболтаем!",
-                f"Привет, {name}! 😊 Я Ася — всегда рада компании!",
+                f"Хей, {name}! Давай поболтаем!",
+                f"Привет, {name}! 😊 Всегда рада компании!",
             ]
         else:
             greets = [
-                f"Привет, {name}! 😊 Я Ася. Рад(а) знакомству!",
-                f"Хей, {name}! Это Ася. О чём поговорим?",
+                f"Привет, {name}! 😊 Рад(а) знакомству!",
+                f"Хей, {name}! О чём поговорим?",
             ]
     else:
         greets = [
-            "Привет! 😊 Я Ася. Просто пиши — я всегда на связи!",
-            "Хей! Это Ася. Давай знакомиться!",
-            "Привет! 😊 Я Ася — пиши о чём хочешь, я люблю общаться!",
+            "Привет! 😊 Просто пиши — я всегда на связи!",
+            "Хей! Давай знакомиться!",
+            "Привет! 😊 Пиши о чём хочешь, я люблю общаться!",
         ]
 
     welcome = random.choice(greets)
@@ -191,7 +229,8 @@ async def cmd_help(message: Message):
         "Если что, я могу:\n\n"
         "🔧 Помочь с диагностикой — расскажи, что с машиной, разберёмся вместе\n"
         "🔍 Найти запчасть — кинь артикул, я поищу\n"
-        "📊 Расшифровать ошибку — напиши код, объясню что к чему\n"
+        "📊 Расшифровать VIN или номер кузова — просто отправь\n"
+        "📸 Посмотреть фото — отправь, я расскажу что вижу\n"
         "💬 Просто поболтать — я люблю общаться на любые темы!\n\n"
         "Команды:\n"
         "/clear — начать с чистого листа\n"
@@ -236,7 +275,7 @@ async def cmd_parts(message: Message):
 
     await set_chat_mode(message.from_user.id, "parts")
     await message.answer(
-        "Ищем запчасти 🔍 Кидай артикул — и я поищу"
+        "Ищем запчасти 🔍 Кидай артикул — и я поищу"
     )
 
 
@@ -248,6 +287,87 @@ async def cmd_normal(message: Message):
 
     await set_chat_mode(message.from_user.id, "normal")
     await message.answer("Обычный режим 😊 Пиши о чём хочешь!")
+
+
+# ── Photo handler ──────────────────────────────────────────────────────────────
+
+@chat_router.message(F.photo)
+async def handle_photo(message: Message):
+    """Handle photo messages — analyze with vision AI."""
+    if not await _check_user(message):
+        return
+
+    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+
+    # Get the highest resolution photo
+    photo: PhotoSize = message.photo[-1]
+
+    # Get caption or default prompt
+    caption = message.caption or ""
+    if caption:
+        prompt = caption
+    else:
+        prompt = "Рассмотри это фото внимательно. Если на нём автомобиль — определи марку, модель, год. Если запчасть — что за деталь. Если проблема — опиши и посоветуй. Если что-то другое — просто опиши что видишь."
+
+    # Build extra context
+    extra_context_parts = []
+    user_context = _get_user_persona_context(message)
+    if user_context:
+        extra_context_parts.append(user_context)
+
+    # Download the photo and convert to base64
+    try:
+        file_info = await message.bot.get_file(photo.file_id)
+        if not file_info or not file_info.file_path:
+            await message.answer("Не удалось скачать фото 😅 Попробуй ещё раз")
+            return
+
+        file_url = f"https://api.telegram.org/file/bot{config.BOT_TOKEN}/{file_info.file_path}"
+
+        import httpx
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(file_url)
+            if response.status_code == 200:
+                image_base64 = base64.b64encode(response.content).decode("utf-8")
+
+                # Determine media type
+                media_type = "image/jpeg"
+                if file_info.file_path.endswith(".png"):
+                    media_type = "image/png"
+                elif file_info.file_path.endswith(".webp"):
+                    media_type = "image/webp"
+
+                extra_context = "\n\n".join(extra_context_parts) if extra_context_parts else ""
+
+                response = await ai_router.analyze_image(
+                    user_id=message.from_user.id,
+                    image_base64=image_base64,
+                    prompt=prompt,
+                    extra_context=extra_context,
+                )
+
+                if response.error or not response.text:
+                    await message.answer("Ой, не получилось разглядеть фото 😅 Попробуй ещё раз!")
+                    return
+
+                reply_text = response.text
+                reply_text = _clean_markdown(reply_text)
+
+                # Split if too long
+                if len(reply_text) <= config.TELEGRAM_TEXT_LIMIT:
+                    await message.answer(reply_text)
+                else:
+                    chunks = _split_message(reply_text, max_length=config.TELEGRAM_TEXT_LIMIT)
+                    for chunk in chunks:
+                        await message.answer(chunk)
+                return
+            else:
+                await message.answer("Не удалось скачать фото 😅 Попробуй ещё раз")
+                return
+
+    except Exception as e:
+        logger.error(f"Photo processing error: {e}")
+        await message.answer("Ой, что-то пошло не так с фото 😅 Напиши текстом, попробую помочь!")
 
 
 # ── Voice message handler ─────────────────────────────────────────────────────
@@ -265,7 +385,6 @@ async def handle_voice(message: Message):
     text = await process_voice_message(message.bot, voice.file_id)
 
     if text and not text.startswith("Не удалось"):
-        # Process transcribed text as regular message
         await _process_text_message(message, text)
     else:
         await message.answer(text)
@@ -287,7 +406,7 @@ async def handle_text(message: Message):
 
 
 async def _process_text_message(message: Message, text: str):
-    """Core message processing with AI, search, diagnostics, parts, and personalization."""
+    """Core message processing with AI, search, diagnostics, parts, VIN, and personalization."""
     user_id = message.from_user.id
     chat_mode = await get_chat_mode(user_id)
 
@@ -302,7 +421,22 @@ async def _process_text_message(message: Message, text: str):
     if user_context:
         extra_context_parts.append(user_context)
 
-    # 1. Detect car brand
+    # 1. Detect VIN code or body number
+    vin_code = _detect_vin(text)
+    body_number = _detect_body_number(text) if not vin_code else None
+    is_vin_query = bool(vin_code) or bool(body_number) or _is_vin_query(text)
+
+    if is_vin_query:
+        vin_or_body = vin_code or body_number or text.strip()
+        response = await ai_router.decode_vin(
+            user_id=user_id,
+            vin_code=vin_or_body,
+            extra_context="\n".join(extra_context_parts),
+        )
+        await _send_response(message, response)
+        return
+
+    # 2. Detect car brand
     brand = identify_car_brand(text)
     if brand:
         from bot.asya import get_brand_info
@@ -310,7 +444,7 @@ async def _process_text_message(message: Message, text: str):
         if info:
             extra_context_parts.append(f"Упомянута марка: {brand} ({info['country']}, холдинг: {info['parent']})")
 
-    # 2. Detect OBD-II codes
+    # 3. Detect OBD-II codes
     obd_codes = detect_obd2_codes(text)
     if obd_codes:
         for code in obd_codes:
@@ -330,7 +464,7 @@ async def _process_text_message(message: Message, text: str):
             except Exception as e:
                 logger.error(f"Error searching diagnostic code: {e}")
 
-    # 3. Detect part numbers
+    # 4. Detect part numbers
     part_numbers = extract_part_numbers(text)
     is_part_query = bool(part_numbers) or is_part_number(text.strip()) or chat_mode == "parts"
 
@@ -343,7 +477,7 @@ async def _process_text_message(message: Message, text: str):
             except Exception as e:
                 logger.error(f"Error searching part: {e}")
 
-    # 4. Detect car symptoms
+    # 5. Detect car symptoms
     symptoms = detect_symptoms(text)
     is_diagnostic = bool(symptoms) or chat_mode == "diagnostic"
 
@@ -352,7 +486,7 @@ async def _process_text_message(message: Message, text: str):
         if diag_context:
             extra_context_parts.append(diag_context)
 
-    # 5. Web search for relevant info
+    # 6. Web search for relevant info
     needs_search = (
         is_diagnostic or
         is_part_query or
@@ -375,7 +509,7 @@ async def _process_text_message(message: Message, text: str):
         except Exception as e:
             logger.error(f"Web search error: {e}")
 
-    # 6. Partner program context
+    # 7. Partner program context
     try:
         partner_context = partner_manager.generate_partner_context(text)
         if partner_context:
@@ -406,8 +540,11 @@ async def _process_text_message(message: Message, text: str):
             extra_context=extra_context,
         )
 
-    # ── Send response ──────────────────────────────────────────────────────
+    await _send_response(message, response)
 
+
+async def _send_response(message: Message, response):
+    """Send AI response to user, handling errors and length limits."""
     if response.error:
         logger.error(f"AI error: {response.error_message}")
         await message.answer(
@@ -421,11 +558,10 @@ async def _process_text_message(message: Message, text: str):
     reply_text = _clean_markdown(reply_text)
 
     # Split long messages (Telegram limit 4096 chars)
-    if len(reply_text) <= 4096:
+    if len(reply_text) <= config.TELEGRAM_TEXT_LIMIT:
         await message.answer(reply_text)
     else:
-        # Split at paragraph boundaries
-        chunks = _split_message(reply_text, max_length=4096)
+        chunks = _split_message(reply_text, max_length=config.TELEGRAM_TEXT_LIMIT)
         for chunk in chunks:
             await message.answer(chunk)
 
@@ -434,6 +570,8 @@ async def _process_text_message(message: Message, text: str):
 
 def _clean_markdown(text: str) -> str:
     """Remove markdown formatting that Asya shouldn't use."""
+    # Remove markdown links [text](url) → text
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\1', text)
     # Remove bold
     text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
     # Remove italic

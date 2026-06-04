@@ -1,10 +1,11 @@
 """
 Pollinations AI Provider — OpenAI-compatible API at gen.pollinations.ai
-Supports 30+ models including OpenAI, Mistral, DeepSeek, etc.
+Multi-model support with vision, reasoning, chat, image, and audio capabilities.
 """
 
 import httpx
 import json
+import base64
 import logging
 import time
 from typing import Optional, List, Dict
@@ -14,40 +15,29 @@ from bot.config import config
 
 logger = logging.getLogger("asya.ai.pollinations")
 
-# ── Available models (tested and verified working) ─────────────────────────────
+# ── Model Categories ──────────────────────────────────────────────────────────
 
-POLLINATIONS_MODELS = [
-    # ── OpenAI family ──────────────────────────────────────────────────────
+# Chat models — for general conversation (text only)
+CHAT_MODELS = [
     "openai",              # GPT-5.4, 400K context, tools, text+image
     "openai-fast",         # GPT-5 nano, 400K context, tools — fastest OpenAI
     "openai-large",        # GPT-5.4 reasoning, 400K context, tools
     "gpt-5.4-mini",        # GPT-5.4 mini, 400K context, tools
     "gpt-5.5",             # GPT-5.5, 1M context, tools, reasoning
-    # ── Mistral family ─────────────────────────────────────────────────────
     "mistral",             # Mistral Small, 128K context, tools, text+image
     "mistral-large",       # Mistral Large, 256K context, tools, reasoning
     "mistral-4",           # Mistral 4, 262K context, tools, reasoning
-    # ── DeepSeek family ───────────────────────────────────────────────────
+    "mistral-small",       # Mistral Small (fast), 128K, tools, text+image — NEW
     "deepseek",            # DeepSeek V4, 1M context, tools, reasoning
     "deepseek-pro",        # DeepSeek V4 Pro, 1M context, tools, reasoning
-    # ── Qwen family ───────────────────────────────────────────────────────
     "qwen-coder",          # Qwen Coder, 262K context, tools
-    "qwen-vision",         # Qwen Vision, 131K context, tools, text+image
-    "qwen-vision-pro",     # Qwen Vision Pro, 262K context, reasoning, text+image
-    # ── Llama family ──────────────────────────────────────────────────────
     "llama",               # Llama 3.3 70B, 131K context, tools
     "llama-scout",         # Llama 4 Scout, 328K context, tools, text+image
-    # ── Amazon Nova family ────────────────────────────────────────────────
     "nova",                # Nova 2, 1M context, tools, reasoning, text+image
     "nova-fast",           # Nova Micro, 128K context, tools — very fast
-    # ── Grok family ───────────────────────────────────────────────────────
     "grok",                # Grok 4, 262K context, tools, text+image
-    # ── Perplexity (search-augmented) ──────────────────────────────────────
     "perplexity",          # Sonar Pro, 200K context — web search
     "perplexity-fast",     # Sonar, 128K context — fast web search
-    "perplexity-deep",     # Sonar Deep, 128K context — deep web search
-    "perplexity-reasoning",# Sonar Reasoning, 128K context
-    # ── Other reasoning models ─────────────────────────────────────────────
     "gemma",               # Gemma 4, 262K context, tools, reasoning, text+image
     "glm",                 # GLM 5, 198K context, tools, reasoning — Russian OK
     "minimax",             # MiniMax M2, 200K context, tools, reasoning
@@ -55,21 +45,79 @@ POLLINATIONS_MODELS = [
     "kimi",                # Kimi K2.5, 262K context, tools, reasoning
     "kimi-k2.6",           # Kimi K2.6, 262K context, tools, reasoning
     "step-3.5-flash",      # Step 3.5 Flash, 262K context, tools, reasoning
-    # ── Image generation models ─────────────────────────────────────────────
+]
+
+# Reasoning models — for complex analysis and diagnostics
+REASONING_MODELS = [
+    "openai-reasoning",    # GPT reasoning — complex reasoning + vision — NEW
+    "openai-large",        # GPT-5.4 reasoning
+    "qwen-large",          # Qwen Large, reasoning + vision — NEW
+    "deepseek",            # DeepSeek V4, reasoning
+    "deepseek-pro",        # DeepSeek V4 Pro, reasoning
+    "mistral-4",           # Mistral 4, reasoning
+]
+
+# Vision models — can understand images
+VISION_MODELS = [
+    "openai",              # Primary vision model
+    "openai-fast",         # Fast vision
+    "openai-reasoning",    # Reasoning + vision — NEW
+    "mistral",             # Vision capable
+    "mistral-small",       # Vision capable — NEW
+    "qwen-vision",         # Qwen Vision, 131K context, tools, text+image
+    "qwen-vision-pro",     # Qwen Vision Pro, 262K context, reasoning, text+image
+    "qwen-large",          # Qwen Large, reasoning + vision — NEW
+    "llama-scout",         # Vision capable
+    "nova",                # Vision capable
+    "minimax-m3",          # Vision capable
+    "gemma",               # Vision capable
+    "grok",                # Vision capable
+]
+
+# Content creation models — for generating channel posts
+CONTENT_MODELS = [
+    "openai-large",        # Best quality for content
+    "openai-reasoning",    # Complex content with reasoning — NEW
+    "qwen-large",          # Good for detailed content — NEW
+    "deepseek",            # Good analysis
+    "mistral-4",           # Good writing
+]
+
+# Perplexity models — web-search augmented
+SEARCH_MODELS = [
+    "perplexity",          # Sonar Pro
+    "perplexity-fast",     # Sonar
+    "perplexity-deep",     # Sonar Deep
+    "perplexity-reasoning",# Sonar Reasoning
+]
+
+# Image generation models
+IMAGE_MODELS = [
     "flux",                # Flux — text→image
     "gptimage",            # GPT Image — text→image
     "gptimage-large",      # GPT Image Large — text→image
     "kontext",             # Kontext — text+image→image
     "zimage",              # ZImage — text→image
     "nova-canvas",         # Nova Canvas — text+image→image
-    # ── Audio / transcription ──────────────────────────────────────────────
+]
+
+# Audio / transcription models
+AUDIO_MODELS = [
     "whisper",             # Whisper — audio→text
     "universal-2",         # Universal 2 — audio→text
     "universal-3-pro",     # Universal 3 Pro — audio→text
 ]
 
+# All available models
+POLLINATIONS_MODELS = (
+    CHAT_MODELS + REASONING_MODELS + VISION_MODELS +
+    SEARCH_MODELS + IMAGE_MODELS + AUDIO_MODELS
+)
+# Remove duplicates while preserving order
+POLLINATIONS_MODELS = list(dict.fromkeys(POLLINATIONS_MODELS))
+
 DEFAULT_MODEL = "openai"
-FALLBACK_MODELS = ["mistral-4", "deepseek", "nova-fast", "grok", "minimax", "llama-scout", "gemma", "kimi", "glm"]
+FALLBACK_MODELS = ["mistral-4", "deepseek", "nova-fast", "grok", "minimax", "llama-scout", "gemma", "kimi", "glm", "mistral-small"]
 
 # Track model failures for circuit breaking
 _model_failures: Dict[str, float] = {}
@@ -77,7 +125,7 @@ _FAILURE_COOLDOWN = 300  # 5 minutes
 
 
 class PollinationsProvider(BaseAIProvider):
-    """Pollinations AI provider — OpenAI-compatible API."""
+    """Pollinations AI provider — OpenAI-compatible API with multi-model support."""
 
     def __init__(self):
         super().__init__(
@@ -128,7 +176,7 @@ class PollinationsProvider(BaseAIProvider):
             payload["presence_penalty"] = kwargs["presence_penalty"]
 
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=90.0) as client:
                 start_time = time.time()
                 response = await client.post(url, headers=headers, json=payload)
                 elapsed = time.time() - start_time
@@ -138,7 +186,11 @@ class PollinationsProvider(BaseAIProvider):
                     text = ""
                     choices = data.get("choices", [])
                     if choices:
-                        text = choices[0].get("message", {}).get("content", "")
+                        msg = choices[0].get("message", {})
+                        text = msg.get("content", "")
+                        # For reasoning models that use reasoning_content
+                        if not text:
+                            text = msg.get("reasoning_content", "")
 
                     usage = data.get("usage", {})
                     tokens_used = usage.get("total_tokens", 0)
@@ -201,7 +253,6 @@ class PollinationsProvider(BaseAIProvider):
         Returns image bytes or None on failure.
         """
         try:
-            # Pollinations image generation endpoint
             url = f"{self.base_url}/v1/images/generations"
             headers = {
                 "Content-Type": "application/json",
@@ -218,13 +269,10 @@ class PollinationsProvider(BaseAIProvider):
 
                 if response.status_code == 200:
                     data = response.json()
-                    # Image is returned as base64
-                    import base64
                     for item in data.get("data", []):
                         if item.get("b64_json"):
                             return base64.b64decode(item["b64_json"])
                         elif item.get("url"):
-                            # Download from URL
                             img_resp = await client.get(item["url"])
                             if img_resp.status_code == 200:
                                 return img_resp.content
@@ -235,6 +283,84 @@ class PollinationsProvider(BaseAIProvider):
             logger.error(f"Image generation exception: {e}")
 
         return None
+
+    async def analyze_image(
+        self,
+        image_url: str = "",
+        image_base64: str = "",
+        prompt: str = "Опиши подробно что ты видишь на этом изображении.",
+        model: str = "openai",
+        system_prompt: str = "",
+        max_tokens: int = 600,
+        temperature: float = 0.7,
+    ) -> AIResponse:
+        """
+        Analyze an image using vision-capable models.
+        Supports both URL and base64-encoded images.
+        """
+        # Build the content array for vision
+        content = [
+            {"type": "text", "text": prompt}
+        ]
+
+        if image_url:
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": image_url}
+            })
+        elif image_base64:
+            # Determine media type from base64 header or default to jpeg
+            media_type = "image/jpeg"
+            if image_base64.startswith("data:"):
+                header, image_base64 = image_base64.split(",", 1)
+                if "png" in header:
+                    media_type = "image/png"
+                elif "webp" in header:
+                    media_type = "image/webp"
+                elif "gif" in header:
+                    media_type = "image/gif"
+
+            content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{media_type};base64,{image_base64}"
+                }
+            })
+
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+
+        messages.append({"role": "user", "content": content})
+
+        # Try primary vision model, then fallbacks
+        vision_models_to_try = [model]
+        for fallback in VISION_MODELS:
+            if fallback != model and not self._is_model_in_cooldown(fallback):
+                vision_models_to_try.append(fallback)
+
+        for vision_model in vision_models_to_try[:5]:  # Try up to 5 models
+            try:
+                result = await self.chat(
+                    messages=messages,
+                    model=vision_model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                if not result.error and result.text:
+                    return result
+                logger.warning(f"Vision model {vision_model} failed, trying next...")
+            except Exception as e:
+                logger.error(f"Vision error with {vision_model}: {e}")
+                continue
+
+        return AIResponse(
+            text="",
+            model=model,
+            provider=self.name,
+            error=True,
+            error_message="All vision models failed",
+        )
 
     async def is_available(self) -> bool:
         """Check if Pollinations API is reachable."""
@@ -256,14 +382,11 @@ class PollinationsProvider(BaseAIProvider):
 
     def _get_available_model(self) -> Optional[str]:
         """Get an available model that's not in cooldown."""
-        # First try the default
         if not self._is_model_in_cooldown(DEFAULT_MODEL):
             return DEFAULT_MODEL
-        # Then try fallbacks
         for model in FALLBACK_MODELS:
             if not self._is_model_in_cooldown(model):
                 return model
-        # If all in cooldown, try the one with oldest failure
         if _model_failures:
             oldest = min(_model_failures, key=_model_failures.get)
             return oldest
