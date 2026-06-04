@@ -28,6 +28,7 @@ from bot.config import config, persona
 from bot.database import (
     add_channel_post, get_today_post_count, get_unposted_news,
     mark_news_posted, add_partner_post, get_today_partner_post_count,
+    is_duplicate_post, add_post_fingerprint, cleanup_old_fingerprints,
 )
 from ai.router import ai_router
 from bot.partners import partner_manager
@@ -645,18 +646,43 @@ class ChannelManager:
 
         # Get news item if not provided
         if not news_item:
-            unposted = await get_unposted_news(limit=5)
+            unposted = await get_unposted_news(limit=10)
             if unposted:
-                auto_news = [n for n in unposted if n.get("category") == "auto"]
-                if auto_news:
-                    news_item = random.choice(auto_news)
-                else:
-                    news_item = unposted[0]
+                # Filter out duplicates using fingerprint system
+                for item in unposted:
+                    if await is_duplicate_post(item.get("title", ""), hours=48):
+                        logger.info(f"Skipping duplicate news: {item.get('title', '')[:60]}")
+                        # Mark as posted so we don't pick it again
+                        if item.get("url"):
+                            await mark_news_posted(item["url"])
+                        continue
+                    auto_news = [n for n in [item] if n.get("category") == "auto"]
+                    if auto_news:
+                        news_item = auto_news[0]
+                    else:
+                        news_item = item
+                    break
+                
+                # If all were duplicates, try internet search
+                if not news_item:
+                    news_item = await self._search_internet_news()
+                    if not news_item:
+                        logger.info("All unposted news are duplicates, and no internet news found")
+                        return False
             else:
                 news_item = await self._search_internet_news()
                 if not news_item:
                     logger.info("No unposted news available (RSS or internet)")
                     return False
+
+        # ── DEDUPLICATION: Check if this news was already posted ──
+        if news_item and news_item.get("title"):
+            if await is_duplicate_post(news_item["title"], hours=48):
+                logger.warning(f"DUPLICATE post blocked: {news_item['title'][:60]}")
+                # Mark as posted to avoid picking again
+                if news_item.get("url"):
+                    await mark_news_posted(news_item["url"])
+                return False
 
         # Generate post content using AI
         source_text = ""
@@ -792,6 +818,13 @@ class ChannelManager:
                 source_url=news_item.get("url", ""),
             )
 
+            # ── DEDUPLICATION: Store fingerprint to prevent duplicates ──
+            await add_post_fingerprint(
+                title=news_item.get("title", ""),
+                content=post_text,
+                post_id=sent.message_id,
+            )
+
             # Mark news as posted
             if news_item.get("url"):
                 await mark_news_posted(news_item["url"])
@@ -855,12 +888,17 @@ class ChannelManager:
 
                 news_item = {
                     "title": result.title,
-                    "url": result.url,
+                    "url": result.url,  # Unique URL from search result
                     "summary": result.snippet or "",
                     "category": "auto",
                     "lang": "ru" if any(c >= '\u0400' for c in result.title) else "en",
                     "image_urls": [],  # Will be filled by scraping if available
                 }
+
+                # Check for duplicate BEFORE returning
+                if await is_duplicate_post(result.title, hours=48):
+                    logger.info(f"Internet news is duplicate: {result.title[:60]}")
+                    continue
 
                 logger.info(f"Found internet news: {news_item['title'][:50]}")
                 return news_item
@@ -898,13 +936,18 @@ class ChannelManager:
                         summary = lines[1].strip() if len(lines) > 1 else text
 
                     if title:
-                        return {
+                        return_dict = {
                             "title": title,
-                            "url": f"https://t.me/sochiautoparts",
+                            "url": f"https://t.me/sochiautoparts/perplexity/{int(time.time())}",  # Unique URL
                             "summary": summary,
                             "category": "auto",
                             "lang": "ru",
                         }
+                        # Check for duplicate before returning
+                        if not await is_duplicate_post(title, hours=48):
+                            return return_dict
+                        else:
+                            logger.info(f"Perplexity news is duplicate: {title[:60]}")
             except Exception as e:
                 logger.debug(f"Perplexity news search failed: {e}")
 

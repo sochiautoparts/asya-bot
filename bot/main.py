@@ -26,7 +26,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import config
-from bot.database import init_db
+from bot.database import init_db, cleanup_old_fingerprints
 from bot.handlers import get_all_routers
 from bot.partners import partner_manager
 from ai.router import ai_router
@@ -167,15 +167,23 @@ class BackgroundTasks:
             logger.debug(f"Morning greeting error: {e}")
 
     async def _news_fetcher(self) -> None:
-        """Periodically fetch news from RSS sources."""
+        """Periodically fetch news from RSS sources and cleanup old data."""
         # Initial fetch shortly after startup
         await asyncio.sleep(30)
 
+        cycle_count = 0
         while self._running:
             try:
                 count = await run_news_cycle()
                 if count > 0:
                     logger.info(f"News fetcher: {count} new items")
+
+                # Cleanup old fingerprints every 12 cycles (~6 hours)
+                cycle_count += 1
+                if cycle_count % 12 == 0:
+                    removed = await cleanup_old_fingerprints(max_age_days=7)
+                    if removed > 0:
+                        logger.info(f"Cleaned up {removed} old post fingerprints")
             except Exception as e:
                 logger.error(f"News fetcher error: {e}")
 

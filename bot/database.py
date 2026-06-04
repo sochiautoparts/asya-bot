@@ -4,6 +4,7 @@ Tables: users, chat_history, news_items, channel_posts, ai_cache, partner_posts
 """
 
 import aiosqlite
+import hashlib
 import json
 import time
 from typing import Optional, List, Dict, Any
@@ -104,6 +105,19 @@ CREATE TABLE IF NOT EXISTS user_cars (
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_cars_user ON user_cars(user_id);
+
+CREATE TABLE IF NOT EXISTS post_fingerprints (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title_hash TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    title_prefix TEXT NOT NULL,
+    post_id INTEGER DEFAULT 0,
+    created_at REAL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_fingerprints_title ON post_fingerprints(title_hash);
+CREATE INDEX IF NOT EXISTS idx_fingerprints_content ON post_fingerprints(content_hash);
+CREATE INDEX IF NOT EXISTS idx_fingerprints_created ON post_fingerprints(created_at);
 """
 
 
@@ -469,6 +483,138 @@ def check_rate_limit(user_id: int) -> bool:
     _user_message_times[user_id] = times
 
     return len(times) <= RATE_LIMIT_MESSAGES
+
+
+async def add_post_fingerprint(title: str, content: str, post_id: int = 0) -> None:
+    """Add a fingerprint for a posted item to prevent duplicates.
+    
+    Stores:
+    - title_hash: SHA256 of normalized title (lowercase, no punctuation)
+    - content_hash: SHA256 of first 500 chars of normalized content
+    - title_prefix: first 30 chars of title for quick prefix matching
+    """
+    now = time.time()
+    title_hash = _make_title_hash(title)
+    content_hash = _make_content_hash(content)
+    title_prefix = _normalize_text(title)[:30]
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT INTO post_fingerprints (title_hash, content_hash, title_prefix, post_id, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (title_hash, content_hash, title_prefix, post_id, now),
+        )
+        await db.commit()
+
+
+async def is_duplicate_post(title: str, content: str = "", hours: int = 48) -> bool:
+    """Check if a post with similar title or content was recently posted.
+    
+    Checks:
+    1. Exact title hash match (same title, possibly different source)
+    2. Title prefix match (first 30 chars — catches reworded titles about same topic)
+    3. Content hash match (same content, possibly different title)
+    
+    Args:
+        title: News item title to check
+        content: Post content to check (optional)
+        hours: How many hours back to check (default 48h)
+    
+    Returns:
+        True if a similar post was found (DUPLICATE), False if unique
+    """
+    cutoff = time.time() - (hours * 3600)
+    title_hash = _make_title_hash(title)
+    title_prefix = _normalize_text(title)[:30]
+    
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Check 1: Exact title hash match
+        async with db.execute(
+            "SELECT COUNT(*) FROM post_fingerprints WHERE title_hash = ? AND created_at >= ?",
+            (title_hash, cutoff),
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row and row[0] > 0:
+                return True
+        
+        # Check 2: Title prefix match (catches reworded titles about same topic)
+        if len(title_prefix) >= 10:
+            async with db.execute(
+                "SELECT COUNT(*) FROM post_fingerprints WHERE title_prefix = ? AND created_at >= ?",
+                (title_prefix, cutoff),
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row and row[0] > 0:
+                    return True
+        
+        # Check 3: Content hash match (if content provided)
+        if content:
+            content_hash = _make_content_hash(content)
+            async with db.execute(
+                "SELECT COUNT(*) FROM post_fingerprints WHERE content_hash = ? AND created_at >= ?",
+                (content_hash, cutoff),
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row and row[0] > 0:
+                    return True
+    
+    return False
+
+
+async def get_recent_post_titles(hours: int = 48, limit: int = 50) -> List[str]:
+    """Get titles of recently posted news items for similarity checking."""
+    cutoff = time.time() - (hours * 3600)
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """SELECT content, source_url FROM channel_posts
+               WHERE created_at >= ? AND post_type = 'news'
+               ORDER BY created_at DESC LIMIT ?""",
+            (cutoff, limit),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            # Extract titles from post content (first line usually)
+            titles = []
+            for row in rows:
+                content = row["content"] if "content" in row.keys() else row[0]
+                if content:
+                    first_line = content.split('\n')[0].strip()
+                    if first_line:
+                        titles.append(first_line)
+            return titles
+
+
+def _normalize_text(text: str) -> str:
+    """Normalize text for comparison: lowercase, remove punctuation, collapse spaces."""
+    import re
+    text = text.lower().strip()
+    # Remove punctuation
+    text = re.sub(r'[^\w\sа-яё]', '', text, flags=re.IGNORECASE)
+    # Collapse whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+
+def _make_title_hash(title: str) -> str:
+    """Create a hash of normalized title for exact duplicate detection."""
+    normalized = _normalize_text(title)
+    return hashlib.sha256(normalized.encode('utf-8')).hexdigest()
+
+
+def _make_content_hash(content: str) -> str:
+    """Create a hash of normalized content (first 500 chars) for duplicate detection."""
+    normalized = _normalize_text(content[:500])
+    return hashlib.sha256(normalized.encode('utf-8')).hexdigest()
+
+
+async def cleanup_old_fingerprints(max_age_days: int = 7) -> int:
+    """Remove fingerprints older than max_age_days. Returns count of removed rows."""
+    cutoff = time.time() - (max_age_days * 86400)
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "DELETE FROM post_fingerprints WHERE created_at < ?", (cutoff,)
+        )
+        await db.commit()
+        return cursor.rowcount
 
 
 async def get_stats() -> Dict[str, Any]:

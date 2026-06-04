@@ -13,7 +13,7 @@ from typing import List, Dict, Optional
 from datetime import datetime
 
 from bot.config import config, news_config, NewsSource
-from bot.database import add_news_item, get_unposted_news, mark_news_posted
+from bot.database import add_news_item, get_unposted_news, mark_news_posted, is_duplicate_post
 
 logger = logging.getLogger("asya.news")
 
@@ -237,6 +237,11 @@ async def fetch_all_news() -> int:
 
                 # Filter for auto relevance (skip general news that aren't auto-related)
                 if source.category == "general" and not is_auto_relevant(item, source.lang):
+                    continue
+
+                # Filter out news with titles similar to recently posted items
+                if await is_duplicate_post(item["title"], hours=48):
+                    logger.debug(f"Skipping duplicate news title: {item['title'][:60]}")
                     continue
 
                 # Add to database (dedup by URL)
