@@ -291,15 +291,15 @@ class ChannelManager:
                 html = response.text
                 
                 # Extract og:image first (usually the main article image)
-                og_images = re.findall(r'<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']', html, re.IGNORECASE)
-                og_images += re.findall(r'<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']', html, re.IGNORECASE)
+                og_images = re.findall(r'<meta[^>]+property=["\x27]og:image["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]', html, re.IGNORECASE)
+                og_images += re.findall(r'<meta[^>]+content=["\x27]([^"\x27]+)["\x27][^>]+property=["\x27]og:image["\x27]', html, re.IGNORECASE)
                 
                 # Extract twitter:image
-                tw_images = re.findall(r'<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']', html, re.IGNORECASE)
-                tw_images += re.findall(r'<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']', html, re.IGNORECASE)
+                tw_images = re.findall(r'<meta[^>]+name=["\x27]twitter:image["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]', html, re.IGNORECASE)
+                tw_images += re.findall(r'<meta[^>]+content=["\x27]([^"\x27]+)["\x27][^>]+name=["\x27]twitter:image["\x27]', html, re.IGNORECASE)
                 
                 # Extract all <img> tags as last resort
-                all_img_urls = re.findall(r'<img[^>]+src=["']([^"']+)["']', html, re.IGNORECASE)
+                all_img_urls = re.findall(r'<img[^>]+src=["\x27]([^"\x27]+)["\x27]', html, re.IGNORECASE)
                 
                 # Prioritize: og:image > twitter:image > all images
                 candidate_urls = []
