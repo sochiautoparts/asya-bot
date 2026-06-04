@@ -63,14 +63,21 @@
             max-width: 700px;
         }
         .hero-avatar {
-            width: 120px; height: 120px;
+            width: 140px; height: 140px;
             border-radius: 50%;
             background: var(--gradient);
             margin: 0 auto 24px;
             display: flex; align-items: center; justify-content: center;
-            font-size: 56px;
+            overflow: hidden;
             box-shadow: 0 0 60px rgba(255,107,53,0.3);
             animation: pulse 3s ease-in-out infinite;
+            border: 4px solid rgba(255,107,53,0.5);
+        }
+        .hero-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 50%;
         }
         @keyframes pulse {
             0%, 100% { box-shadow: 0 0 60px rgba(255,107,53,0.3); }
@@ -235,40 +242,6 @@
             color: var(--text-muted);
         }
 
-        /* Models */
-        .models {
-            padding: 80px 20px;
-            max-width: 1100px;
-            margin: 0 auto;
-        }
-        .models-grid {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            justify-content: center;
-            margin-top: 40px;
-        }
-        .model-tag {
-            background: var(--bg-card);
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 8px;
-            padding: 8px 16px;
-            font-size: 13px;
-            font-family: 'SF Mono', 'Fira Code', monospace;
-            color: var(--text);
-            transition: border-color 0.2s;
-        }
-        .model-tag:hover {
-            border-color: var(--primary);
-        }
-        .model-tag .cat {
-            font-size: 10px;
-            color: var(--primary);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-right: 4px;
-        }
-
         /* Channel */
         .channel {
             padding: 80px 20px;
@@ -339,7 +312,7 @@
 <!-- Hero -->
 <section class="hero">
     <div class="hero-content">
-        <div class="hero-avatar">&#x1F697;</div>
+        <div class="hero-avatar"><img src="asya-avatar.jpg" alt="Ася — Автоэксперт"></div>
         <h1>Ася</h1>
         <p class="subtitle">Автоэксперт в Telegram</p>
         <p class="tagline">Расшифрует VIN, продиагностирует поломку, найдёт запчасть и расскажет автоновости — всё прямо в чате</p>
@@ -430,41 +403,6 @@
     </div>
 </section>
 
-<!-- AI Models -->
-<section class="models">
-    <div class="section-header">
-        <h2>Модели AI</h2>
-        <p>Ася работает на лучших моделях через Pollinations.ai</p>
-    </div>
-    <div class="models-grid">
-        <span class="model-tag"><span class="cat">chat</span>openai</span>
-        <span class="model-tag"><span class="cat">chat</span>openai-fast</span>
-        <span class="model-tag"><span class="cat">chat</span>openai-large</span>
-        <span class="model-tag"><span class="cat">chat</span>openai-mini</span>
-        <span class="model-tag"><span class="cat">chat</span>mistral</span>
-        <span class="model-tag"><span class="cat">chat</span>mistral-large</span>
-        <span class="model-tag"><span class="cat">chat</span>mistral-4</span>
-        <span class="model-tag"><span class="cat">chat</span>deepseek</span>
-        <span class="model-tag"><span class="cat">chat</span>qwen-large</span>
-        <span class="model-tag"><span class="cat">chat</span>llama-scout</span>
-        <span class="model-tag"><span class="cat">chat</span>nova</span>
-        <span class="model-tag"><span class="cat">chat</span>grok</span>
-        <span class="model-tag"><span class="cat">chat</span>gemma</span>
-        <span class="model-tag"><span class="cat">chat</span>glm</span>
-        <span class="model-tag"><span class="cat">chat</span>minimax-m3</span>
-        <span class="model-tag"><span class="cat">reason</span>openai-reasoning</span>
-        <span class="model-tag"><span class="cat">reason</span>deepseek</span>
-        <span class="model-tag"><span class="cat">reason</span>qwen-large</span>
-        <span class="model-tag"><span class="cat">vision</span>qwen-vision</span>
-        <span class="model-tag"><span class="cat">vision</span>qwen-vision-pro</span>
-        <span class="model-tag"><span class="cat">search</span>perplexity</span>
-        <span class="model-tag"><span class="cat">search</span>perplexity-fast</span>
-        <span class="model-tag"><span class="cat">image</span>flux</span>
-        <span class="model-tag"><span class="cat">image</span>gptimage</span>
-        <span class="model-tag"><span class="cat">image</span>kontext</span>
-    </div>
-</section>
-
 <!-- Channel -->
 <section class="channel">
     <div class="section-header">
@@ -473,7 +411,7 @@
     </div>
     <div class="channel-preview">
         <div class="channel-header-bar">
-            <div class="channel-avatar-sm">&#x1F697;</div>
+            <div class="channel-avatar-sm"><img src="asya-avatar.jpg" alt="Ася" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"></div>
             <div>
                 <div class="channel-name">sochiautoparts</div>
                 <div class="channel-sub">Автомобильный канал</div>
