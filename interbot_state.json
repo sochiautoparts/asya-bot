@@ -1,8 +1,19 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-03-04T00:00:00Z",
-  "pending_reviews": [],
+  "last_updated": "2026-06-05T15:46:41Z",
+  "pending_reviews": [
+    {
+      "id": "c_1780674401_d094e8",
+      "from": "asya",
+      "type": "news_candidate",
+      "title": "This Audi Moves Like a Deranged Zombie Because It’s Powered by Compressed Air",
+      "summary": "The post This Audi Moves Like a Deranged Zombie Because It&#8217;s Powered by Compressed Air appeared first on The Drive.",
+      "category": "auto",
+      "timestamp": 1780674401.8102014,
+      "status": "pending"
+    }
+  ],
   "reviews": [],
   "shared_chats": {},
   "messages": [],
