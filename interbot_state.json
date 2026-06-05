@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-05T17:44:02Z",
+  "last_updated": "2026-06-05T18:14:22Z",
   "pending_reviews": [
     {
       "id": "c_1780674401_d094e8",
@@ -41,6 +41,16 @@
       "summary": "The frame had to be lengthened by three feet to fit the two-stroke diesel engine measuring 1,136 cubic inches. The post John Deere Tractor With V16 Detroit Diesel Tugboat Engine Is a Sled-Pulling Machine appeared first on The Drive.",
       "category": "auto",
       "timestamp": 1780681442.749755,
+      "status": "pending"
+    },
+    {
+      "id": "c_1780683262_9339b3",
+      "from": "asya",
+      "type": "news_candidate",
+      "title": "Alonso slams 2026 F1 cars as “worst ever” in Monaco",
+      "summary": "Fernando Alonso notoriously dislikes Formula 1’s new-for-2026 machinery, and he made this abundantly clear following Friday practice at the Monaco Grand Prix.Alonso has been among the biggest critics of F1’s new rules ever since he first tested Aston Martin’s latest car, lamenting that high-speed co",
+      "category": "auto",
+      "timestamp": 1780683262.7471466,
       "status": "pending"
     }
   ],
