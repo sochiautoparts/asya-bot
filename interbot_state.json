@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-05T23:24:25Z",
+  "last_updated": "2026-06-05T23:28:45Z",
   "pending_reviews": [
     {
       "id": "c_1780674401_d094e8",
@@ -164,13 +164,13 @@
       "status": "timed_out"
     },
     {
-      "id": "c_1780701865_75ad3d",
+      "id": "c_1780702125_4aa9bf",
       "from": "asya",
       "type": "news_candidate",
-      "title": "2026 CarExpert Choice winner: Best Electrified Ute",
-      "summary": "The GWM Cannon Alpha PHEV offers a superb mix of genuine electric range, on-road comfort, and off-road capability.",
+      "title": "Suzuki Fronx Sport launched in Malaysia – B-segment SUV dressed up, at RM131k; base model fr RM119k",
+      "summary": "Suzuki Cars Malaysia has launched the Suzuki Fronx Sport alongside the Malaysian launch of the Suzuki Jimny Allgrip Plus and Jimny Rhino Plus. Based on the Fronx Hybrid that was launched in Malaysia last November, [&#8230;] The post Suzuki Fronx Sport launched in Malaysia – B-segment SUV dressed up,",
       "category": "auto",
-      "timestamp": 1780701865.817862,
+      "timestamp": 1780702125.451213,
       "status": "pending"
     }
   ],
