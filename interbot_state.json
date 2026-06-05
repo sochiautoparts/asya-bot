@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-05T18:14:22Z",
+  "last_updated": "2026-06-05T18:39:47Z",
   "pending_reviews": [
     {
       "id": "c_1780674401_d094e8",
@@ -51,6 +51,16 @@
       "summary": "Fernando Alonso notoriously dislikes Formula 1’s new-for-2026 machinery, and he made this abundantly clear following Friday practice at the Monaco Grand Prix.Alonso has been among the biggest critics of F1’s new rules ever since he first tested Aston Martin’s latest car, lamenting that high-speed co",
       "category": "auto",
       "timestamp": 1780683262.7471466,
+      "status": "pending"
+    },
+    {
+      "id": "c_1780684787_bde35f",
+      "from": "asya",
+      "type": "news_candidate",
+      "title": "формой обратной связи",
+      "summary": "",
+      "category": "auto",
+      "timestamp": 1780684787.2549684,
       "status": "pending"
     }
   ],
