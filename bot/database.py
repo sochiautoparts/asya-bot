@@ -508,24 +508,25 @@ async def add_post_fingerprint(title: str, content: str, post_id: int = 0) -> No
 
 async def is_duplicate_post(title: str, content: str = "", hours: int = 48) -> bool:
     """Check if a post with similar title or content was recently posted.
-    
-    Checks:
+
+    Checks (in order):
     1. Exact title hash match (same title, possibly different source)
     2. Title prefix match (first 30 chars — catches reworded titles about same topic)
-    3. Content hash match (same content, possibly different title)
-    
+    3. Keyword overlap match (extract key nouns — catches paraphrased titles about same subject)
+    4. Content hash match (same content, possibly different title)
+
     Args:
         title: News item title to check
         content: Post content to check (optional)
         hours: How many hours back to check (default 48h)
-    
+
     Returns:
         True if a similar post was found (DUPLICATE), False if unique
     """
     cutoff = time.time() - (hours * 3600)
     title_hash = _make_title_hash(title)
     title_prefix = _normalize_text(title)[:30]
-    
+
     async with aiosqlite.connect(DB_PATH) as db:
         # Check 1: Exact title hash match
         async with db.execute(
@@ -535,7 +536,7 @@ async def is_duplicate_post(title: str, content: str = "", hours: int = 48) -> b
             row = await cursor.fetchone()
             if row and row[0] > 0:
                 return True
-        
+
         # Check 2: Title prefix match (catches reworded titles about same topic)
         if len(title_prefix) >= 10:
             async with db.execute(
@@ -545,8 +546,33 @@ async def is_duplicate_post(title: str, content: str = "", hours: int = 48) -> b
                 row = await cursor.fetchone()
                 if row and row[0] > 0:
                     return True
-        
-        # Check 3: Content hash match (if content provided)
+
+        # Check 3: Keyword overlap — extract significant words from title and compare
+        # This catches paraphrased titles like "BMW X5 gets new engine" vs "New engine for BMW X5"
+        title_keywords = _extract_title_keywords(title)
+        if len(title_keywords) >= 2:
+            # Get all recent fingerprints for keyword comparison
+            async with db.execute(
+                "SELECT title_prefix FROM post_fingerprints WHERE created_at >= ?",
+                (cutoff,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                for row in rows:
+                    existing_prefix = row[0] if row else ""
+                    if not existing_prefix:
+                        continue
+                    existing_keywords = _extract_title_keywords(existing_prefix)
+                    if not existing_keywords:
+                        continue
+                    # Calculate keyword overlap ratio
+                    common = title_keywords & existing_keywords
+                    if len(common) >= 2:
+                        # At least 2 significant keywords overlap — likely same topic
+                        overlap_ratio = len(common) / min(len(title_keywords), len(existing_keywords))
+                        if overlap_ratio >= 0.6:
+                            return True
+
+        # Check 4: Content hash match (if content provided)
         if content:
             content_hash = _make_content_hash(content)
             async with db.execute(
@@ -556,7 +582,7 @@ async def is_duplicate_post(title: str, content: str = "", hours: int = 48) -> b
                 row = await cursor.fetchone()
                 if row and row[0] > 0:
                     return True
-    
+
     return False
 
 
@@ -592,6 +618,63 @@ def _normalize_text(text: str) -> str:
     # Collapse whitespace
     text = re.sub(r'\s+', ' ', text).strip()
     return text
+
+
+# Stopwords to exclude from keyword extraction (common words that don't carry meaning)
+_TITLE_STOPWORDS = {
+    # English
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+    "should", "may", "might", "shall", "can", "need", "must", "ought",
+    "to", "of", "in", "for", "on", "with", "at", "by", "from", "as",
+    "into", "through", "during", "before", "after", "above", "below",
+    "between", "out", "off", "over", "under", "again", "further",
+    "then", "once", "and", "but", "or", "nor", "not", "so", "yet",
+    "both", "either", "neither", "each", "every", "all", "any",
+    "this", "that", "these", "those", "it", "its", "he", "she",
+    "they", "them", "we", "you", "i", "me", "my", "your", "his",
+    "her", "our", "their", "what", "which", "who", "whom", "how",
+    "when", "where", "why", "if", "than", "too", "very", "just",
+    "about", "also", "more", "most", "other", "some", "such",
+    "no", "only", "own", "same", "up", "new", "now", "here",
+    "get", "gets", "got", "make", "makes", "take", "takes",
+    # Russian
+    "и", "в", "во", "не", "что", "он", "на", "я", "с", "со", "как",
+    "а", "то", "все", "она", "так", "его", "но", "да", "ты", "к",
+    "у", "же", "вы", "за", "бы", "по", "только", "ее", "мне", "было",
+    "вот", "от", "меня", "еще", "нет", "о", "из", "ему", "теперь",
+    "когда", "даже", "ну", "вдруг", "ли", "если", "уже", "или", "ни",
+    "быть", "был", "него", "до", "вас", "нибудь", "опять", "уж",
+    "ведь", "там", "потом", "себя", "ничего", "ей", "может", "они",
+    "тут", "где", "есть", "надо", "ней", "для", "мы", "тебя", "их",
+    "чем", "была", "сам", "чтоб", "без", "будто", "человек", "чего",
+    "раз", "тоже", "себе", "под", "будет", "ж", "тогда", "кто",
+    "этот", "того", "потому", "этого", "какой", "совсем", "ним",
+    "здесь", "этом", "один", "почти", "мой", "тем", "чтобы", "нее",
+    "сейчас", "были", "куда", "зачем", "всех", "никогда", "можно",
+    "при", "наконец", "два", "об", "другой", "хоть", "после",
+    "над", "больше", "тот", "через", "эти", "нас", "про", "всего",
+    "них", "какая", "много", "разве", "три", "эту", "моя", "впрочем",
+    "хорошо", "свою", "этой", "перед", "иногда", "лучше", "чуть",
+    "том", "нельзя", "такой", "им", "более", "всегда", "конечно",
+    "всю", "между",
+}
+
+
+def _extract_title_keywords(title: str) -> set:
+    """Extract significant keywords from a title for overlap comparison.
+
+    Returns a set of normalized significant words (stopwords removed, short words filtered).
+    """
+    import re
+    normalized = _normalize_text(title)
+    words = set(normalized.split())
+    # Remove stopwords and very short words (less than 3 chars)
+    significant = set()
+    for w in words:
+        if len(w) >= 3 and w not in _TITLE_STOPWORDS:
+            significant.add(w)
+    return significant
 
 
 def _make_title_hash(title: str) -> str:

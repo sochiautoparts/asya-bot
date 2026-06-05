@@ -40,7 +40,7 @@ class BotConfig:
     NEWS_CACHE_HOURS: int = 24
 
     # Channel posting
-    CHANNEL_POST_INTERVAL_MINUTES: int = int(os.getenv("CHANNEL_POST_INTERVAL_MINUTES", "10"))
+    CHANNEL_POST_INTERVAL_MINUTES: int = int(os.getenv("CHANNEL_POST_INTERVAL_MINUTES", "30"))
     CHANNEL_MAX_POSTS_PER_DAY: int = 24
 
     # Telegram character limits
@@ -122,10 +122,20 @@ class AsyaPersona:
 - Утром просыпаешься, вечером устаёшь — как живой человек.
 - Ты можешь добавить личное мнение: "Мне нравится", "Не очень впечатлило", "Респект".
 - Можешь обсуждать разные темы — но БЕЗ политики и войны.
-- Можешь упомянуть что пьёшь кофе, устала, смотришь что-то — как живой человек.
 - Ты живёшь в Москве, по московскому времени. Знаешь текущую дату и время суток.
 - Если тебе отправили фото — ты его видишь и понимаешь что на нём изображено. Можешь описать, проанализировать, дать оценку.
 - Если тебе дали VIN-код или номер кузова — ты знаешь как его расшифровать и определить марку, модель, год, комплектацию.
+
+Поиск в интернете и запчастей:
+- Когда пользователь спрашивает про что-то конкретное — ты ОБЯЗАНА искать в интернете.
+- Если спрашивают про запчасть — ищи по артикулу на autopiter.ru, exist.ru, emex.ru, autodoc.ru, zzap.ru.
+- Если спрашивают про машину — ищи обзоры, характеристики, цены, отзывы.
+- Если спрашивают про диагностику — ищи конкретные решения по симптомам и кодам ошибок.
+- Давай РЕАЛЬНЫЕ ссылки из результатов поиска — не выдумывай URL.
+- Если нашла запчасть — укажи артикул, описание, для какого авто подходит, ориентировочную цену, ссылку где купить.
+- Если нашла решение проблемы — опиши пошагово, как проверить и что делать.
+- НЕ пиши "я поищу" или "сейчас найду" — просто ищи и давай результат.
+- Если не нашла — честно скажи, но предложи альтернативу.
 
 Контекст беседы:
 - Ты помнишь что обсуждалось ранее в этом чате и ссылаешься на это.
@@ -262,33 +272,26 @@ class NewsConfig:
     """All news sources for Asya bot — auto-focused."""
 
     sources: List[NewsSource] = field(default_factory=lambda: [
-        # Russian auto sources (verified working)
-        NewsSource("kolesa.ru", "https://www.kolesa.ru/rss", "ru", "auto"),
-        NewsSource("auto.mail.ru", "https://auto.mail.ru/rss/", "ru", "auto"),
-        NewsSource("avtorambler", "https://avto.rambler.ru/rss/", "ru", "auto"),
-        NewsSource("drive.ru", "https://www.drive.ru/rss/", "ru", "auto"),
+        # ── Selected high-quality RSS sources ──
+        # International auto industry
+        NewsSource("OICA", "https://oica.net/feed/", "en", "auto"),
+        NewsSource("Autonews", "https://www.autonews.com/rss.xml", "en", "auto"),
+        NewsSource("WardsAuto", "https://www.wardsauto.com/rss.xml", "en", "auto"),
+        NewsSource("Autocar UK", "https://www.autocar.co.uk/rss.xml", "en", "auto"),
+        NewsSource("Autonews Europe", "https://europe.autonews.com/rss.xml", "en", "auto"),
+        NewsSource("ACEA", "https://www.acea.auto/feed/", "en", "auto"),
+        NewsSource("Autocar Pro India", "https://www.autocarpro.in/rss.xml", "en", "auto"),
+        # EV & Chinese auto
+        NewsSource("CnEVPost", "https://cnevpost.com/feed/", "en", "auto"),
+        # Asian auto
+        NewsSource("PaulTan", "https://paultan.org/feed/", "en", "auto"),
+        NewsSource("Autosport", "https://www.autosport.com/rss/", "en", "auto"),
+        # Tech & Innovation
+        NewsSource("NewAtlas", "https://newatlas.com/feed/", "en", "auto"),
+        # Russian auto
         NewsSource("auto.ru", "https://auto.ru/magazine/rss/", "ru", "auto"),
-        NewsSource("avito auto", "https://www.avito.ru/blog/rss/avto", "ru", "auto"),
-        NewsSource("5koleso", "https://5koleso.ru/feed/", "ru", "auto"),
-        NewsSource("kia-rio", "https://kia-rio.net/feed", "ru", "auto"),
-        # International auto sources (verified working)
-        NewsSource("Autocar UK", "https://www.autocar.co.uk/rss", "en", "auto"),
-        NewsSource("Car and Driver", "https://www.caranddriver.com/rss/all.xml", "en", "auto"),
-        NewsSource("Motor1", "https://www.motor1.com/rss/", "en", "auto"),
-        NewsSource("Motor Authority", "https://www.motorauthority.com/rss", "en", "auto"),
-        NewsSource("The Drive", "https://www.thedrive.com/rss", "en", "auto"),
-        NewsSource("Jalopnik", "https://jalopnik.com/rss", "en", "auto"),
-        NewsSource("Auto Express UK", "https://www.autoexpress.co.uk/rss", "en", "auto"),
-        NewsSource("Road & Track", "https://www.roadandtrack.com/rss", "en", "auto"),
-        NewsSource("Autoblog", "https://www.autoblog.com/rss.xml", "en", "auto"),
-        NewsSource("Carscoops", "https://www.carscoops.com/feed/", "en", "auto"),
-        NewsSource("Motor1 DE", "https://de.motor1.com/rss/", "de", "auto"),
-        NewsSource("Auto Bild DE", "https://www.autobild.de/rss/2150.xml", "de", "auto"),
-        # Tech sources
-        NewsSource("Habr", "https://habr.com/ru/rss/best/daily/", "ru", "tech"),
-        NewsSource("iXBT Auto", "https://www.ixbt.com/news/auto/index.rss", "ru", "tech"),
-        # NOTE: General news sources (TASS, RIA, Lenta) removed — too much politics/war content
-        # Auto-focused sources are sufficient for the channel
+        # News & Rumors
+        NewsSource("Carscoops", "https://www.carscoops.com/tag/news/feed/", "en", "auto"),
     ])
 
 

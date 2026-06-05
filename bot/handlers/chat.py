@@ -705,7 +705,7 @@ async def _process_text_message(message: Message, text: str):
         if diag_context:
             extra_context_parts.append(diag_context)
 
-    # 6. Web search for relevant info
+    # 6. Web search for relevant info — expanded triggers for better search coverage
     needs_search = (
         is_diagnostic or
         is_part_query or
@@ -714,6 +714,12 @@ async def _process_text_message(message: Message, text: str):
             "новости", "что нового", "обзор", "сравни", "лучший",
             "рекомендуй", "посоветуй", "купить", "заказать",
             "когда", "где", "какой", "какая", "какие",
+            "запчаст", "деталь", "артикул", "оригинал", "аналог",
+            "замена", "ремонт", "поломк", "стучит", "не работает",
+            "горит", "ошибка", "код", "чек", "check",
+            "цена", "стоимость", "подбор", "купить",
+            "отзыв", "проблем", "бренд", "производител",
+            "характеристик", "мощност", "расход", "масло",
         ])
     )
 
@@ -727,6 +733,47 @@ async def _process_text_message(message: Message, text: str):
                 extra_context_parts.append("Результаты поиска:\n" + format_search_results(results, max_items=3))
         except Exception as e:
             logger.error(f"Web search error: {e}")
+
+    # 6.5. Spare part search — if user mentions parts/articles, search shops specifically
+    is_spare_part_query = (
+        any(kw in text.lower() for kw in [
+            "запчаст", "деталь", "артикул", "купить запчас", "купить детал",
+            "оригинал", "аналог", "замена", "подбор", "номер детал",
+            "oem", "оригинальн",
+        ])
+        or is_part_number(text.strip())
+        or bool(part_numbers)
+        or chat_mode == "parts"
+    )
+
+    if is_spare_part_query and part_numbers:
+        try:
+            for article in part_numbers[:3]:
+                part_results = await search_spare_part(article, max_results=3)
+                if part_results:
+                    extra_context_parts.append(
+                        f"Результаты поиска запчастей по артикулу {article}:\n"
+                        + format_search_results(part_results, max_items=3)
+                    )
+        except Exception as e:
+            logger.error(f"Spare part search error: {e}")
+    elif is_spare_part_query and brand:
+        # No article but mentions brand + parts — general search
+        try:
+            part_query = f"{brand} запчасти купить"
+            if is_diagnostic:
+                from bot.asya import identify_car_brand, detect_symptoms
+                symptoms = detect_symptoms(text)
+                if symptoms:
+                    part_query = f"{brand} {' '.join(symptoms[:2])} запчасти замена"
+            results = await search_spare_part(part_query, max_results=3)
+            if results:
+                extra_context_parts.append(
+                    "Результаты поиска запчастей:\n"
+                    + format_search_results(results, max_items=3)
+                )
+        except Exception as e:
+            logger.error(f"Brand spare part search error: {e}")
 
     # 7. Partner program context
     try:
