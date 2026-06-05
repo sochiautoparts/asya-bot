@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-05T18:39:47Z",
+  "last_updated": "2026-06-05T19:36:27Z",
   "pending_reviews": [
     {
       "id": "c_1780674401_d094e8",
@@ -61,6 +61,16 @@
       "summary": "",
       "category": "auto",
       "timestamp": 1780684787.2549684,
+      "status": "pending"
+    },
+    {
+      "id": "c_1780688187_469617",
+      "from": "asya",
+      "type": "news_candidate",
+      "title": "2026 Lexus RX500h Pros and Cons Review: For Best Results, Skip the F Sport",
+      "summary": "For the true RX experience, go for the nicer and comfortable RX350h. The F Sport's aggro body bits, orange brake pads, and overly-loud red interior don't do this SUV any favors. The post 2026 Lexus RX500h Pros and Cons Review: For Best Results, Skip the F Sport appeared first on The Drive.",
+      "category": "auto",
+      "timestamp": 1780688187.9110365,
       "status": "pending"
     }
   ],
