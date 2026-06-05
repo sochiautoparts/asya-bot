@@ -68,7 +68,7 @@ CHAT_MODELS = [
     "kimi-k2.6",           # Kimi K2.6, 262K context — latest reasoning
     "polly",               # Polly, reasoning model with tools — Pollinations reasoning
     # Models that may return empty content — kept for when they work
-    "openai-fast",         # GPT-5 nano, 400K context, tools — fastest OpenAI (may return empty)
+    # NOTE: "openai-fast" removed from CHAT_MODELS — returns empty too often
     "step-flash",          # Step Flash, 256K context, tools, reasoning+vision (may return empty)
     "qwen-large",          # Qwen Large, 1M context, reasoning+vision (may return empty)
     # Premium / quality models

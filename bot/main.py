@@ -282,6 +282,9 @@ class BackgroundTasks:
                 # Refresh state from GitHub
                 await interbot_manager.maybe_refresh()
 
+                # Clean up stale candidates that have been pending too long
+                await interbot_manager.cleanup_stale_candidates(max_age_seconds=600)
+
                 # Check for timed-out candidates that should be published independently
                 pending = interbot_manager._own_state.get("pending_reviews", [])
                 for candidate in pending:

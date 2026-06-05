@@ -174,6 +174,12 @@ def _clean_post_text(text: str) -> str:
         r'[^\n]*выберу\s+другую[^\n]*',
         r'[^\n]*напишу\s+о\s+друг[^\n]*',
         r'[^\n]*могу\s+сразу\s+сделать[^\n]*',
+        # Additional patterns for "тему сейчас брать нельзя" and similar phrases
+        r'[^\n]*тему\s+сейчас\s+(беречь|брать|публиковать)\s+нельзя[^\n]*',
+        r'[^\n]*повтор\s+будет\s+заметен[^\n]*',
+        r'[^\n]*в\s+последних\s+постах[^\n]*',
+        r'[^\n]*нельзя\s+публиковать[^\n]*',
+        r'[^\n]*не\s+стоит\s+(брать|публиковать|писать)[^\n]*',
     ]
     for pattern in meta_comment_patterns:
         text = re.sub(pattern, '', text, flags=re.IGNORECASE)
@@ -263,7 +269,11 @@ def _validate_post_text(text: str) -> bool:
         "do not publish", "do not post",
         "this was already", "duplicate post",
         "я не буду публиковать", "не буду повторять",
-        "пропущу эту новость",
+        "лучше не публиковать", "пропущу эту новость",
+        "тему сейчас брать нельзя", "повтор будет заметен",
+        "в последних постах уже", "нельзя публиковать",
+        "не стоит брать", "не стоит публиковать",
+        "не стоит писать",
     ]
     for phrase in duplicate_indicator_phrases:
         if phrase in text_lower:
@@ -725,7 +735,7 @@ class ChannelManager:
                     )},
                     {"role": "user", "content": f"Новость: {news_title}\n{news_summary[:300]}"},
                 ],
-                model="openai-fast",
+                model="mistral",
                 temperature=0.8,
                 max_tokens=200,
             )

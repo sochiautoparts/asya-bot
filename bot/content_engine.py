@@ -89,6 +89,9 @@ _EVENT_KEYWORDS = [
     "crash", "авария", "merger", "слияни", "bankruptcy", "банкрот",
     "redesign", "рестайлинг", "facelift", "update", "обновлен",
     "discontinue", "снят", "сняти", "spy", "шпионск", "prototype", "прототип",
+    # F1 driver names for entity extraction
+    "alonso", "verstappen", "hamilton", "leclerc", "norris",
+    "sainz", "perez", "vettel", "russell", "piastri",
 ]
 
 
@@ -685,6 +688,7 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
                 )
             
             candidates_text = "\n".join(candidates_summary)
+
             
             # Try multiple models — skip openai-fast (always empty)
             for model_name in _TOPIC_PICK_MODELS:

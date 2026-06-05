@@ -455,11 +455,13 @@ async def web_search(query: str, max_results: int = None, region: str = "ru") ->
 
 
 async def search_news(query: str, max_results: int = 5) -> List[SearchResult]:
-    """Search for news articles."""
+    """Search for news articles — SearXNG first, then DDG fallback."""
     news_query = f"{query} новости авто"
-    results = await search_ddg_html(news_query, max_results=max_results)
+    # Try SearXNG first (more reliable than DDG which returns 202)
+    results = await search_searxng(news_query, max_results=max_results, language="ru")
     if len(results) < 2:
-        results.extend(await search_searxng(news_query, max_results=max_results))
+        ddg_results = await search_ddg_html(news_query, max_results=max_results)
+        results.extend(ddg_results)
     return results[:max_results]
 
 

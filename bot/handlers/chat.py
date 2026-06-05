@@ -610,10 +610,13 @@ async def handle_photo(message: Message):
                 if detected_vin and len(detected_vin) == 17:
                     try:
                         links = partner_manager.get_primary_parts_links()
-                        vin_partner_links = [(link['name'], link['url']) for link in links[:5]]
-                        partner_section = _format_partner_links_section(vin_partner_links)
-                        if partner_section:
-                            reply_text = reply_text.rstrip() + "\n\n" + partner_section
+                        if links:
+                            reply_text += f"\n\nЗапчасти по VIN {detected_vin} можно подобрать здесь:\n"
+                            reply_text += "Где купить:\n"
+                            link_emojis = ["🔧", "🔍", "🛒"]
+                            for i, link in enumerate(links):
+                                emoji = link_emojis[i] if i < len(link_emojis) else "🔗"
+                                reply_text += f"{emoji} {link['name']} — {link['url']}\n"
                     except Exception as e:
                         logger.debug(f"Primary links from photo error: {e}")
 
@@ -622,10 +625,12 @@ async def handle_photo(message: Message):
                 if detected_parts:
                     try:
                         links = partner_manager.get_primary_parts_links()
-                        part_links_list = [(link['name'], link['url']) for link in links[:3]]
-                        part_section = _format_partner_links_section(part_links_list)
-                        if part_section:
-                            reply_text = reply_text.rstrip() + "\n\n" + part_section
+                        if links:
+                            reply_text += "\n\nГде купить:\n"
+                            link_emojis = ["🔧", "🔍", "🛒"]
+                            for i, link in enumerate(links):
+                                emoji = link_emojis[i] if i < len(link_emojis) else "🔗"
+                                reply_text += f"{emoji} {link['name']} — {link['url']}\n"
                     except Exception as e:
                         logger.debug(f"Primary links from photo parts error: {e}")
 

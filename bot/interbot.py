@@ -251,6 +251,24 @@ class InterbotManager:
         submitted_at = candidate.get("timestamp", 0)
         return (time.time() - submitted_at) > CANDIDATE_TIMEOUT
 
+    async def cleanup_stale_candidates(self, max_age_seconds: int = 600):
+        """Remove candidates older than max_age_seconds from pending list."""
+        now = time.time()
+        before = len(self._own_state.get("pending_reviews", []))
+        self._own_state["pending_reviews"] = [
+            c for c in self._own_state.get("pending_reviews", [])
+            if now - c.get("timestamp", 0) < max_age_seconds or c.get("status") == "pending"
+        ]
+        # Also mark old pending as "can_publish_independently" 
+        for c in self._own_state.get("pending_reviews", []):
+            if c.get("status") == "pending" and (now - c.get("timestamp", 0)) > max_age_seconds:
+                c["status"] = "timed_out"
+        
+        after = len(self._own_state.get("pending_reviews", []))
+        if before != after:
+            logger.info(f"Cleaned up stale candidates: {before} → {after}")
+            await self._push_state()
+
     # ── Inter-bot messaging ──
 
     async def send_message(self, text: str, to: str = "nastya") -> bool:
