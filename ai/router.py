@@ -1,12 +1,19 @@
 """
-AI Router — Routes requests to the best available AI provider.
-Pollinations primary + LlamaCpp local fallback.
-Supports chat, vision, VIN decoding, channel content, and more.
+AI Router v2.0 — LOCAL-FIRST + Cloud-for-Complex.
+Qwen3-4B primary for simple chat, Pollinations for complex tasks + vision.
+Saves cloud balance — balance refreshes every hour!
+
+Route strategy:
+  SIMPLE tasks (greetings, short chat) → LOCAL model (free, instant)
+  COMPLEX tasks (VIN, diagnostics, parts, search) → Pollinations cloud
+  VISION tasks (photos) → Pollinations vision only
+  BACKGROUND tasks (news, channel) → LOCAL model first
 """
 
 import hashlib
 import logging
 import random
+import time
 from typing import Optional, List, Dict
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -20,7 +27,7 @@ from ai.providers.pollinations_provider import (
 from bot.config import config, persona
 from bot.database import get_ai_cached, set_ai_cached, get_chat_history, add_chat_message
 
-# Conditional import — LlamaCpp local fallback
+# Conditional import — LlamaCpp local
 try:
     from ai.providers.llama_cpp_provider import LlamaCppProvider
     _LLAMA_CPP_AVAILABLE = True
@@ -75,11 +82,77 @@ FALLBACK_RESPONSES = [
     "Ой, мысли улетели! Повтори для Аси? 💭",
 ]
 
+# ── Task complexity detection for LOCAL-FIRST routing ──
+# Keywords that indicate a SIMPLE task (local model can handle)
+_SIMPLE_TASK_KEYWORDS = [
+    "привет", "как дела", "пока", "спасибо", "ок", "ладно",
+    "что делаешь", "скучно", "доброе утро", "добрый день", "добрый вечер",
+    "спокойной ночи", "как настроен", "чем занята",
+    "кто ты", "что ты", "сколько тебе", "где ты живёшь",
+    "хаха", "ахах", "лол", "прикольно", "круто", "класс",
+    "да", "нет", "норм", "супер", "окей", "ага", "угу",
+]
+
+# Keywords that indicate a COMPLEX task (cloud model needed)
+_COMPLEX_TASK_KEYWORDS = [
+    # VIN & auto diagnostics
+    "vin", "вин", "расшифруй", "декодир", "пробей",
+    "диагност", "ремонт", "не заводит", "стучит", "горит",
+    "ошибка", "чек", "check", "код ошибки", "obd",
+    # Parts search
+    "запчаст", "деталь", "артикул", "купить", "найти запчас",
+    "подобрать", "оригинал", "аналог", "oem",
+    # Detailed/complex requests
+    "подробно", "расскажи подробно", "объясни подробно",
+    "сравни", "проанализир", "рассчитай", "посчитай",
+    # Search and products
+    "найди", "поищи", "ищи", "где купить", "купить",
+    "ссылк", "заказать", "цена", "стоимость", "сколько",
+    # Tech & science
+    "как работает", "принцип действия", "устройство",
+    "почему", "зачем", "из-за чего", "в чём разница",
+]
+
+
+def _classify_task_complexity(message: str) -> str:
+    """Classify task complexity to route to local or cloud model.
+    
+    Returns:
+        "simple" — local model can handle (saves cloud balance)
+        "complex" — cloud model recommended
+        "cloud_only" — must use cloud (vision, etc.)
+    """
+    msg_lower = message.lower().strip()
+    
+    # Long messages are complex
+    if len(message) > 300:
+        return "complex"
+    
+    # Check for complex task keywords
+    for kw in _COMPLEX_TASK_KEYWORDS:
+        if kw in msg_lower:
+            return "complex"
+    
+    # Check for simple task keywords
+    simple_count = sum(1 for kw in _SIMPLE_TASK_KEYWORDS if kw in msg_lower)
+    if simple_count > 0 and len(message) < 100:
+        return "simple"
+    
+    # Default: simple for short messages, complex for longer
+    if len(message) < 150:
+        return "simple"
+    
+    return "complex"
+
 
 class AIRouter:
     """Routes AI requests to the best available provider with fallback.
 
-    Route: Pollinations (primary) → LlamaCpp (local fallback) → static fallback.
+    v2.0 LOCAL-FIRST strategy:
+    - Simple chat → LOCAL model (saves cloud balance!)
+    - Complex tasks (VIN, diagnostics, parts) → Pollinations cloud
+    - Vision (photos) → Pollinations cloud only
+    - Background (news, channel) → LOCAL model first
     """
 
     def __init__(self):
@@ -88,28 +161,19 @@ class AIRouter:
         self._local: Optional[LlamaCppProvider] = None
         self._total_fallbacks: int = 0
         self._local_requests: int = 0
+        self._cloud_requests: int = 0
+        self._local_primary_count: int = 0
 
     async def initialize(self) -> None:
-        """Initialize all providers: Pollinations PRIMARY + LlamaCpp FALLBACK."""
-        # ── 1. Pollinations — PRIMARY ──
-        pollinations = PollinationsProvider()
-        self.providers = [pollinations]
-        self._primary = pollinations
-        logger.info(
-            f"AI Router: Pollinations initialized as PRIMARY "
-            f"({len(POLLINATIONS_MODELS)} models: "
-            f"{len(CHAT_MODELS)} chat, {len(VISION_MODELS)} vision, "
-            f"{len(CONTENT_MODELS)} content, {len(SEARCH_MODELS)} search)"
-        )
-
-        # ── 2. LlamaCpp — LOCAL FALLBACK (only if enabled AND available!) ──
+        """Initialize all providers: LlamaCpp PRIMARY + Pollinations COMPLEX."""
+        # ── 1. LlamaCpp — LOCAL PRIMARY (for simple tasks, saves balance!) ──
         if config.ENABLE_LOCAL_MODEL and config.MODEL_PATH and _LLAMA_CPP_AVAILABLE and LlamaCppProvider is not None:
             try:
                 self._local = LlamaCppProvider(
                     model_path=config.MODEL_PATH,
                     timeout=65.0,
                     model_config={
-                        "n_ctx": config.MODEL_N_CTX,
+                        "n_ctx": max(config.MODEL_N_CTX, 4096),  # Minimum 4096!
                         "n_threads": config.MODEL_N_THREADS,
                         "n_gpu_layers": 0,
                         "verbose": False,
@@ -117,7 +181,7 @@ class AIRouter:
                         "use_mlock": False,
                     },
                     gen_config={
-                        "max_tokens": min(config.MODEL_MAX_TOKENS, 256),
+                        "max_tokens": max(config.MODEL_MAX_TOKENS, 384),  # Minimum 384!
                         "temperature": 0.82,
                         "top_p": 0.92,
                         "top_k": 50,
@@ -125,7 +189,7 @@ class AIRouter:
                     },
                 )
                 await self._local.init()
-                logger.info("LlamaCppProvider initialized as LOCAL FALLBACK")
+                logger.info("LlamaCppProvider initialized as LOCAL PRIMARY (saves cloud balance!)")
             except Exception as e:
                 logger.warning(f"LlamaCppProvider init failed: {e}")
                 self._local = None
@@ -137,15 +201,26 @@ class AIRouter:
             else:
                 logger.info("Local model DISABLED (ENABLE_LOCAL_MODEL not set) — running cloud-only")
 
+        # ── 2. Pollinations — CLOUD FOR COMPLEX TASKS ──
+        pollinations = PollinationsProvider()
+        self.providers = [pollinations]
+        self._primary = pollinations
+        logger.info(
+            f"AI Router: Pollinations initialized for COMPLEX TASKS "
+            f"({len(POLLINATIONS_MODELS)} models: "
+            f"{len(CHAT_MODELS)} chat, {len(VISION_MODELS)} vision, "
+            f"{len(CONTENT_MODELS)} content, {len(SEARCH_MODELS)} search)"
+        )
+
         # Log status
-        pollinations_status = "active" if self._primary and self._primary.is_available() else "unavailable"
         local_status = "not_installed" if not _LLAMA_CPP_AVAILABLE else ("disabled" if not config.ENABLE_LOCAL_MODEL else ("active" if self._local and self._local.is_available() else "unavailable"))
+        pollinations_status = "active" if self._primary else "unavailable"
         model_name = self._local._model_name if self._local and self._local._loaded else "none"
 
         logger.info(
-            f"AI Router initialized: "
-            f"pollinations={pollinations_status} (PRIMARY, {len(CHAT_MODELS)} models, vision=yes), "
-            f"local={local_status} (FALLBACK, model={model_name}, ENABLE_LOCAL_MODEL={config.ENABLE_LOCAL_MODEL})"
+            f"AI Router v2.0 LOCAL-FIRST initialized: "
+            f"local={local_status} (PRIMARY for simple chat, model={model_name}, n_ctx={max(config.MODEL_N_CTX, 4096)}), "
+            f"pollinations={pollinations_status} (COMPLEX tasks + vision, {len(CHAT_MODELS)} models)"
         )
 
     async def close(self) -> None:
@@ -188,7 +263,9 @@ class AIRouter:
         """
         Send a chat message through the AI router.
 
-        Route: Pollinations (primary) → LlamaCpp (local fallback) → static fallback.
+        LOCAL-FIRST strategy:
+        - Simple tasks → LOCAL model (saves cloud balance!)
+        - Complex tasks → Pollinations cloud → LOCAL fallback
         """
         temperature = temperature or config.CHAT_TEMPERATURE
         max_tokens = max_tokens or config.CHAT_MAX_TOKENS
@@ -211,10 +288,143 @@ class AIRouter:
         # Get chat history for context
         history = await get_chat_history(user_id)
 
-        # Format messages
+        # ── Classify task complexity ──
+        complexity = _classify_task_complexity(message)
+        
+        if complexity == "simple" and self._local and self._local.is_available():
+            # ── SIMPLE TASK → LOCAL MODEL FIRST (saves balance!) ──
+            response = await self._try_local_first(user_id, message, history, sys_prompt, temperature, max_tokens, model)
+        else:
+            # ── COMPLEX TASK → Pollinations first, LOCAL fallback ──
+            response = await self._try_cloud_first(user_id, message, history, sys_prompt, temperature, max_tokens, model)
+
+        # Save to history
+        if save_history and not response.error and response.text:
+            await add_chat_message(user_id, "user", message)
+            await add_chat_message(user_id, "assistant", response.text)
+
+            # Cache the response
+            if use_cache and response.text:
+                cache_key = self._make_cache_key(sys_prompt, message)
+                await set_ai_cached(cache_key, message, response.text, response.model)
+
+        return response
+
+    async def _try_local_first(self, user_id: int, message: str, history: list,
+                                sys_prompt: str, temperature: float, max_tokens: int,
+                                model: str) -> AIResponse:
+        """LOCAL-FIRST route: Local → Pollinations → static fallback."""
+        # ── 1. Try LOCAL model first ──
+        if self._local and self._local.is_available():
+            try:
+                local_system_prompt = (
+                    "Ты Ася — автоэксперт, редактор канала @sochiautoparts. "
+                    "Пиши живо, с юмором, как автожурналист. "
+                    "Без политики, без markdown. "
+                    f"Сейчас {datetime.now(_MOSCOW_TZ).strftime('%d.%m.%Y %H:%M')} по Москве."
+                )
+                local_messages = [{"role": "system", "content": local_system_prompt}]
+                if history:
+                    for msg in history[-6:]:
+                        role = msg.get("role", "user")
+                        content = msg.get("content", "")
+                        if role in ("user", "assistant") and content:
+                            if len(content) > 300:
+                                content = content[:300] + "..."
+                            local_messages.append({"role": role, "content": content})
+                local_messages.append({"role": "user", "content": message[:1200]})
+
+                local_response = await self._local.chat(
+                    messages=local_messages,
+                    model="",
+                    temperature=0.82,
+                    max_tokens=384,
+                )
+                if not local_response.error and local_response.text:
+                    self._local_requests += 1
+                    self._local_primary_count += 1
+                    text = self._clean_ai_response(local_response.text)
+                    if text:
+                        logger.info(f"LOCAL PRIMARY: simple task handled by local model")
+                        return AIResponse(
+                            text=text,
+                            model=local_response.model,
+                            provider=local_response.provider,
+                            tokens_used=local_response.tokens_used,
+                        )
+            except Exception as e:
+                logger.warning(f"Local model error (simple task): {e}")
+
+        # ── 2. Pollinations fallback ──
+        return await self._try_pollinations(user_id, message, history, sys_prompt, temperature, max_tokens, model)
+
+    async def _try_cloud_first(self, user_id: int, message: str, history: list,
+                                sys_prompt: str, temperature: float, max_tokens: int,
+                                model: str) -> AIResponse:
+        """CLOUD-FIRST route: Pollinations → Local → static fallback."""
+        # ── 1. Try Pollinations first ──
+        response = await self._try_pollinations(user_id, message, history, sys_prompt, temperature, max_tokens, model)
+        if not response.error:
+            return response
+
+        # ── 2. LOCAL model fallback ──
+        if self._local and self._local.is_available():
+            logger.warning("Pollinations failed, falling back to LOCAL model")
+            try:
+                local_system_prompt = (
+                    "Ты Ася — автоэксперт, редактор канала @sochiautoparts. "
+                    "Пиши живо, с юмором, как автожурналист. "
+                    "Без политики, без markdown. "
+                    f"Сейчас {datetime.now(_MOSCOW_TZ).strftime('%d.%m.%Y %H:%M')} по Москве."
+                )
+                local_messages = [{"role": "system", "content": local_system_prompt}]
+                if history:
+                    for msg in history[-6:]:
+                        role = msg.get("role", "user")
+                        content = msg.get("content", "")
+                        if role in ("user", "assistant") and content:
+                            if len(content) > 300:
+                                content = content[:300] + "..."
+                            local_messages.append({"role": role, "content": content})
+                local_messages.append({"role": "user", "content": message[:1200]})
+
+                local_response = await self._local.chat(
+                    messages=local_messages,
+                    model="",
+                    temperature=0.82,
+                    max_tokens=384,
+                )
+                if not local_response.error and local_response.text:
+                    self._local_requests += 1
+                    text = self._clean_ai_response(local_response.text)
+                    if text:
+                        logger.info(f"LOCAL FALLBACK: cloud failed, local model handled it")
+                        return AIResponse(
+                            text=text,
+                            model=local_response.model,
+                            provider=local_response.provider,
+                            tokens_used=local_response.tokens_used,
+                        )
+            except Exception as e:
+                logger.warning(f"Local model fallback error: {e}")
+
+        # ── 3. Static fallback ──
+        self._total_fallbacks += 1
+        logger.error("All AI providers unavailable! Using static fallback.")
+        return AIResponse(
+            text=random.choice(FALLBACK_RESPONSES),
+            model="fallback",
+            provider="static",
+            tokens_used=0,
+        )
+
+    async def _try_pollinations(self, user_id: int, message: str, history: list,
+                                 sys_prompt: str, temperature: float, max_tokens: int,
+                                 model: str) -> AIResponse:
+        """Try Pollinations with smart model selection and fallback."""
         messages = self._primary.format_messages(sys_prompt, history, message)
 
-        # ── 1. Try Pollinations PRIMARY ──
+        # Try primary model
         response = await self._primary.chat(
             messages=messages,
             model=model,
@@ -255,74 +465,11 @@ class AIRouter:
                     max_tokens=max_tokens,
                 )
                 if not response.error:
+                    self._cloud_requests += 1
                     break
 
-        # ── 2. If Pollinations STILL failed, try LOCAL FALLBACK ──
-        if response.error and self._local and self._local.is_available():
-            logger.warning("Pollinations failed, falling back to LOCAL model")
-            try:
-                # Build LOCAL-OPTIMIZED messages — short system prompt for 2048 ctx
-                local_system_prompt = (
-                    "Ты Ася — автоэксперт, редактор канала @sochiautoparts. "
-                    "Пиши живо, с юмором, как автожурналист. "
-                    "Без политики, без markdown. "
-                    f"Сейчас {datetime.now(_MOSCOW_TZ).strftime('%d.%m.%Y %H:%M')} по Москве."
-                )
-                # Rebuild messages with short system prompt
-                local_messages = [{"role": "system", "content": local_system_prompt}]
-                # Add last 4 history messages only
-                if history:
-                    for msg in history[-4:]:
-                        role = msg.get("role", "user")
-                        content = msg.get("content", "")
-                        if role in ("user", "assistant") and content:
-                            # Truncate long messages for local model
-                            if len(content) > 200:
-                                content = content[:200] + "..."
-                            local_messages.append({"role": role, "content": content})
-                local_messages.append({"role": "user", "content": message[:800]})
-
-                local_response = await self._local.chat(
-                    messages=local_messages,
-                    model="",
-                    temperature=0.82,
-                    max_tokens=256,
-                )
-                if not local_response.error and local_response.text:
-                    self._local_requests += 1
-                    # Clean the response (strip think tags etc.)
-                    text = self._clean_ai_response(local_response.text)
-                    if text:
-                        response = AIResponse(
-                            text=text,
-                            model=local_response.model,
-                            provider=local_response.provider,
-                            tokens_used=local_response.tokens_used,
-                        )
-                        logger.info(f"LOCAL FALLBACK succeeded: model={local_response.model}")
-            except Exception as e:
-                logger.warning(f"Local model chat error: {e}")
-
-        # ── 3. If ALL AI providers failed, use static fallback ──
-        if response.error:
-            self._total_fallbacks += 1
-            logger.error("All AI providers unavailable! Using static fallback.")
-            response = AIResponse(
-                text=random.choice(FALLBACK_RESPONSES),
-                model="fallback",
-                provider="static",
-                tokens_used=0,
-            )
-
-        # Save to history
-        if save_history and not response.error and response.text:
-            await add_chat_message(user_id, "user", message)
-            await add_chat_message(user_id, "assistant", response.text)
-
-            # Cache the response
-            if use_cache and response.text:
-                cache_key = self._make_cache_key(sys_prompt, message)
-                await set_ai_cached(cache_key, message, response.text, response.model)
+        if not response.error:
+            self._cloud_requests += 1
 
         return response
 
@@ -399,7 +546,7 @@ class AIRouter:
     ) -> AIResponse:
         """
         Decode a VIN code or body number for vehicle information.
-        Falls back to local model if Pollinations is unavailable.
+        COMPLEX task — always uses cloud model for accuracy.
         """
         # Clean VIN code
         vin_clean = vin_code.strip().upper()
@@ -415,18 +562,12 @@ class AIRouter:
         if extra_context:
             vin_context += f"\n{extra_context}"
 
-        # Use a strong model for VIN, but fall back to free tier if balance depleted
-        vin_model = "gpt-5.5"
-        if self._primary._balance_depleted_at is not None:
-            from ai.providers.pollinations_provider import PRIORITY_FREE_MODELS
-            vin_model = PRIORITY_FREE_MODELS[0]  # Use free model when balance is low
-            logger.info(f"Balance depleted, using free model {vin_model} for VIN decode")
-
+        # VIN is a complex task — use cloud model
         return await self.chat(
             user_id=user_id,
             message=f"Расшифруй VIN: {vin_clean}",
             system_prompt=persona.system_prompt + persona.vin_prompt_suffix,
-            model=vin_model,
+            model="openai-large",  # Best model for VIN
             temperature=0.3,  # More precise for VIN
             extra_context=vin_context,
         )
@@ -508,7 +649,7 @@ class AIRouter:
     ) -> AIResponse:
         """
         Generate a post for the @sochiautoparts channel.
-        Uses a channel-specific prompt with proper footer format.
+        LOCAL-FIRST for background tasks (saves cloud balance!).
         """
         system_prompt = persona.system_prompt + persona.channel_prompt_suffix
 
@@ -544,14 +685,40 @@ class AIRouter:
         if extra_instructions:
             user_content += f"\n\nДополнительные инструкции: {extra_instructions}"
 
+        # ── TRY LOCAL MODEL FIRST for channel posts (saves balance!) ──
+        if self._local and self._local.is_available():
+            try:
+                local_messages = [
+                    {"role": "system", "content": "Ты Ася — автоэксперт, редактор канала @sochiautoparts. Пиши живо, с юмором. Без политики. Обязательно добавь подпись: Автор @asiaexp_bot / @sochiautoparts / #sochiautoparts"},
+                    {"role": "user", "content": user_content[:1200]},
+                ]
+                local_response = await self._local.chat(
+                    messages=local_messages,
+                    model="",
+                    temperature=0.8,
+                    max_tokens=384,
+                )
+                if not local_response.error and local_response.text:
+                    text = self._clean_ai_response(local_response.text)
+                    if text:
+                        # Check if response is too short (local model might be too brief)
+                        if len(text) < 100:
+                            logger.info("Local model channel post too short, trying cloud")
+                        else:
+                            self._local_requests += 1
+                            response = AIResponse(text=text, model=local_response.model, provider=local_response.provider, tokens_used=local_response.tokens_used)
+                            response = self._finalize_channel_post(response, has_media)
+                            return response
+            except Exception as e:
+                logger.warning(f"Local model channel post error: {e}")
+
+        # ── Cloud fallback for channel posts ──
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
         ]
 
-        # Use content model for channel posts
         post_model = model or "openai-large"
-
         response = await self._primary.chat(
             messages=messages,
             model=post_model,
@@ -559,27 +726,15 @@ class AIRouter:
             max_tokens=1500,
         )
 
-        # If cloud failed, try local fallback for channel post
         if response.error and self._local and self._local.is_available():
-            logger.warning("Pollinations failed for channel post, trying local model")
-            try:
-                # Use short system prompt for local model
-                local_messages = [
-                    {"role": "system", "content": "Ты Ася — автоэксперт, редактор канала @sochiautoparts. Пиши живо, с юмором. Без политики. Обязательно добавь подпись: Автор @asiaexp_bot / @sochiautoparts / #sochiautoparts"},
-                    {"role": "user", "content": user_content[:800]},
-                ]
-                local_response = await self._local.chat(
-                    messages=local_messages,
-                    model="",
-                    temperature=0.8,
-                    max_tokens=256,
-                )
-                if not local_response.error and local_response.text:
-                    response = local_response
-            except Exception as e:
-                logger.warning(f"Local model channel post error: {e}")
+            # Already tried local above, this means cloud also failed
+            pass
 
-        # Ensure footer is present
+        response = self._finalize_channel_post(response, has_media)
+        return response
+
+    def _finalize_channel_post(self, response: AIResponse, has_media: bool) -> AIResponse:
+        """Finalize channel post: add footer, enforce limits."""
         if response.text and not response.error:
             text = response.text
 
@@ -624,25 +779,18 @@ class AIRouter:
         car_info: str = "",
         model: str = "",
     ) -> AIResponse:
-        """Generate a car diagnosis response. Falls back to local model if cloud unavailable."""
+        """Generate a car diagnosis response. COMPLEX task — uses cloud model."""
         from bot.asya import build_diagnostic_context
 
         extra_context = build_diagnostic_context(symptoms)
         if car_info:
             extra_context = f"Информация об авто: {car_info}\n{extra_context}"
 
-        # Use reasoning model for diagnostics, but fall back to free tier if balance depleted
-        diag_model = model or "gpt-5.5"
-        if self._primary._balance_depleted_at is not None:
-            from ai.providers.pollinations_provider import PRIORITY_FREE_MODELS
-            diag_model = PRIORITY_FREE_MODELS[0]
-            logger.info(f"Balance depleted, using free model {diag_model} for diagnostics")
-
         return await self.chat(
             user_id=user_id,
             message=symptoms,
             system_prompt=persona.system_prompt + persona.diagnostic_prompt_suffix,
-            model=diag_model,
+            model=model or "gpt-5.5",  # Complex task — use strong cloud model
             temperature=0.5,
             extra_context=extra_context,
         )
@@ -654,7 +802,7 @@ class AIRouter:
         part_info: str = "",
         model: str = "",
     ) -> AIResponse:
-        """Generate a spare part search response. Falls back to local model if cloud unavailable."""
+        """Generate a spare part search response. COMPLEX task — uses cloud model."""
         extra_context = ""
         if part_info:
             extra_context = f"Информация о запчасти из каталогов:\n{part_info}"
