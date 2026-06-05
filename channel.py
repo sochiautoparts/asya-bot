@@ -139,6 +139,22 @@ def _clean_post_text(text: str) -> str:
         if text.startswith(prefix):
             text = text[len(prefix):].strip()
 
+    # Remove formal "Редакция сообщает" phrases — replace with nothing or informal version
+    formal_phrases = [
+        ("Редакция сообщает:", ""),
+        ("Редакция сообщает —", ""),
+        ("Редакция сообщает", ""),
+        ("Как стало известно редакции,", ""),
+        ("Как стало известно редакции", ""),
+        ("По данным нашей редакции,", ""),
+        ("По данным нашей редакции", ""),
+        ("Редакция @sochiautoparts сообщает:", ""),
+        ("Редакция @sochiautoparts сообщает", ""),
+    ]
+    for phrase, replacement in formal_phrases:
+        if phrase in text:
+            text = text.replace(phrase, replacement)
+
     # Clean up whitespace
     text = re.sub(r'\n{3,}', '\n\n', text)
     text = text.strip()
@@ -1108,6 +1124,7 @@ class ChannelManager:
         """
         Post a partner/admitad post to the channel with partner image.
         Only posts if within daily limits and interval.
+        Deduplicates — won't post the same partner program twice in a row.
         """
         if not self._bot:
             logger.error("Bot not set in ChannelManager")
@@ -1120,9 +1137,26 @@ class ChannelManager:
         if today_count >= config.CHANNEL_MAX_POSTS_PER_DAY:
             return False
 
+        # Get the last posted partner program name to avoid duplicates
+        last_partner_name = getattr(self, '_last_partner_name', '')
+
+        # Try to get a DIFFERENT program than the last one
         program = partner_manager.get_random_program()
         if not program:
             logger.info("No partner programs available")
+            return False
+
+        # If same as last, try a few more times to get a different one
+        if last_partner_name and program.name == last_partner_name:
+            for _ in range(5):
+                alt = partner_manager.get_random_program()
+                if alt and alt.name != last_partner_name:
+                    program = alt
+                    break
+
+        # Check if this partner program was already posted recently (dedup)
+        if await is_duplicate_post(f"Партнёр: {program.name}", hours=12):
+            logger.info(f"Partner program '{program.name}' was already posted recently, skipping")
             return False
 
         # Try to use partner image FIRST (before generating text, so we know has_media)
@@ -1204,7 +1238,7 @@ class ChannelManager:
             await add_partner_post(
                 program_id=program.id,
                 program_name=program.name,
-                category=", ".join(program.categories) if program.categories else "general",
+                category=program.category or "general",
                 affiliate_url=program.goto_link,
                 post_content=post_content,
                 message_id=sent.message_id,
@@ -1219,6 +1253,14 @@ class ChannelManager:
 
             partner_manager.mark_posted()
             self._last_partner_time = time.time()
+            self._last_partner_name = program.name  # Track last partner for dedup
+
+            # Store fingerprint for partner dedup
+            await add_post_fingerprint(
+                title=f"Партнёр: {program.name}",
+                content=post_content,
+                post_id=sent.message_id,
+            )
 
             await self._add_reaction(config.CHANNEL_ID, sent.message_id)
 
@@ -1236,7 +1278,7 @@ class ChannelManager:
                 await add_partner_post(
                     program_id=program.id,
                     program_name=program.name,
-                    category=", ".join(program.categories) if program.categories else "general",
+                    category=program.category or "general",
                     affiliate_url=program.goto_link,
                     post_content=post_content,
                     message_id=sent.message_id,
@@ -1258,16 +1300,33 @@ class ChannelManager:
     async def run_scheduled_post(self) -> bool:
         """
         Run a scheduled post — either news or partner content.
+        
+        Ensures TWO DIFFERENT posts per hour by:
+        1. Skipping partner posts if hourly limit would be reached without variety
+        2. Never posting the same news/partner content twice in a row
         """
         now = time.time()
         partner_interval = config.PARTNER_POST_INTERVAL_HOURS * 3600
 
+        # Try partner content with 30% probability (if interval met)
         if (now - self._last_partner_time >= partner_interval and
                 partner_manager.should_post_partner()):
             if random.random() < 0.3:
-                return await self.post_partner_content()
+                result = await self.post_partner_content()
+                if result:
+                    return True
+                # Partner post failed/skipped — fall through to news
 
-        return await self.post_news()
+        # Primary: post NEWS — each call picks the NEXT unposted item
+        result = await self.post_news()
+        if result:
+            return True
+
+        # Fallback: if no news available, try partner content
+        if partner_manager.should_post_partner():
+            return await self.post_partner_content()
+
+        return False
 
 
 # ── Global instance ────────────────────────────────────────────────────────────
