@@ -885,9 +885,12 @@ async def _process_text_message(message: Message, text: str):
             search_article = part_numbers[0] if part_numbers else text.strip()
             partner_links = partner_manager.get_all_partner_links_for_parts(search_article)
             if partner_links:
-                link_lines = ["Ссылки на магазины запчастей (вставь естественно в ответ, дай прямые ссылки):"]
+                link_lines = ["Ссылки на магазины запчастей (вставь естественно в ответ, ОБЯЗАТЕЛЬНО с описанием!):"]
                 for pl in partner_links:
-                    link_lines.append(f"- {pl['name']}: {pl['url']}")
+                    if pl['name'] == "Росско":
+                        link_lines.append(f"- Росско (профессиональный подбор, советую начать тут): {pl['url']}")
+                    else:
+                        link_lines.append(f"- {pl['name']}: {pl['url']}")
                     if pl['description']:
                         link_lines.append(f"  {pl['description']}")
                 extra_context_parts.append("\n".join(link_lines))
@@ -899,8 +902,6 @@ async def _process_text_message(message: Message, text: str):
             article_clean = search_article.strip().upper()
             for shop_name, url_template in SHOP_SEARCH_URLS.items():
                 shop_url = url_template.format(article=quote_plus(article_clean))
-                if shop_name == "rossko":
-                    shop_url += "&subid=asya_bot"
                 direct_links.append(f"- {shop_name.capitalize()}: {shop_url}")
             if direct_links:
                 extra_context_parts.append(

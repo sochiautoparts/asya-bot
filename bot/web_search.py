@@ -301,14 +301,14 @@ PART_SHOPS = [
 
 # Direct shop search URL templates for fast part lookup
 SHOP_SEARCH_URLS = {
-    "rossko": "https://rossko.ru/search?text={article}",
-    "autopiter": "https://www.autopiter.ru/search?querystr={article}",
-    "exist": "https://exist.ru/Price/?p={article}",
-    "emex": "https://emex.ru/products?search={article}",
-    "autodoc": "https://autodoc.ru/search?keyword={article}",
-    "zzap": "https://zzap.ru/search/?q={article}",
-    "avtoall": "https://avtoall.ru/search/?q={article}",
-    "ixora": "https://ixora-auto.ru/search/?q={article}",
+    "rossko": "https://rossko.ru/search?text={article}&subid=asya_bot",
+    "autopiter": "https://www.autopiter.ru/search?querystr={article}&subid=asya_bot",
+    "exist": "https://exist.ru/Price/?p={article}&subid=asya_bot",
+    "emex": "https://emex.ru/products?search={article}&subid=asya_bot",
+    "autodoc": "https://autodoc.ru/search?keyword={article}&subid=asya_bot",
+    "zzap": "https://zzap.ru/search/?q={article}&subid=asya_bot",
+    "avtoall": "https://avtoall.ru/search/?q={article}&subid=asya_bot",
+    "ixora": "https://ixora-auto.ru/search/?q={article}&subid=asya_bot",
 }
 
 
@@ -329,9 +329,6 @@ async def search_spare_part(article: str, max_results: int = 8) -> List[SearchRe
     # Step 1: Generate direct shop links (instant, no HTTP needed)
     for shop_name, url_template in SHOP_SEARCH_URLS.items():
         shop_url = url_template.format(article=quote_plus(article_clean))
-        # Add affiliate tracking to Rossko
-        if shop_name == "rossko":
-            shop_url += ("&subid=asya_bot" if "?" in shop_url else "?subid=asya_bot")
         results.append(SearchResult(
             title=f"{article_clean} — {shop_name.capitalize()}",
             url=shop_url,
@@ -383,16 +380,16 @@ async def search_parts_by_vin(vin: str, part_name: str = "", max_results: int = 
          f"https://rossko.ru/search?text={quote_plus(vin_clean)}&subid=asya_bot",
          "Поиск запчастей по VIN на Росско — профессиональный подбор"),
         (f"Autopiter — подбор по VIN {vin_clean}", 
-         f"https://www.autopiter.ru/search?querystr={quote_plus(vin_clean)}",
+         f"https://www.autopiter.ru/search?querystr={quote_plus(vin_clean)}&subid=asya_bot",
          "Поиск запчастей по VIN на Autopiter"),
         (f"Exist — подбор по VIN {vin_clean}", 
-         f"https://exist.ru/Price/?p={quote_plus(vin_clean)}",
+         f"https://exist.ru/Price/?p={quote_plus(vin_clean)}&subid=asya_bot",
          "Поиск запчастей по VIN на Exist"),
         (f"ZZAP — подбор по VIN {vin_clean}", 
-         f"https://zzap.ru/search/?q={quote_plus(vin_clean)}",
+         f"https://zzap.ru/search/?q={quote_plus(vin_clean)}&subid=asya_bot",
          "Агрегатор запчастей — поиск по VIN"),
         (f"Emex — подбор по VIN {vin_clean}", 
-         f"https://emex.ru/products?search={quote_plus(vin_clean)}",
+         f"https://emex.ru/products?search={quote_plus(vin_clean)}&subid=asya_bot",
          "Поиск запчастей по VIN на Emex"),
     ]
     

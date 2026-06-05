@@ -286,8 +286,6 @@ class PartnerManager:
         lines = ["Прямые ссылки на магазины запчастей (ОБЯЗАТЕЛЬНО вставь в ответ — пользователь должен кликнуть и купить!):"]
         for shop_name, url_template in SHOP_SEARCH_URLS.items():
             shop_url = url_template.format(article=quote_plus(search_term))
-            if shop_name == "rossko":
-                shop_url += "&subid=asya_bot"
             lines.append(f"- {shop_name.capitalize()}: {shop_url}")
         
         return "\n".join(lines)
