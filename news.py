@@ -255,7 +255,7 @@ def is_blocked_topic(item: Dict, lang: str = "ru") -> bool:
 
 async def fetch_all_news() -> int:
     """
-    Fetch news from all configured sources.
+    Fetch news from all configured sources + web search supplement.
     Returns the number of new items added.
     """
     total_new = 0
@@ -263,6 +263,7 @@ async def fetch_all_news() -> int:
     # Reset fingerprint set for this cycle
     reset_fingerprints()
 
+    # ── Phase 1: RSS Feeds ──
     for source in news_config.sources:
         try:
             items = await fetch_rss(source)
@@ -305,6 +306,40 @@ async def fetch_all_news() -> int:
         except Exception as e:
             logger.error(f"Error processing source {source.name}: {e}")
             continue
+
+    # ── Phase 2: Web Search Supplement (if RSS was sparse) ──
+    if total_new < 3:
+        try:
+            from bot.content_engine import search_auto_news
+            search_items = await search_auto_news()
+            for item in search_items:
+                # Apply same filters
+                if is_blocked_topic(item, item.get("lang", "en")):
+                    continue
+                if not is_auto_relevant(item, item.get("lang", "en")):
+                    continue
+                if await is_duplicate_post(item["title"], hours=48):
+                    continue
+                fp = _compute_fingerprint(item["title"])
+                if _fingerprint_matches_existing(fp):
+                    continue
+
+                added = await add_news_item(
+                    source=item["source"],
+                    title=item["title"],
+                    url=item["url"],
+                    summary=item.get("summary", ""),
+                    published=item.get("published", time.time()),
+                    category=item.get("category", "auto"),
+                    lang=item.get("lang", "en"),
+                    image_urls=item.get("image_urls", []),
+                )
+                if added:
+                    total_new += 1
+                    _recent_fingerprints.add(fp)
+                    logger.info(f"Web search added: {item['title'][:60]}")
+        except Exception as e:
+            logger.warning(f"Web search supplement failed: {e}")
 
     logger.info(f"News fetch complete: {total_new} new items")
     return total_new

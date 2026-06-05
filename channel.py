@@ -34,6 +34,10 @@ from ai.router import ai_router
 from bot.partners import partner_manager
 from bot.web_search import web_search, search_news, SearchResult
 from bot.interbot import interbot_manager
+from bot.content_engine import (
+    get_best_news_item, enrich_with_search_images, get_date_context,
+    _is_topic_covered, _extract_entities, _score_interest,
+)
 
 logger = logging.getLogger("asya.channel")
 
@@ -711,36 +715,15 @@ class ChannelManager:
             logger.info("Post interval too short")
             return False
 
-        # Get news item if not provided
+        # Get news item if not provided — use Smart Content Engine!
         if not news_item:
-            unposted = await get_unposted_news(limit=10)
-            if unposted:
-                # Filter out duplicates using fingerprint system
-                for item in unposted:
-                    if await is_duplicate_post(item.get("title", ""), hours=72):
-                        logger.info(f"Skipping duplicate news: {item.get('title', '')[:60]}")
-                        # Mark as posted so we don't pick it again
-                        if item.get("url"):
-                            await mark_news_posted(item["url"])
-                        continue
-                    auto_news = [n for n in [item] if n.get("category") == "auto"]
-                    if auto_news:
-                        news_item = auto_news[0]
-                    else:
-                        news_item = item
-                    break
-                
-                # If all were duplicates, try internet search
-                if not news_item:
-                    news_item = await self._search_internet_news()
-                    if not news_item:
-                        logger.info("All unposted news are duplicates, and no internet news found")
-                        return False
-            else:
-                news_item = await self._search_internet_news()
-                if not news_item:
-                    logger.info("No unposted news available (RSS or internet)")
-                    return False
+            unposted = await get_unposted_news(limit=15)
+            # Use content engine to pick the best item (interest scoring + topic dedup)
+            news_item = await get_best_news_item(unposted)
+            if not news_item:
+                # Content engine couldn't find anything fresh — skip this cycle
+                logger.info("No fresh topics found (content engine)")
+                return False
 
         # ── DEDUPLICATION: Check if this news was already posted ──
         if news_item and news_item.get("title"):
@@ -763,10 +746,16 @@ class ChannelManager:
         if news_item.get("summary"):
             source_text = news_item["summary"]
 
+        # ── DATE CONTEXT — Ася знает какой сейчас год! ──
+        date_context = get_date_context()
+
         extra_instructions = (
+            f"{date_context} Учитывай текущую дату — не пиши про прошлые годы как про текущие! "
             "Уникализируй текст — перепиши своими словами, сохранив факты. "
             "Не копируй оригинальные формулировки. "
             "Добавь своё мнение и эмоции как живой девушки-автоэксперта. "
+            "Пиши ИНТЕРЕСНО — не просто пересказывай факты, а объясни почему это важно "
+            "и что это значит для обычного водителя. "
         )
         if news_item.get("lang") and news_item.get("lang") != "ru":
             extra_instructions += (
@@ -775,12 +764,26 @@ class ChannelManager:
                 "Сохрани суть и факты, но напиши естественно на русском."
             )
 
-        # Get images: real from news source → scraped from article → AI generated
+        # Get images: real from news source → scraped from article → web search → AI generated
         image_list: List[bytes] = []
         image_source = "none"
         has_media = False
         try:
             image_list, image_source = await self._get_post_images(news_item)
+            
+            # ── SMART IMAGE ENRICHMENT — search for images if none found ──
+            if not image_list and news_item.get("title"):
+                try:
+                    search_image_urls = await enrich_with_search_images(news_item)
+                    if search_image_urls:
+                        searched = await self._download_news_images(search_image_urls, max_count=2)
+                        if searched:
+                            image_list.extend(searched)
+                            image_source = "web_search"
+                            logger.info(f"Found {len(searched)} images via web search for: {news_item.get('title', '')[:50]}")
+                except Exception as e:
+                    logger.debug(f"Web search image enrichment skipped: {e}")
+            
             has_media = len(image_list) > 0
         except Exception as e:
             logger.warning(f"Image retrieval skipped: {e}")
