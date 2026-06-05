@@ -208,38 +208,88 @@ class PartnerManager:
         """
         Generate context about matching partner programs for AI to reference
         naturally in its response.
+        
+        v2: Prioritize DIRECT shop links (Rossko, Autopiter, etc.) over admitad redirects.
+        Admitad programs are used as SUPPLEMENT, not primary.
+        Always give DIRECT shop search URLs so users can actually click and buy.
         """
+        # Always start with direct shop links — these ALWAYS work
+        direct_links = self._generate_direct_shop_context(text)
+        
         self.ensure_loaded()
-        if not self.programs:
-            return self._generate_rossko_context(text)
-
-        matches = self.find_matching_programs(text)
-        if not matches:
-            # Try a broader match by category keywords
-            for pc in partner_config.categories:
-                if any(kw in text.lower() for kw in pc.keywords):
-                    cat_programs = self.get_by_category(pc.key)
-                    if cat_programs:
-                        matches = cat_programs[:max_programs]
-                        break
-
-        if not matches:
-            return self._generate_rossko_context(text)
-
-        lines = ["Релевантные партнёрские программы (можно упомянуть естественно в ответе):"]
-        for p in matches[:max_programs]:
-            link = self.format_affiliate_link(p)
-            cat_str = ", ".join(p.categories[:3]) if p.categories else "общая"
-            lines.append(f"- {p.name} (категория: {cat_str}) — ссылка: {link}")
-            if p.description:
-                lines.append(f"  Описание: {p.description[:150]}")
-
-        # Always add Rossko context if text mentions parts
+        
+        # Add Rossko context (always for parts queries)
         rossko_ctx = self._generate_rossko_context(text)
+        
+        # Add admitad programs as supplement (if available and relevant)
+        admitad_lines = []
+        if self.programs:
+            matches = self.find_matching_programs(text)
+            if not matches:
+                for pc in partner_config.categories:
+                    if any(kw in text.lower() for kw in pc.keywords):
+                        cat_programs = self.get_by_category(pc.key)
+                        if cat_programs:
+                            matches = cat_programs[:max_programs]
+                            break
+            for p in (matches or [])[:max_programs]:
+                link = self.format_affiliate_link(p)
+                cat_str = ", ".join(p.categories[:3]) if p.categories else "общая"
+                admitad_lines.append(f"- {p.name} ({cat_str}): {link}")
+                if p.description:
+                    admitad_lines.append(f"  {p.description[:120]}")
+        
+        # Combine: direct shop links FIRST, then Rossko, then admitad
+        lines = []
+        if direct_links:
+            lines.append(direct_links)
         if rossko_ctx:
-            lines.append("")
             lines.append(rossko_ctx)
-
+        if admitad_lines:
+            lines.append("Дополнительные партнёрские программы:")
+            lines.extend(admitad_lines)
+        
+        if not lines:
+            return ""
+            
+        # Add instructions for AI
+        lines.append("")
+        lines.append("Вставь ссылки ЕСТЕСТВЕННО в ответ — как рекомендация, не как реклама. Дай ПРЯМЫЕ ссылки на магазины, чтобы пользователь мог кликнуть и купить.")
+        
+        return "\n".join(lines)
+    
+    def _generate_direct_shop_context(self, text: str) -> str:
+        """Generate direct shop search URLs for parts/product queries.
+        These ALWAYS work — no API dependency, no balance issues.
+        """
+        from bot.web_search import SHOP_SEARCH_URLS
+        from urllib.parse import quote_plus
+        
+        text_lower = text.lower()
+        parts_keywords = [
+            "запчаст", "деталь", "артикул", "купить запчас", "купить детал",
+            "оригинал", "аналог", "замена", "подбор", "номер детал",
+            "oem", "оригинальн", "поиск запчас", "найти запчас",
+            "фильтр", "колодки", "свечи", "ремень", "прокладк",
+            "сальник", "подшипник", "амортизатор", "реле", "датчик",
+            "масло", "антифриз", "тормозн", "где купить",
+        ]
+        
+        if not any(kw in text_lower for kw in parts_keywords):
+            return ""
+        
+        # Extract article number for precise search
+        import re
+        article_match = re.search(r'\b([A-Z0-9]{4,}[-/]?[A-Z0-9]*)\b', text.upper())
+        search_term = article_match.group(1) if article_match else text.strip()
+        
+        lines = ["Прямые ссылки на магазины запчастей (ОБЯЗАТЕЛЬНО вставь в ответ — пользователь должен кликнуть и купить!):"]
+        for shop_name, url_template in SHOP_SEARCH_URLS.items():
+            shop_url = url_template.format(article=quote_plus(search_term))
+            if shop_name == "rossko":
+                shop_url += "&subid=asya_bot"
+            lines.append(f"- {shop_name.capitalize()}: {shop_url}")
+        
         return "\n".join(lines)
 
     def _generate_rossko_context(self, text: str) -> str:

@@ -313,16 +313,46 @@ class AIRouter:
     async def _try_local_first(self, user_id: int, message: str, history: list,
                                 sys_prompt: str, temperature: float, max_tokens: int,
                                 model: str) -> AIResponse:
-        """LOCAL-FIRST route: Local → Pollinations → static fallback."""
-        # ── 1. Try LOCAL model first ──
+        """LOCAL-FIRST route: Local → Pollinations → static fallback.
+        
+        v3: Local model now receives FULL context (web search, partner links, diagnostics, etc.)
+        The sys_prompt already contains all enriched context from chat.py.
+        """
+        # ── 1. Try LOCAL model first (with FULL context!) ──
         if self._local and self._local.is_available():
             try:
-                local_system_prompt = (
+                # Build local system prompt with FULL context from chat.py
+                local_base = (
                     "Ты Ася — автоэксперт, редактор канала @sochiautoparts. "
                     "Пиши живо, с юмором, как автожурналист. "
                     "Без политики, без markdown. "
                     f"Сейчас {datetime.now(_MOSCOW_TZ).strftime('%d.%m.%Y %H:%M')} по Москве."
                 )
+                # Extract web search and partner context from the full system prompt
+                extra_context = ""
+                if sys_prompt:
+                    # Extract web search results
+                    import re as _re
+                    search_match = _re.search(r'Результаты поиска:.*', sys_prompt, _re.DOTALL)
+                    if search_match:
+                        extra_context += "\n\n" + search_match.group(0)[:600]
+                    # Extract partner links
+                    partner_match = _re.search(r'Партнёрск.*?(?:естественно\.)', sys_prompt, _re.DOTALL)
+                    if partner_match:
+                        extra_context += "\n\n" + partner_match.group(0)[:400]
+                    # Extract direct shop links
+                    shop_match = _re.search(r'Прямые ссылки.*?(?:купить\!\))', sys_prompt, _re.DOTALL)
+                    if shop_match:
+                        extra_context += "\n\n" + shop_match.group(0)[:500]
+                    # Extract diagnostic context
+                    diag_match = _re.search(r'Категория проблемы:.*', sys_prompt, _re.DOTALL)
+                    if diag_match:
+                        extra_context += "\n\n" + diag_match.group(0)[:300]
+                    # Extract VIN context
+                    vin_match = _re.search(r'VIN-код.*', sys_prompt, _re.DOTALL)
+                    if vin_match:
+                        extra_context += "\n\n" + vin_match.group(0)[:300]
+                local_system_prompt = local_base + extra_context
                 local_messages = [{"role": "system", "content": local_system_prompt}]
                 if history:
                     for msg in history[-6:]:
@@ -361,22 +391,43 @@ class AIRouter:
     async def _try_cloud_first(self, user_id: int, message: str, history: list,
                                 sys_prompt: str, temperature: float, max_tokens: int,
                                 model: str) -> AIResponse:
-        """CLOUD-FIRST route: Pollinations → Local → static fallback."""
+        """CLOUD-FIRST route: Pollinations → Local (with full context) → static fallback."""
         # ── 1. Try Pollinations first ──
         response = await self._try_pollinations(user_id, message, history, sys_prompt, temperature, max_tokens, model)
         if not response.error:
             return response
 
-        # ── 2. LOCAL model fallback ──
+        # ── 2. LOCAL model fallback (with FULL context!) ──
         if self._local and self._local.is_available():
-            logger.warning("Pollinations failed, falling back to LOCAL model")
+            logger.warning("Pollinations failed, falling back to LOCAL model (with full context)")
             try:
-                local_system_prompt = (
+                # Build local system prompt with FULL context
+                local_base = (
                     "Ты Ася — автоэксперт, редактор канала @sochiautoparts. "
                     "Пиши живо, с юмором, как автожурналист. "
                     "Без политики, без markdown. "
                     f"Сейчас {datetime.now(_MOSCOW_TZ).strftime('%d.%m.%Y %H:%M')} по Москве."
                 )
+                # Extract web search and partner context
+                extra_context = ""
+                if sys_prompt:
+                    import re as _re
+                    search_match = _re.search(r'Результаты поиска:.*', sys_prompt, _re.DOTALL)
+                    if search_match:
+                        extra_context += "\n\n" + search_match.group(0)[:600]
+                    partner_match = _re.search(r'Партнёрск.*?(?:естественно\.)', sys_prompt, _re.DOTALL)
+                    if partner_match:
+                        extra_context += "\n\n" + partner_match.group(0)[:400]
+                    shop_match = _re.search(r'Прямые ссылки.*?(?:купить\!\))', sys_prompt, _re.DOTALL)
+                    if shop_match:
+                        extra_context += "\n\n" + shop_match.group(0)[:500]
+                    diag_match = _re.search(r'Категория проблемы:.*', sys_prompt, _re.DOTALL)
+                    if diag_match:
+                        extra_context += "\n\n" + diag_match.group(0)[:300]
+                    vin_match = _re.search(r'VIN-код.*', sys_prompt, _re.DOTALL)
+                    if vin_match:
+                        extra_context += "\n\n" + vin_match.group(0)[:300]
+                local_system_prompt = local_base + extra_context
                 local_messages = [{"role": "system", "content": local_system_prompt}]
                 if history:
                     for msg in history[-6:]:
