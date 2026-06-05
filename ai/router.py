@@ -155,13 +155,23 @@ class AIRouter:
         )
 
         # If primary failed, try fallback models
+        # Smart fallback: detect 402 (balance depleted) and only try free-tier models
         if response.error:
-            fallback_models = ["mistral-4", "deepseek", "nova-fast", "grok", "grok-large",
-                              "grok-4.3", "minimax", "llama-scout", "gemma", "kimi", "kimi-k2.6", "glm",
-                              "mistral-small", "step-flash", "polly", "mistral-large",
-                              "qwen-large", "minimax-m3", "step-3.5-flash", "gpt-5.4-mini",
-                              "deepseek-pro", "deepseek-v4", "qwen3-coder", "llama-3.3", "nova-2",
-                              "mistral-small-3.2", "gpt-5.5", "perplexity-deep", "perplexity-reasoning"]
+            is_402 = "402" in (response.error_message or "")
+            
+            if is_402:
+                # Balance depleted — only try 2-3 free-tier models, don't waste time
+                from ai.providers.pollinations_provider import FREE_TIER_MODELS
+                fallback_models = [m for m in FREE_TIER_MODELS if m != model][:3]
+                logger.info(f"Balance depleted, trying free-tier fallbacks: {fallback_models}")
+            else:
+                # Other errors — try broader fallback but limit to 5 attempts
+                fallback_models = [
+                    "mistral-small", "deepseek-v4", "llama-3.3", "nova-fast",
+                    "gemma", "mistral-small-3.2", "qwen3-coder", "step-3.5-flash",
+                    "openai", "polly", "kimi", "grok", "glm",
+                ][:5]  # Limit to 5 attempts max
+            
             for fallback_model in fallback_models:
                 if fallback_model == model:
                     continue

@@ -308,23 +308,27 @@ class NewsConfig:
         # ── Selected high-quality RSS sources ──
         # International auto industry
         NewsSource("OICA", "https://oica.net/feed/", "en", "auto"),
-        NewsSource("Autonews", "https://www.autonews.com/rss.xml", "en", "auto"),
-        NewsSource("WardsAuto", "https://www.wardsauto.com/rss.xml", "en", "auto"),
+        NewsSource("Autonews", "https://www.autonews.com/rss/story/autonews/news.xml", "en", "auto"),
+        NewsSource("WardsAuto", "https://www.wardsauto.com/rss.xml?sitemap=wardsauto%2Fnews", "en", "auto"),
         NewsSource("Autocar UK", "https://www.autocar.co.uk/rss.xml", "en", "auto"),
-        NewsSource("Autonews Europe", "https://europe.autonews.com/rss.xml", "en", "auto"),
+        NewsSource("Autonews Europe", "https://europe.autonews.com/rss/story/europe-autonews/news.xml", "en", "auto"),
         NewsSource("ACEA", "https://www.acea.auto/feed/", "en", "auto"),
-        NewsSource("Autocar Pro India", "https://www.autocarpro.in/rss.xml", "en", "auto"),
+        NewsSource("Autocar Pro India", "https://www.autocarpro.in/rss/feeds/autocarpro-india-news.xml", "en", "auto"),
         # EV & Chinese auto
         NewsSource("CnEVPost", "https://cnevpost.com/feed/", "en", "auto"),
         # Asian auto
         NewsSource("PaulTan", "https://paultan.org/feed/", "en", "auto"),
-        NewsSource("Autosport", "https://www.autosport.com/rss/", "en", "auto"),
+        NewsSource("Autosport", "https://www.autosport.com/rss/f1/news/", "en", "auto"),
         # Tech & Innovation
-        NewsSource("NewAtlas", "https://newatlas.com/feed/", "en", "auto"),
+        NewsSource("NewAtlas", "https://newatlas.com/automotive/rss/", "en", "auto"),
         # Russian auto
         NewsSource("auto.ru", "https://auto.ru/magazine/rss/", "ru", "auto"),
         # News & Rumors
         NewsSource("Carscoops", "https://www.carscoops.com/tag/news/feed/", "en", "auto"),
+        # Additional reliable sources as fallbacks
+        NewsSource("CarExpert", "https://carexpert.com.au/feed/", "en", "auto"),
+        NewsSource("Motor1", "https://www.motor1.com/rss/feed/news/", "en", "auto"),
+        NewsSource("TopGear", "https://www.topgear.com/rss/feed/news", "en", "auto"),
     ])
 
 

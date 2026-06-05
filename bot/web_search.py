@@ -32,9 +32,14 @@ class SearchResult:
 # ── DuckDuckGo HTML search ─────────────────────────────────────────────────────
 
 DDG_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Upgrade-Insecure-Requests": "1",
 }
 
 DDG_REGIONS = {
@@ -57,6 +62,29 @@ async def search_ddg_html(query: str, max_results: int = 5, region: str = "ru") 
             response = await client.get("https://html.duckduckgo.com/html/", params=params, headers=DDG_HEADERS)
             if response.status_code != 200:
                 logger.warning(f"DDG HTML returned {response.status_code}")
+                # 202 = DDG rate limiting/blocking, try lite version as fallback
+                if response.status_code == 202:
+                    try:
+                        lite_params = {"q": query, "kl": DDG_REGIONS.get(region, "ru-ru")}
+                        response = await client.get(
+                            "https://lite.duckduckgo.com/lite/",
+                            params=lite_params,
+                            headers=DDG_HEADERS,
+                        )
+                        if response.status_code != 200:
+                            return results
+                        # Parse lite version results (different HTML structure)
+                        urls = re.findall(r'<a[^>]+class="result-link"[^>]+href="([^"]+)"', response.text)
+                        titles = re.findall(r'<a[^>]+class="result-link"[^>]*>(.*?)</a>', response.text, re.DOTALL)
+                        snippets = re.findall(r'<td[^>]+class="result-snippet"[^>]*>(.*?)</td>', response.text, re.DOTALL)
+                        for i, url in enumerate(urls[:max_results]):
+                            title = _clean_html(titles[i]) if i < len(titles) else ""
+                            snippet = _clean_html(snippets[i]) if i < len(snippets) else ""
+                            if url and title:
+                                results.append(SearchResult(title=title, url=url, snippet=snippet, source="duckduckgo_lite"))
+                        return results
+                    except Exception as e2:
+                        logger.debug(f"DDG Lite search error: {e2}")
                 return results
 
             html = response.text
@@ -163,6 +191,10 @@ SEARXNG_INSTANCES = [
     "https://search.bus-hit.me",
     "https://searx.fmac.xyz",
     "https://search.mdosch.de",
+    "https://searxng.ch",
+    "https://search.ononoki.org",
+    "https://baresearch.org",
+    "https://searx.tiekoetter.com",
 ]
 
 
@@ -370,26 +402,28 @@ async def search_parts_by_vin(vin: str, part_name: str = "", max_results: int = 
 async def web_search(query: str, max_results: int = None, region: str = "ru") -> List[SearchResult]:
     """
     Multi-engine web search with fallback chain:
-    DDG HTML → Yandex → SearXNG → Google → DDG API
+    SearXNG → DDG HTML → Yandex → Google → DDG API
+    
+    SearXNG is tried first because DDG HTML frequently returns 202 (block) responses.
     """
     max_results = max_results or config.SEARCH_MAX_RESULTS
 
-    # Strategy 1: DDG HTML
-    results = await search_ddg_html(query, max_results=max_results, region=region)
+    # Strategy 1: SearXNG (most reliable, multiple instances)
+    results = await search_searxng(query, max_results=max_results, language=region)
     if len(results) >= 2:
         return results[:max_results]
 
-    # Strategy 2: Yandex
+    # Strategy 2: DDG HTML
+    ddg_results = await search_ddg_html(query, max_results=max_results, region=region)
+    if ddg_results:
+        results.extend(ddg_results)
+    if len(results) >= 2:
+        return results[:max_results]
+
+    # Strategy 3: Yandex
     yandex_results = await search_yandex(query, max_results=max_results)
     if yandex_results:
         results.extend(yandex_results)
-    if len(results) >= 2:
-        return results[:max_results]
-
-    # Strategy 3: SearXNG
-    searxng_results = await search_searxng(query, max_results=max_results, language=region)
-    if searxng_results:
-        results.extend(searxng_results)
     if len(results) >= 2:
         return results[:max_results]
 

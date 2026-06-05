@@ -649,10 +649,21 @@ async def handle_text(message: Message):
 
 async def _process_text_message(message: Message, text: str):
     """Core message processing with AI, search, diagnostics, parts, VIN, and personalization."""
+    import random
     user_id = message.from_user.id
     chat_mode = await get_chat_mode(user_id)
 
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+
+    # Send a "thinking" status message so the user knows we're working
+    text_lower = text.lower()
+    if any(kw in text_lower for kw in ["запчаст", "деталь", "артикул", "купить", "найти запчас", "подобрать", "vin", "вин"]):
+        thinking_msg = random.choice(ASYA_PHRASES["part_search"])
+    elif any(kw in text_lower for kw in ["стучит", "не работает", "горит", "ошибка", "чек", "перегрев", "не заводит", "троит", "вибрац"]):
+        thinking_msg = random.choice(ASYA_PHRASES["diagnostic_start"])
+    else:
+        thinking_msg = random.choice(ASYA_PHRASES["thinking"])
+    status_msg = await message.answer(thinking_msg)
 
     # ── Build extra context ────────────────────────────────────────────────
 
@@ -736,7 +747,7 @@ async def _process_text_message(message: Message, text: str):
             vin_code=vin_or_body,
             extra_context="\n".join(all_context),
         )
-        await _send_response(message, response)
+        await _send_response(message, response, status_msg)
         return
 
     # 2. Detect car brand
@@ -849,11 +860,8 @@ async def _process_text_message(message: Message, text: str):
         # No article but mentions brand + parts — general search
         try:
             part_query = f"{brand} запчасти купить"
-            if is_diagnostic:
-                from bot.asya import identify_car_brand, detect_symptoms
-                symptoms = detect_symptoms(text)
-                if symptoms:
-                    part_query = f"{brand} {' '.join(symptoms[:2])} запчасти замена"
+            if is_diagnostic and symptoms:
+                part_query = f"{brand} {' '.join(symptoms[:2])} запчасти замена"
             results = await search_spare_part(part_query, max_results=5)
             if results:
                 extra_context_parts.append(
@@ -924,11 +932,18 @@ async def _process_text_message(message: Message, text: str):
             extra_context=extra_context,
         )
 
-    await _send_response(message, response)
+    await _send_response(message, response, status_msg)
 
 
-async def _send_response(message: Message, response):
+async def _send_response(message: Message, response, status_msg=None):
     """Send AI response to user, handling errors and length limits."""
+    # Delete the "thinking" status message
+    if status_msg:
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+
     if response.error:
         logger.error(f"AI error: {response.error_message}")
         await message.answer(

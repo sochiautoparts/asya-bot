@@ -170,9 +170,21 @@ FALLBACK_MODELS = [
 _model_failures: Dict[str, float] = {}
 _FAILURE_COOLDOWN = 300  # 5 minutes
 
+# Free tier models — known to work without API key/balance
+FREE_TIER_MODELS = [
+    "openai", "mistral-small", "llama-3.3", "deepseek-v4",
+    "gemma", "nova-fast", "qwen3-coder", "mistral-small-3.2",
+    "step-3.5-flash", "polly",
+]
+
 
 class PollinationsProvider(BaseAIProvider):
-    """Pollinations AI provider — OpenAI-compatible API with multi-model support."""
+    """Pollinations AI provider — OpenAI-compatible API with multi-model support.
+
+    Supports automatic free-tier fallback when API key balance is depleted.
+    When 402 (Insufficient Balance) is received, switches to free tier mode
+    (no API key) and retries. Periodically tries the API key again.
+    """
 
     def __init__(self):
         super().__init__(
@@ -180,6 +192,22 @@ class PollinationsProvider(BaseAIProvider):
             api_key=config.POLLINATIONS_API_KEY,
             base_url=config.POLLINATIONS_BASE_URL,
         )
+        # Free tier state
+        self._balance_depleted_at: Optional[float] = None
+        self._BALANCE_RETRY_INTERVAL = 1800  # Try API key again after 30 min
+
+    def _should_use_api_key(self) -> bool:
+        """Check if we should try using the API key (not balance-depleted)."""
+        if not self.api_key:
+            return False
+        if self._balance_depleted_at is None:
+            return True
+        # Try API key again after retry interval
+        if time.time() - self._balance_depleted_at > self._BALANCE_RETRY_INTERVAL:
+            logger.info("Retrying with API key after balance cooldown...")
+            self._balance_depleted_at = None
+            return True
+        return False
 
     async def chat(
         self,
@@ -189,23 +217,29 @@ class PollinationsProvider(BaseAIProvider):
         max_tokens: int = 2048,
         **kwargs,
     ) -> AIResponse:
-        """Send a chat completion request to Pollinations API."""
+        """Send a chat completion request to Pollinations API.
+
+        Strategy:
+        1. Try with API key first (if balance available)
+        2. On 402 (Insufficient Balance), switch to free tier (no API key)
+        3. Free tier works without authentication but may have rate limits
+        """
         model = model or DEFAULT_MODEL
 
         # Check if model is in cooldown from recent failures
         if self._is_model_in_cooldown(model):
-            # Try a fallback model
             alt = self._get_available_model()
             if alt:
                 logger.info(f"Model {model} in cooldown, using {alt}")
                 model = alt
 
-        url = f"{self.base_url}/v1/chat/completions"
+        # Determine if we should use API key or free tier
+        use_api_key = self._should_use_api_key()
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
-        }
+        # Build headers based on auth mode
+        headers = {"Content-Type": "application/json"}
+        if use_api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
 
         payload = {
             "model": model,
@@ -214,7 +248,6 @@ class PollinationsProvider(BaseAIProvider):
             "max_tokens": max_tokens,
         }
 
-        # Add optional parameters
         if kwargs.get("top_p"):
             payload["top_p"] = kwargs["top_p"]
         if kwargs.get("frequency_penalty"):
@@ -225,6 +258,7 @@ class PollinationsProvider(BaseAIProvider):
         try:
             async with httpx.AsyncClient(timeout=90.0) as client:
                 start_time = time.time()
+                url = f"{self.base_url}/v1/chat/completions"
                 response = await client.post(url, headers=headers, json=payload)
                 elapsed = time.time() - start_time
 
@@ -235,16 +269,16 @@ class PollinationsProvider(BaseAIProvider):
                     if choices:
                         msg = choices[0].get("message", {})
                         text = msg.get("content", "")
-                        # For reasoning models that use reasoning_content
                         if not text:
                             text = msg.get("reasoning_content", "")
 
                     usage = data.get("usage", {})
                     tokens_used = usage.get("total_tokens", 0)
                     actual_model = data.get("model", model)
+                    tier = "paid" if use_api_key else "free"
 
                     logger.info(
-                        f"Pollinations response: model={actual_model}, "
+                        f"Pollinations response ({tier}): model={actual_model}, "
                         f"tokens={tokens_used}, time={elapsed:.1f}s, "
                         f"length={len(text)}"
                     )
@@ -255,13 +289,68 @@ class PollinationsProvider(BaseAIProvider):
                         provider=self.name,
                         tokens_used=tokens_used,
                     )
+
+                elif response.status_code == 402 and use_api_key:
+                    # Balance depleted — switch to free tier and retry
+                    logger.warning("Pollinations balance depleted, switching to free tier")
+                    self._balance_depleted_at = time.time()
+                    # Retry without API key
+                    free_headers = {"Content-Type": "application/json"}
+                    # Use a free-tier model if current model might not be free
+                    free_model = model if model in FREE_TIER_MODELS else FREE_TIER_MODELS[0]
+                    payload["model"] = free_model
+
+                    start_time = time.time()
+                    response = await client.post(url, headers=free_headers, json=payload)
+                    elapsed = time.time() - start_time
+
+                    if response.status_code == 200:
+                        data = response.json()
+                        text = ""
+                        choices = data.get("choices", [])
+                        if choices:
+                            msg = choices[0].get("message", {})
+                            text = msg.get("content", "")
+                            if not text:
+                                text = msg.get("reasoning_content", "")
+
+                        usage = data.get("usage", {})
+                        tokens_used = usage.get("total_tokens", 0)
+                        actual_model = data.get("model", free_model)
+
+                        logger.info(
+                            f"Pollinations free tier response: model={actual_model}, "
+                            f"tokens={tokens_used}, time={elapsed:.1f}s, "
+                            f"length={len(text)}"
+                        )
+
+                        return AIResponse(
+                            text=text,
+                            model=actual_model,
+                            provider=self.name,
+                            tokens_used=tokens_used,
+                        )
+                    else:
+                        error_text = response.text[:500]
+                        logger.error(
+                            f"Pollinations free tier error: status={response.status_code}, "
+                            f"model={free_model}, error={error_text}"
+                        )
+                        _model_failures[free_model] = time.time()
+                        return AIResponse(
+                            text="",
+                            model=free_model,
+                            provider=self.name,
+                            error=True,
+                            error_message=f"HTTP {response.status_code} (free): {error_text}",
+                        )
+
                 else:
                     error_text = response.text[:500]
                     logger.error(
                         f"Pollinations error: status={response.status_code}, "
                         f"model={model}, error={error_text}"
                     )
-                    # Mark model as failed
                     _model_failures[model] = time.time()
 
                     return AIResponse(

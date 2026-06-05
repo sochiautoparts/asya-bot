@@ -80,3 +80,34 @@ Work Log:
 Stage Summary:
 - Bot workflow restarted and running
 - GitHub Pages workflow deployed successfully
+
+---
+Task ID: 5
+Agent: Main
+Task: Enhance Ася's auto expertise, VIN/parts search, photo understanding, partner links
+
+Work Log:
+- Checked GitHub Actions logs — bot was running fine, no crash errors (all cancelled runs were due to re-deploys)
+- Enhanced bot/config.py system prompt with deep car knowledge (engines, transmissions, suspension, brakes, electrical)
+- Added 8 direct shop search URL templates in bot/web_search.py (Rossko, Autopiter, Exist, Emex, Autodoc, ZZAP, Avtoall, Ixora)
+- Created search_parts_by_vin() function — generates direct shop links for VIN-based parts lookup
+- Enhanced search_spare_part() — generates direct shop URLs instantly + DDG web search for real prices
+- Enhanced photo handler in bot/handlers/chat.py for document understanding (ПТС/СТС, OBD-II screens, VIN codes)
+- Auto-detects VIN and part numbers in photo AI responses and adds purchase links
+- VIN handler now also searches for parts by VIN with direct shop links (5 shops)
+- Spare part query detection expanded with 20+ more keywords (колодки, фильтр, датчик, etc.)
+- Partner link section now includes direct shop URLs from SHOP_SEARCH_URLS
+- _clean_markdown now preserves URLs (converts [text](url) → url instead of removing URL)
+- Vision prompt enhanced for document understanding (ПТС/СТС/VIN/OBD-II/damage)
+- VIN prompt enhanced to include shop links in response
+- Diagnostic and spare part prompts now explicitly require direct purchase links
+- All files passed syntax check
+- Pushed to GitHub and restarted Actions — run 27011177677 in_progress with SHA fcfa8d31
+
+Stage Summary:
+- Ася now has deep car expertise (engines, transmissions, suspension, electrical)
+- VIN queries automatically get shop links for parts (Росско, Autopiter, Exist, ZZAP, Emex)
+- Part number queries get direct links to 8 shops instantly
+- Photo handler understands: ПТС/СТС documents, OBD-II screens, VIN codes, car parts, damage
+- AI prompts explicitly require giving direct purchase links
+- 3 files changed, 268 insertions, 73 deletions
