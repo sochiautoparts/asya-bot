@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-05T16:27:47Z",
+  "last_updated": "2026-06-05T17:13:42Z",
   "pending_reviews": [
     {
       "id": "c_1780674401_d094e8",
@@ -21,6 +21,16 @@
       "summary": "",
       "category": "auto",
       "timestamp": 1780676867.3258152,
+      "status": "pending"
+    },
+    {
+      "id": "c_1780679622_8aad86",
+      "from": "asya",
+      "type": "news_candidate",
+      "title": "формой обратной связи",
+      "summary": "",
+      "category": "auto",
+      "timestamp": 1780679622.7047012,
       "status": "pending"
     }
   ],
