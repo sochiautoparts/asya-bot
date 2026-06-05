@@ -636,11 +636,11 @@ async def handle_photo(message: Message):
 
                 # Split if too long
                 if len(reply_text) <= config.TELEGRAM_TEXT_LIMIT:
-                    await message.answer(reply_text, parse_mode=ParseMode.HTML)
+                    await message.answer(reply_text)
                 else:
                     chunks = _split_message(reply_text, max_length=config.TELEGRAM_TEXT_LIMIT)
                     for chunk in chunks:
-                        await message.answer(chunk, parse_mode=ParseMode.HTML)
+                        await message.answer(chunk)
                 return
             else:
                 await message.answer("Не удалось скачать фото 😅 Попробуй ещё раз")
@@ -1080,13 +1080,13 @@ async def _send_response(message: Message, response, status_msg=None, partner_li
             reply_text = _smart_truncate(reply_text, GROUP_MAX_CHARS)
 
     # Split long messages (Telegram limit 4096 chars)
-    # Use HTML parse mode since partner links use <a> tags
+    # Plain text — no HTML parse mode needed since partner links are plain text
     if len(reply_text) <= config.TELEGRAM_TEXT_LIMIT:
-        await message.answer(reply_text, parse_mode=ParseMode.HTML)
+        await message.answer(reply_text)
     else:
         chunks = _split_message(reply_text, max_length=config.TELEGRAM_TEXT_LIMIT)
         for chunk in chunks:
-            await message.answer(chunk, parse_mode=ParseMode.HTML)
+            await message.answer(chunk)
 
 
 # ── Utility functions ──────────────────────────────────────────────────────────
@@ -1106,18 +1106,17 @@ _DEFAULT_SHOP_ICON = "🔗"
 
 
 def _format_partner_links_section(partner_links: list) -> str:
-    """Format partner links as a clean, readable section with HTML clickable links.
+    """Format partner links as a clean, readable section with plain text URLs.
     
     Takes a list of (name, url) tuples and returns a nicely formatted
-    string with HTML links so the user sees only the shop name, not the
-    long tracking URL.
+    string with emoji + name + raw URL.
     
     Result looks like:
     
     Где купить:
-    🔧 <a href="https://...tracking...">Росско</a>
-    🔍 <a href="https://...tracking...">Autopiter</a>
-    🛒 <a href="https://...tracking...">AvtoALL</a>
+    🔧 Росско — https://ujhjj.com/g/...
+    🔍 Autopiter — https://rcpsj.com/g/...
+    🛒 AvtoALL — https://sgkaa.com/g/...
     """
     if not partner_links:
         return ""
@@ -1130,8 +1129,8 @@ def _format_partner_links_section(partner_links: list) -> str:
             if shop_key in name_lower:
                 icon = shop_icon
                 break
-        # Use HTML <a> tag so user sees only the name, URL is hidden
-        lines.append(f'{icon} <a href="{url}">{name}</a>')
+        # Plain text format: emoji + name — URL (as user requested)
+        lines.append(f'{icon} {name} — {url}')
     
     return "\n".join(lines)
 
@@ -1186,27 +1185,13 @@ def _clean_raw_partner_urls(text: str, partner_links: list) -> str:
 
 
 def _clean_markdown(text: str) -> str:
-    """Remove markdown formatting that Asya shouldn't use, but convert links to HTML.
+    """Remove markdown formatting that Asya shouldn't use.
     
-    Markdown links [text](url) are converted to HTML <a href="url">text</a>
-    for Telegram's HTML mode. Other markdown is stripped.
-    Also escapes HTML special chars to avoid breaking Telegram's HTML parser.
+    Markdown links [text](url) are converted to plain text: text — url.
+    Other markdown is stripped. No HTML — plain text for chat responses.
     """
-    import html as html_module
-    
-    # First, convert markdown links [text](url) → HTML <a href="url">text</a>
-    # Do this BEFORE escaping so the link syntax isn't mangled
-    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
-    
-    # Now escape HTML special chars in the NON-link parts
-    # We need to preserve our <a> tags while escaping everything else
-    # Split by <a> tags, escape the parts between them, then rejoin
-    parts = re.split(r'(<a\s+href="[^"]*">[^<]*</a>)', text)
-    for i, part in enumerate(parts):
-        if not re.match(r'<a\s+href="[^"]*">[^<]*</a>', part):
-            # This is a text part — escape HTML special chars
-            parts[i] = html_module.escape(part, quote=False)
-    text = ''.join(parts)
+    # Convert markdown links [text](url) → text — url (plain text format)
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\1 — \2', text)
     
     # Remove bold (after escaping, ** won't be in &lt; form)
     text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)

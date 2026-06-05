@@ -687,7 +687,10 @@ class ChannelManager:
 
     async def _download_partner_image(self, image_url: str) -> Optional[bytes]:
         """Download a partner program image (logo/banner).
-        Applies same strict validation as news images to avoid posting junk."""
+        
+        Uses RELAXED validation for partner images — they're often smaller logos/banners
+        (5KB+), which is fine for partner posts. News image validation is stricter.
+        """
         if not image_url:
             return None
         try:
@@ -698,23 +701,36 @@ class ChannelManager:
                 content = response.content
                 content_type = response.headers.get("content-type", "")
 
-                # Strict size check — nothing under 20KB
-                if len(content) < 20000:
-                    logger.debug(f"Skipping small partner image ({len(content)} bytes)")
+                # Relaxed size check for partner images — logos can be 5KB+
+                if len(content) < 5000:
+                    logger.debug(f"Skipping tiny partner image ({len(content)} bytes)")
                     return None
 
                 # Must be an image type
                 if not any(ft in content_type for ft in ["image/png", "image/jpeg", "image/gif", "image/webp"]):
                     # Check magic bytes
                     if not (content[:3] == b'\xff\xd8\xff' or content[:4] == b'\x89PNG' or
-                            (content[:4] == b'RIFF' and content[8:12] == b'WEBP')):
+                            (content[:4] == b'RIFF' and content[8:12] == b'WEBP') or
+                            content[:6] in (b'GIF87a', b'GIF89a')):
                         logger.debug(f"Skipping partner image: not an image, content-type={content_type}")
                         return None
 
-                # Validate dimensions (same as news images)
-                if not self._is_content_image(content):
-                    logger.debug(f"Skipping non-content partner image")
-                    return None
+                # Relaxed dimension check for partner images — logos/banners are OK
+                try:
+                    from PIL import Image
+                    import io
+                    img = Image.open(io.BytesIO(content))
+                    width, height = img.size
+                    # Only skip extremely tiny images (under 50px)
+                    if width < 50 or height < 50:
+                        logger.debug(f"Partner image too small: {width}x{height}")
+                        return None
+                except ImportError:
+                    # No PIL — accept the image anyway for partner posts
+                    logger.debug("PIL not available, accepting partner image without dimension check")
+                except Exception:
+                    # Can't read — accept anyway for partner posts
+                    logger.debug("Can't read partner image dimensions, accepting as-is")
 
                 return content
         except Exception as e:

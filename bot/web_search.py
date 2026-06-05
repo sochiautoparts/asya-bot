@@ -186,6 +186,7 @@ async def search_yandex(query: str, max_results: int = 5) -> List[SearchResult]:
 # ── SearXNG search ─────────────────────────────────────────────────────────────
 
 SEARXNG_INSTANCES = [
+    # Most reliable instances (tested June 2026)
     "https://search.sapti.me",
     "https://searx.be",
     "https://searxng.ch",
@@ -195,19 +196,26 @@ SEARXNG_INSTANCES = [
     "https://search.bus-hit.me",
     "https://searx.fmac.xyz",
     "https://search.mdosch.de",
-    # Additional reliable instances
     "https://searx.prvcy.eu",
     "https://search.rowie.at",
     "https://searx.divided-by-zero.eu",
     "https://search.lvkaszus.pl",
+    # Additional instances for better coverage
+    "https://searxng.site",
+    "https://search.sergioprado.blog",
+    "https://searx.work",
+    "https://search.rhscze.cf",
+    "https://searxng.tordenskjold.one",
+    "https://searxng.bravefence.com",
 ]
 
 
-async def search_searxng(query: str, max_results: int = 5, language: str = "ru") -> List[SearchResult]:
+async def search_searxng(query: str, max_results: int = 5, language: str = "ru", categories: str = "") -> List[SearchResult]:
     """Search using SearXNG public instances.
     
     Tries instances in order and returns results from the first one that responds.
     Uses shuffling to distribute load across instances.
+    categories: 'news', 'general', 'images', etc. (SearXNG categories)
     """
     import random
     results = []
@@ -224,6 +232,8 @@ async def search_searxng(query: str, max_results: int = 5, language: str = "ru")
                     "language": language,
                     "pageno": 1,
                 }
+                if categories:
+                    params["categories"] = categories
                 response = await client.get(f"{instance}/search", params=params)
                 if response.status_code == 200:
                     data = response.json()
@@ -455,10 +465,13 @@ async def web_search(query: str, max_results: int = None, region: str = "ru") ->
 
 
 async def search_news(query: str, max_results: int = 5) -> List[SearchResult]:
-    """Search for news articles — SearXNG first, then DDG fallback."""
+    """Search for news articles — SearXNG news category first, then DDG fallback."""
     news_query = f"{query} новости авто"
-    # Try SearXNG first (more reliable than DDG which returns 202)
-    results = await search_searxng(news_query, max_results=max_results, language="ru")
+    # Try SearXNG with news category for better relevance
+    results = await search_searxng(news_query, max_results=max_results, language="ru", categories="news")
+    if len(results) < 2:
+        # Fallback to general search without news category
+        results += await search_searxng(news_query, max_results=max_results, language="ru")
     if len(results) < 2:
         ddg_results = await search_ddg_html(news_query, max_results=max_results)
         results.extend(ddg_results)
