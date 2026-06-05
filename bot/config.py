@@ -66,6 +66,14 @@ class BotConfig:
     SEARCH_MAX_RESULTS: int = 5
     SEARCH_TIMEOUT_SECONDS: int = 15
 
+    # Local model toggle — Qwen3-4B as FALLBACK when cloud unavailable
+    ENABLE_LOCAL_MODEL: bool = os.getenv("ENABLE_LOCAL_MODEL", "false").lower() in ("true", "1", "yes")
+    MODEL_PATH: str = os.getenv("MODEL_PATH", "models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf") if ENABLE_LOCAL_MODEL else ""
+    MODEL_N_CTX: int = int(os.getenv("MODEL_N_CTX", "2048"))
+    MODEL_N_THREADS: int = int(os.getenv("MODEL_N_THREADS", "4"))
+    MODEL_MAX_TOKENS: int = int(os.getenv("MODEL_MAX_TOKENS", "256"))
+    MODEL_HISTORY_LIMIT: int = int(os.getenv("MODEL_HISTORY_LIMIT", "10"))
+
     # Moscow timezone
     TIMEZONE: str = "Europe/Moscow"
 

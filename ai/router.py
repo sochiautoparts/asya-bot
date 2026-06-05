@@ -1,11 +1,12 @@
 """
 AI Router — Routes requests to the best available AI provider.
-Pollinations primary with automatic fallback.
+Pollinations primary + LlamaCpp local fallback.
 Supports chat, vision, VIN decoding, channel content, and more.
 """
 
 import hashlib
 import logging
+import random
 from typing import Optional, List, Dict
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -18,6 +19,14 @@ from ai.providers.pollinations_provider import (
 )
 from bot.config import config, persona
 from bot.database import get_ai_cached, set_ai_cached, get_chat_history, add_chat_message
+
+# Conditional import — LlamaCpp local fallback
+try:
+    from ai.providers.llama_cpp_provider import LlamaCppProvider
+    _LLAMA_CPP_AVAILABLE = True
+except ImportError:
+    LlamaCppProvider = None
+    _LLAMA_CPP_AVAILABLE = False
 
 logger = logging.getLogger("asya.ai.router")
 
@@ -57,24 +66,95 @@ def _get_time_context() -> str:
     )
 
 
+# Static fallback responses for when ALL providers fail
+FALLBACK_RESPONSES = [
+    "Ммм... Ася задумалась. Повтори? 🤔",
+    "Ой, Ася отвлеклась... Что ты сказал? 😅",
+    "Блин, Ася задумалась о вечном... Ещё раз? 💅",
+    "Ася не расслышала... Говори ещё! 😏",
+    "Ой, мысли улетели! Повтори для Аси? 💭",
+]
+
+
 class AIRouter:
-    """Routes AI requests to the best available provider with fallback."""
+    """Routes AI requests to the best available provider with fallback.
+
+    Route: Pollinations (primary) → LlamaCpp (local fallback) → static fallback.
+    """
 
     def __init__(self):
         self.providers: List[BaseAIProvider] = []
         self._primary: Optional[PollinationsProvider] = None
+        self._local: Optional[LlamaCppProvider] = None
+        self._total_fallbacks: int = 0
+        self._local_requests: int = 0
 
     async def initialize(self) -> None:
-        """Initialize all providers and set primary."""
+        """Initialize all providers: Pollinations PRIMARY + LlamaCpp FALLBACK."""
+        # ── 1. Pollinations — PRIMARY ──
         pollinations = PollinationsProvider()
         self.providers = [pollinations]
         self._primary = pollinations
         logger.info(
-            f"AI Router initialized with Pollinations as primary "
+            f"AI Router: Pollinations initialized as PRIMARY "
             f"({len(POLLINATIONS_MODELS)} models: "
             f"{len(CHAT_MODELS)} chat, {len(VISION_MODELS)} vision, "
             f"{len(CONTENT_MODELS)} content, {len(SEARCH_MODELS)} search)"
         )
+
+        # ── 2. LlamaCpp — LOCAL FALLBACK (only if enabled AND available!) ──
+        if config.ENABLE_LOCAL_MODEL and config.MODEL_PATH and _LLAMA_CPP_AVAILABLE and LlamaCppProvider is not None:
+            try:
+                self._local = LlamaCppProvider(
+                    model_path=config.MODEL_PATH,
+                    timeout=65.0,
+                    model_config={
+                        "n_ctx": config.MODEL_N_CTX,
+                        "n_threads": config.MODEL_N_THREADS,
+                        "n_gpu_layers": 0,
+                        "verbose": False,
+                        "use_mmap": True,
+                        "use_mlock": False,
+                    },
+                    gen_config={
+                        "max_tokens": min(config.MODEL_MAX_TOKENS, 256),
+                        "temperature": 0.82,
+                        "top_p": 0.92,
+                        "top_k": 50,
+                        "repeat_penalty": 1.12,
+                    },
+                )
+                await self._local.init()
+                logger.info("LlamaCppProvider initialized as LOCAL FALLBACK")
+            except Exception as e:
+                logger.warning(f"LlamaCppProvider init failed: {e}")
+                self._local = None
+        else:
+            if not _LLAMA_CPP_AVAILABLE:
+                logger.info("llama-cpp-python not installed — running cloud-only")
+            elif config.ENABLE_LOCAL_MODEL:
+                logger.info("ENABLE_LOCAL_MODEL=true but no MODEL_PATH — running cloud-only")
+            else:
+                logger.info("Local model DISABLED (ENABLE_LOCAL_MODEL not set) — running cloud-only")
+
+        # Log status
+        pollinations_status = "active" if self._primary and self._primary.is_available() else "unavailable"
+        local_status = "not_installed" if not _LLAMA_CPP_AVAILABLE else ("disabled" if not config.ENABLE_LOCAL_MODEL else ("active" if self._local and self._local.is_available() else "unavailable"))
+        model_name = self._local._model_name if self._local and self._local._loaded else "none"
+
+        logger.info(
+            f"AI Router initialized: "
+            f"pollinations={pollinations_status} (PRIMARY, {len(CHAT_MODELS)} models, vision=yes), "
+            f"local={local_status} (FALLBACK, model={model_name}, ENABLE_LOCAL_MODEL={config.ENABLE_LOCAL_MODEL})"
+        )
+
+    async def close(self) -> None:
+        """Close all providers."""
+        if self._local:
+            try:
+                await self._local.close()
+            except Exception:
+                pass
 
     @property
     def primary(self) -> Optional[BaseAIProvider]:
@@ -108,19 +188,7 @@ class AIRouter:
         """
         Send a chat message through the AI router.
 
-        Args:
-            user_id: Telegram user ID
-            message: User's message text
-            system_prompt: Override system prompt
-            model: Override model
-            temperature: Override temperature
-            max_tokens: Override max tokens
-            use_cache: Whether to check AI cache
-            save_history: Whether to save to chat history
-            extra_context: Additional context to append to system prompt
-
-        Returns:
-            AIResponse with the AI's reply
+        Route: Pollinations (primary) → LlamaCpp (local fallback) → static fallback.
         """
         temperature = temperature or config.CHAT_TEMPERATURE
         max_tokens = max_tokens or config.CHAT_MAX_TOKENS
@@ -146,7 +214,7 @@ class AIRouter:
         # Format messages
         messages = self._primary.format_messages(sys_prompt, history, message)
 
-        # Try primary provider
+        # ── 1. Try Pollinations PRIMARY ──
         response = await self._primary.chat(
             messages=messages,
             model=model,
@@ -155,17 +223,14 @@ class AIRouter:
         )
 
         # If primary failed, try fallback models with SMART switching
-        # The Pollinations provider already tries free-tier models internally,
-        # so we only add a small number of additional fallbacks here
         if response.error:
-            is_auth_error = any(code in (response.error_message or "") 
+            is_auth_error = any(code in (response.error_message or "")
                                for code in ["401", "402", "unavailable", "cooldown"])
-            
+
             if is_auth_error:
-                # Auth/balance errors — the provider already tried free-tier internally
-                # Only try 2 more models with different strategy
+                # Auth/balance errors — try free-tier fallbacks
                 from ai.providers.pollinations_provider import PRIORITY_FREE_MODELS
-                fallback_models = [m for m in PRIORITY_FREE_MODELS 
+                fallback_models = [m for m in PRIORITY_FREE_MODELS
                                    if m != model and not self._primary._is_model_in_cooldown(m)][:2]
                 if fallback_models:
                     logger.info(f"Auth error, trying {len(fallback_models)} priority free fallbacks")
@@ -176,7 +241,7 @@ class AIRouter:
                     "gemma", "qwen3-coder", "step-3.5-flash",
                 ][:3]
                 logger.info(f"Non-auth error, trying fallbacks: {fallback_models}")
-            
+
             for fallback_model in fallback_models:
                 if fallback_model == model:
                     continue
@@ -192,8 +257,44 @@ class AIRouter:
                 if not response.error:
                     break
 
+        # ── 2. If Pollinations STILL failed, try LOCAL FALLBACK ──
+        if response.error and self._local and self._local.is_available():
+            logger.warning("Pollinations failed, falling back to LOCAL model")
+            try:
+                local_response = await self._local.chat(
+                    messages=messages,
+                    model="",
+                    temperature=temperature or 0.82,
+                    max_tokens=min(max_tokens or 256, 256),
+                )
+                if not local_response.error and local_response.text:
+                    self._local_requests += 1
+                    # Clean the response (strip think tags etc.)
+                    text = self._clean_ai_response(local_response.text)
+                    if text:
+                        response = AIResponse(
+                            text=text,
+                            model=local_response.model,
+                            provider=local_response.provider,
+                            tokens_used=local_response.tokens_used,
+                        )
+                        logger.info(f"LOCAL FALLBACK succeeded: model={local_response.model}")
+            except Exception as e:
+                logger.warning(f"Local model chat error: {e}")
+
+        # ── 3. If ALL AI providers failed, use static fallback ──
+        if response.error:
+            self._total_fallbacks += 1
+            logger.error("All AI providers unavailable! Using static fallback.")
+            response = AIResponse(
+                text=random.choice(FALLBACK_RESPONSES),
+                model="fallback",
+                provider="static",
+                tokens_used=0,
+            )
+
         # Save to history
-        if save_history and not response.error:
+        if save_history and not response.error and response.text:
             await add_chat_message(user_id, "user", message)
             await add_chat_message(user_id, "assistant", response.text)
 
@@ -214,6 +315,7 @@ class AIRouter:
     ) -> AIResponse:
         """
         Analyze an image using vision-capable models.
+        Local model can't see images — Pollinations only.
         """
         # Build the vision prompt
         if not prompt:
@@ -250,6 +352,16 @@ class AIRouter:
             temperature=0.7,
         )
 
+        # If vision failed, local model can't help (no vision support)
+        if response.error:
+            response = AIResponse(
+                text="Ой, не получилось разглядеть фото 😅 Попробуй ещё раз!",
+                model="fallback",
+                provider="static",
+                error=True,
+                error_message=response.error_message,
+            )
+
         # Save to history
         if not response.error and response.text:
             prompt_text = prompt if len(prompt) < 100 else prompt[:97] + "..."
@@ -266,6 +378,7 @@ class AIRouter:
     ) -> AIResponse:
         """
         Decode a VIN code or body number for vehicle information.
+        Falls back to local model if Pollinations is unavailable.
         """
         # Clean VIN code
         vin_clean = vin_code.strip().upper()
@@ -298,216 +411,70 @@ class AIRouter:
         )
 
     def _parse_vin_basic(self, vin: str) -> str:
-        """Parse VIN info: WMI manufacturer, model year, assembly plant, check digit.
-        
-        VIN structure (17 chars):
-        - Pos 1-3: WMI (World Manufacturer Identifier)
-        - Pos 4-8: Vehicle Descriptor (model, body, engine)
-        - Pos 9: Check digit (0-9 or X)
-        - Pos 10: Model Year
-        - Pos 11: Assembly Plant
-        - Pos 12-17: Production Serial Number
-        """
+        """Parse VIN info: WMI manufacturer, model year, assembly plant, check digit."""
         if len(vin) < 3:
             return ""
 
         parts = []
 
-        # ── WMI (Positions 1-3) ──
+        # WMI
         wmi = vin[:3]
         wmi_map = {
-            # Japanese
             "JHM": "Honda (Япония)", "JHN": "Honda (США)", "JHG": "Honda (Япония)",
-            "JT1": "Toyota (Япония)", "JT2": "Toyota (Япония)", "JT3": "Toyota",
-            "JT4": "Toyota", "JT5": "Toyota", "JT6": "Toyota", "JT7": "Toyota",
-            "JT8": "Toyota", "JTD": "Toyota (США)", "JTE": "Toyota (США)",
+            "JT1": "Toyota (Япония)", "JT2": "Toyota (Япония)", "JTD": "Toyota (США)",
             "JN1": "Nissan (Япония)", "JN8": "Nissan (США)", "JNK": "Infiniti (Япония)",
-            "JM1": "Mazda (Япония)", "JM2": "Mazda (США)", "JM3": "Mazda (США)",
-            "JF1": "Subaru (Япония)", "JF2": "Subaru (США)",
-            "JS2": "Suzuki (Япония)", "JS3": "Suzuki", "JS4": "Suzuki",
-            "JA3": "Mitsubishi (Япония)", "JA4": "Mitsubishi (США)",
-            "JJA": "Isuzu (Япония)", "JAL": "Alfa Romeo (Япония)",
-            # German
-            "WBA": "BMW (Германия)", "WBS": "BMW M (Германия)", "WBX": "BMW SUV (Германия)",
-            "WBY": "BMW i (Германия)",
-            "WVW": "Volkswagen (Германия)", "WV1": "Volkswagen Commercial",
-            "WV2": "Volkswagen Bus/Van",
-            "WAU": "Audi (Германия)",
+            "JM1": "Mazda (Япония)", "JF1": "Subaru (Япония)",
+            "WBA": "BMW (Германия)", "WBS": "BMW M (Германия)",
+            "WVW": "Volkswagen (Германия)", "WAU": "Audi (Германия)",
             "WDD": "Mercedes-Benz (Германия)", "WDB": "Mercedes-Benz (Германия)",
-            "WDC": "Mercedes-Benz (США)", "WDF": "Mercedes-Benz Van",
-            "WP0": "Porsche (Германия)", "WP1": "Porsche SUV (Германия)",
-            "W0L": "Opel (Германия)", "W0V": "Opel (Германия)",
-            # American
-            "1G1": "Chevrolet (США)", "1G2": "Pontiac (США)", "1G3": "Oldsmobile",
-            "1G4": "Buick (США)", "1G6": "Cadillac (США)", "1GC": "Chevrolet Truck",
-            "1FA": "Ford (США)", "1FT": "Ford Truck (США)", "1F1": "Ford (США)",
-            "1FM": "Ford SUV (США)", "1FD": "Ford Commercial",
-            "2G1": "Chevrolet (Канада)", "2G2": "Pontiac (Канада)",
-            "2FA": "Ford (Канада)", "2FM": "Ford (Канада)",
-            "3FA": "Ford (Мексика)", "3FE": "Ford (Мексика)",
-            "3VW": "Volkswagen (Мексика)", "3MB": "Mitsubishi (Мексика)",
-            "1N4": "Nissan (США)", "1N6": "Nissan Truck (США)",
-            "1HG": "Honda (США)", "1HY": "Acura (США)",
+            "WP0": "Porsche (Германия)",
+            "1G1": "Chevrolet (США)", "1FA": "Ford (США)", "1FT": "Ford Truck (США)",
+            "1HG": "Honda (США)", "1N4": "Nissan (США)",
             "1J4": "Jeep (США)", "1C4": "Chrysler (США)", "1C6": "RAM (США)",
-            "5YJ": "Tesla (США)", "7SAY": "Tesla (США)",
-            # Korean
-            "KMH": "Hyundai (Корея)", "KNA": "Kia (Корея)", "KNB": "Kia (Корея)",
-            "KNC": "Kia (Корея)", "KND": "Kia (США)",
-            "5NP": "Hyundai (США)", "5XM": "Hyundai (США)",
-            "5XY": "Kia (США)", "5XK": "Kia (США)",
-            "KLA": "Hyundai (Корея)", "KL1": "Chevrolet (Корея)",
-            "KNM": "Renault Samsung (Корея)", "KPH": "SsangYong (Корея)",
-            # Chinese
-            "LBE": "BAIC (Китай)", "LSG": "GM (Китай)", "LJ1": "FAW (Китай)",
-            "LVSH": "Great Wall (Китай)", "LZG": "Geely (Китай)",
-            "LFV": "Volkswagen (Китай)", "LSV": "Volkswagen (Китай)",
-            "LGB": "Geely (Китай)", "LFP": "Chery (Китай)",
-            "LJX": "Haval (Китай)", "LZW": "SAIC (Китай)",
-            "LVV": "Chery (Китай)", "LZM": "Chery (Китай)",
-            "LDC": "Dongfeng Peugeot (Китай)",
-            "LNB": "Brilliance (Китай)", "LJU": "BYD (Китай)",
-            "LLV": "Changan (Китай)",
-            # Russian
-            "XTA": "АвтоВАЗ LADA (Россия)", "XTC": "АвтоВАЗ (Россия)",
-            "XTB": "АвтоВАЗ (Россия)", "XTD": "АвтоВАЗ (Россия)",
-            "X7L": "Renault (Россия)", "X7M": "Hyundai (Россия)",
-            "Z8T": "УАЗ (Россия)",
-            "XUF": "Chevrolet (Россия)", "XWB": "Kia (Россия)",
-            "X4X": "Kia (Россия)",
-            "XWE": "Hyundai (Россия)", "XWU": "Renault (Россия)",
-            # Swedish
-            "YV1": "Volvo (Швеция)", "YV4": "Volvo SUV (Швеция)",
-            "YV2": "Volvo Truck (Швеция)", "YV3": "Volvo Bus (Швеция)",
-            # French
-            "VF1": "Renault (Франция)", "VF3": "Peugeot (Франция)",
-            "VF7": "Citroen (Франция)", "VF6": "Renault Truck (Франция)",
-            "VF8": "Renault (Франция)",
-            "VR1": "Renault (Франция)", "VR7": "Peugeot (Франция)",
-            # British
+            "5YJ": "Tesla (США)",
+            "KMH": "Hyundai (Корея)", "KNA": "Kia (Корея)", "KND": "Kia (США)",
+            "XTA": "АвтоВАЗ LADA (Россия)", "Z8T": "УАЗ (Россия)",
+            "YV1": "Volvo (Швеция)",
+            "VF1": "Renault (Франция)", "VF3": "Peugeot (Франция)", "VF7": "Citroen (Франция)",
             "SAL": "Land Rover (Великобритания)", "SAA": "Jaguar (Великобритания)",
-            "SCA": "Rolls-Royce (Великобритания)", "SAJ": "Jaguar (Великобритания)",
-            "SDB": "Aston Martin (Великобритания)", "SCC": "McLaren (Великобритания)",
-            "SAX": "MG (Великобритания)",
-            # Italian
             "ZAR": "Alfa Romeo (Италия)", "ZAM": "Maserati (Италия)",
             "ZFF": "Ferrari (Италия)", "ZFA": "Fiat (Италия)",
-            "ZLA": "Lancia (Италия)", "ZAP": "Piaggio (Италия)",
-            "ZCG": "Lamborghini (Италия)",
-            # Czech
             "TM9": "Škoda (Чехия)", "TMB": "Škoda (Чехия)",
-            "TMK": "Škoda (Чехия)", "TMP": "Škoda (Чехия)",
-            # Spanish
-            "VSS": "SEAT (Испания)", "VSE": "SEAT (Испания)",
         }
 
         manufacturer = wmi_map.get(wmi, "")
         if manufacturer:
             parts.append(f"Производитель (WMI {wmi}): {manufacturer}")
         else:
-            # Try to determine region from first character
-            first_char = vin[0]
             region_map = {
-                "1": "Северная Америка (США)", "2": "Северная Америка (Канада)",
-                "3": "Северная Америка (Мексика)", "4": "США",
-                "5": "США", "6": "Австралия", "7": "Новая Зеландия",
-                "8": "Южная Америка", "9": "Южная Америка",
+                "1": "США", "2": "Канада", "3": "Мексика",
                 "J": "Япония", "K": "Корея", "L": "Китай",
-                "M": "Индия", "N": "Индонезия/Турция",
-                "P": "Европа/Азия", "R": "Тайвань/Вьетнам",
-                "S": "Великобритания", "T": "Чехия/Венгрия",
-                "U": "Дания/Финляндия", "V": "Франция/Испания",
-                "W": "Германия", "X": "Россия/Нидерланды",
-                "Y": "Швеция/Норвегия", "Z": "Италия/Бельгия",
+                "S": "Великобритания", "V": "Франция/Испания",
+                "W": "Германия", "X": "Россия/Нидерланды", "Y": "Швеция/Норвегия",
+                "Z": "Италия/Бельгия",
             }
-            region = region_map.get(first_char, "Неизвестный регион")
+            region = region_map.get(vin[0], "Неизвестный регион")
             parts.append(f"WMI {wmi} — регион: {region}")
 
-        # ── Model Year (Position 10) ──
+        # Model Year
         if len(vin) >= 10:
             year_code = vin[9]
             year_map = {
                 "A": 2010, "B": 2011, "C": 2012, "D": 2013, "E": 2014,
                 "F": 2015, "G": 2016, "H": 2017, "J": 2018, "K": 2019,
                 "L": 2020, "M": 2021, "N": 2022, "P": 2023, "R": 2024,
-                "S": 2025, "T": 2026, "V": 2027, "W": 2028, "X": 2029,
-                "Y": 2030, "1": 2001, "2": 2002, "3": 2003, "4": 2004,
-                "5": 2005, "6": 2006, "7": 2007, "8": 2008, "9": 2009,
-                "0": 2000,
+                "S": 2025, "T": 2026, "V": 2027,
             }
             model_year = year_map.get(year_code)
             if model_year:
-                # Could be model_year or model_year+30 (e.g. 1980 = 2010)
-                if model_year < 1990:
-                    actual_year = model_year + 30  # 1980s cycle
-                else:
-                    actual_year = model_year
-                parts.append(f"Модельный год: {actual_year} (код: {year_code})")
+                parts.append(f"Модельный год: {model_year} (код: {year_code})")
 
-        # ── Check Digit Validation (Position 9) ──
-        if len(vin) >= 9:
-            check_char = vin[8]
-            if check_char != "X" and not check_char.isdigit():
-                parts.append(f"⚠️ Контрольный символ ({check_char}) выглядит некорректно")
-            else:
-                is_valid = self._validate_vin_check_digit(vin)
-                if not is_valid and len(vin) == 17:
-                    parts.append("⚠️ Контрольная сумма VIN не совпадает — возможна ошибка в коде")
-                elif len(vin) == 17:
-                    parts.append("✅ Контрольная сумма VIN корректна")
-
-        # ── Assembly Plant (Position 11) ──
-        if len(vin) >= 11:
-            plant_code = vin[10]
-            parts.append(f"Код завода сборки: {plant_code}")
-
-        # ── Serial Number (Positions 12-17) ──
+        # Serial Number
         if len(vin) >= 17:
             serial = vin[11:17]
             parts.append(f"Серийный номер: {serial}")
 
         return "\n".join(parts) if parts else ""
-
-    @staticmethod
-    def _validate_vin_check_digit(vin: str) -> bool:
-        """Validate VIN check digit (position 9).
-        
-        Uses the standard VIN check digit algorithm:
-        - Assign weights to each position
-        - Multiply each digit value by its weight
-        - Sum all products
-        - Check digit = sum mod 11 (X for 10)
-        """
-        if len(vin) != 17:
-            return False
-
-        # Position weights
-        weights = [8, 7, 6, 5, 4, 3, 2, 10, 0, 9, 8, 7, 6, 5, 4, 3, 2]
-
-        # Character values (I, O, Q are not used in VIN)
-        values = {
-            "0": 0, "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7,
-            "8": 8, "9": 9,
-            "A": 1, "B": 2, "C": 3, "D": 4, "E": 5, "F": 6, "G": 7, "H": 8,
-            "J": 1, "K": 2, "L": 3, "M": 4, "N": 5, "P": 7, "R": 9,
-            "S": 2, "T": 3, "U": 4, "V": 5, "W": 6, "X": 7, "Y": 8, "Z": 9,
-        }
-
-        vin_upper = vin.upper()
-
-        total = 0
-        for i in range(17):
-            char = vin_upper[i]
-            if char not in values:
-                return False
-            total += values[char] * weights[i]
-
-        expected_check = total % 11
-        if expected_check == 10:
-            expected_char = "X"
-        else:
-            expected_char = str(expected_check)
-
-        return vin_upper[8] == expected_char
 
     async def generate_channel_post(
         self,
@@ -521,8 +488,6 @@ class AIRouter:
         """
         Generate a post for the @sochiautoparts channel.
         Uses a channel-specific prompt with proper footer format.
-        Respects Telegram character limits: 1024 with media, 4096 without.
-        Supports up to 10 media files per post (media group/album).
         """
         system_prompt = persona.system_prompt + persona.channel_prompt_suffix
 
@@ -530,33 +495,24 @@ class AIRouter:
         time_ctx = _get_time_context()
         system_prompt += f"\n\n{time_ctx}"
 
-        # Add character limit instruction — very explicit for AI
+        # Add character limit instruction
         char_limit = config.TELEGRAM_CAPTION_LIMIT if has_media else config.TELEGRAM_TEXT_LIMIT
-        footer_chars = 55  # Approx chars for "Автор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
+        footer_chars = 55
         content_limit = char_limit - footer_chars
 
         if has_media:
             limit_instruction = (
                 f"\n\nКРИТИЧЕСКИ ВАЖНО — ЛИМИТ СИМВОЛОВ:\n"
-                f"Это пост С медиа (фото/видео). Текст будет подписью к медиа.\n"
-                f"МАКСИМУМ 1024 символа ВЕСЬ пост, включая подпись.\n"
+                f"Это пост С медиа. Максимум 1024 символа ВЕСЬ пост.\n"
                 f"Подпись 'Автор @asiaexp_bot / @sochiautoparts / #sochiautoparts' занимает ~55 символов.\n"
                 f"Значит твой полезный текст — НЕ БОЛЕЕ {content_limit} символов.\n"
-                f"Пиши КОМПАКТНО и ЁМКО. Не растягивай. Лучше короче, чем обрезать.\n"
                 f"Подпись в конце ОБЯЗАТЕЛЬНА — никогда не обрезай её."
             )
-            if media_count > 1:
-                limit_instruction += (
-                    f"\n\nК посту будет прикреплено {media_count} фото/видео (альбом/карусель)."
-                    f"Текст пишется как подпись к первому медиа — один на весь пост."
-                )
         else:
             limit_instruction = (
                 f"\n\nЛИМИТ СИМВОЛОВ:\n"
                 f"Это текстовый пост БЕЗ медиа. Максимум 4096 символов весь пост.\n"
-                f"Подпись 'Автор @asiaexp_bot / @sochiautoparts / #sochiautoparts' занимает ~55 символов.\n"
-                f"Значит твой полезный текст — НЕ БОЛЕЕ {content_limit} символов.\n"
-                f"Подпись в конце ОБЯЗАТЕЛЬНА — никогда не обрезай её."
+                f"Подпись в конце ОБЯЗАТЕЛЬНА."
             )
 
         system_prompt += limit_instruction
@@ -572,7 +528,7 @@ class AIRouter:
             {"role": "user", "content": user_content},
         ]
 
-        # Use content model for channel posts — rotate through models for variety
+        # Use content model for channel posts
         post_model = model or "openai-large"
 
         response = await self._primary.chat(
@@ -582,26 +538,39 @@ class AIRouter:
             max_tokens=1500,
         )
 
-        # Ensure footer is present with proper format (matching @sochiautoparts)
+        # If cloud failed, try local fallback for channel post
+        if response.error and self._local and self._local.is_available():
+            logger.warning("Pollinations failed for channel post, trying local model")
+            try:
+                local_response = await self._local.chat(
+                    messages=messages,
+                    model="",
+                    temperature=0.8,
+                    max_tokens=256,
+                )
+                if not local_response.error and local_response.text:
+                    response = local_response
+            except Exception as e:
+                logger.warning(f"Local model channel post error: {e}")
+
+        # Ensure footer is present
         if response.text and not response.error:
             text = response.text
 
-            # Clean markdown-style links - convert [text](url) to plain text
+            # Clean markdown-style links
             import re
-            text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\1', text)  # Remove markdown links
-            text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)  # Remove bold
-            text = re.sub(r'\*(.+?)\*', r'\1', text)  # Remove italic
+            text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\1', text)
+            text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+            text = re.sub(r'\*(.+?)\*', r'\1', text)
 
             if "#sochiautoparts" not in text:
                 text = text.rstrip() + "\n\nАвтор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
             elif "@asiaexp_bot" not in text:
-                # Insert Author mention before @sochiautoparts
                 text = text.replace("@sochiautoparts", "Автор @asiaexp_bot\n@sochiautoparts")
 
-            # Enforce character limit — smart truncation preserving footer
+            # Enforce character limit
             footer = "\n\nАвтор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
             if has_media and len(text) > config.TELEGRAM_CAPTION_LIMIT:
-                # Strip existing footer, truncate content, re-add footer
                 for foot_part in ["\n\nАвтор @asiaexp_bot", "\n@sochiautoparts", "\n#sochiautoparts"]:
                     text = text.replace(foot_part, "")
                 text = text.rstrip()
@@ -629,10 +598,7 @@ class AIRouter:
         car_info: str = "",
         model: str = "",
     ) -> AIResponse:
-        """
-        Generate a car diagnosis response.
-        Uses reasoning model for complex diagnostics.
-        """
+        """Generate a car diagnosis response. Falls back to local model if cloud unavailable."""
         from bot.asya import build_diagnostic_context
 
         extra_context = build_diagnostic_context(symptoms)
@@ -651,7 +617,7 @@ class AIRouter:
             message=symptoms,
             system_prompt=persona.system_prompt + persona.diagnostic_prompt_suffix,
             model=diag_model,
-            temperature=0.5,  # More precise for diagnostics
+            temperature=0.5,
             extra_context=extra_context,
         )
 
@@ -662,9 +628,7 @@ class AIRouter:
         part_info: str = "",
         model: str = "",
     ) -> AIResponse:
-        """
-        Generate a spare part search response.
-        """
+        """Generate a spare part search response. Falls back to local model if cloud unavailable."""
         extra_context = ""
         if part_info:
             extra_context = f"Информация о запчасти из каталогов:\n{part_info}"
@@ -674,9 +638,50 @@ class AIRouter:
             message=f"Найди запчасть по артикулу: {article}",
             system_prompt=persona.system_prompt + persona.spare_part_prompt_suffix,
             model=model,
-            temperature=0.4,  # Precise for part search
+            temperature=0.4,
             extra_context=extra_context,
         )
+
+    @staticmethod
+    def _clean_ai_response(text: str) -> str:
+        """Clean AI response artifacts (think tags, markdown, etc.)."""
+        if not text:
+            return ""
+
+        # Strip think tags (Qwen3, reasoning models)
+        import re
+        text = re.sub(r'<think\b[^>]*>.*?</think\s*>', '', text, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r'<thinking\b[^>]*>.*?</thinking\s*>', '', text, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r'</?think[^>]*>', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'</?thinking[^>]*>', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'<think\b[^>]*$', '', text, flags=re.IGNORECASE)
+
+        # Strip /no_think prefix
+        text = re.sub(r'^/no_think\s*', '', text)
+
+        # Strip prefixes
+        for prefix in ["Ася:", "Asya:", "АСЯ:", "Assistant:", "Ответ Аси:"]:
+            if text.startswith(prefix):
+                text = text[len(prefix):].strip()
+
+        # Strip quotes
+        if text.startswith('"') and text.endswith('"'):
+            text = text[1:-1]
+        if text.startswith("'") and text.endswith("'"):
+            text = text[1:-1]
+
+        text = text.strip("*").strip()
+
+        # Strip markdown
+        text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
+        text = re.sub(r'\*([^*]+)\*', r'\1', text)
+        text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
+
+        # Clean up whitespace
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        text = text.strip()
+
+        return text
 
     def _make_cache_key(self, system_prompt: str, message: str) -> str:
         """Create a cache key from system prompt and message."""
