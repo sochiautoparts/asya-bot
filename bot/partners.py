@@ -360,10 +360,30 @@ class PartnerManager:
         return [p for p in self.programs if p.has_category(category) and p.has_region(region)]
 
     def get_by_site(self, site_url: str) -> Optional[PartnerProgram]:
-        """Find a partner program by its site URL."""
+        """Find a partner program by its site URL or domain."""
         self.ensure_loaded()
+        if not site_url:
+            return None
+        
+        # Try parsing as URL first
         domain = urlparse(site_url).netloc.replace("www.", "") if site_url else ""
-        return self._site_map.get(domain)
+        
+        # If urlparse didn't extract a netloc (bare domain like "rossko.ru"),
+        # treat the input itself as the domain
+        if not domain and site_url:
+            domain = site_url.replace("www.", "").rstrip("/")
+        
+        # Direct lookup
+        result = self._site_map.get(domain)
+        if result:
+            return result
+        
+        # Fallback: partial match on domain keys
+        for key, prog in self._site_map.items():
+            if domain in key or key in domain:
+                return prog
+        
+        return None
 
     def get_all_categories(self) -> List[str]:
         """Get all available categories across programs."""
@@ -482,6 +502,59 @@ class PartnerManager:
 
         lines.append("")
         lines.append("ВАЖНО: Ссылки выше — ПАРТНЁРСКИЕ (goto_link из admitad_ads.json). Используй их КАК ЕСТЬ, ничего не добавляй и не меняй!")
+
+        return "\n".join(lines)
+
+    def get_primary_parts_links(self, region: str = DEFAULT_REGION) -> List[Dict[str, str]]:
+        """Get the THREE primary partner links for auto parts in strict order.
+
+        Order: 1) Rossko, 2) Autopiter (RU), 3) AvtoALL
+        These are the main links Ася gives in EVERY parts/VIN query.
+        """
+        self.ensure_loaded()
+        links = []
+
+        # Define the strict order: Rossko → Autopiter RU → AvtoALL
+        primary_sites = [
+            ("rossko.ru", "Росско", "профессиональный подбор запчастей"),
+            ("autopiter.ru", "Autopiter", "крупнейший магазин автозапчастей в России"),
+            ("avtoall.ru", "AvtoALL", "автотовары и запчасти"),
+        ]
+
+        for site_domain, display_name, description in primary_sites:
+            prog = self.get_by_site(site_domain)
+            if prog and prog.has_region(region):
+                links.append({
+                    "name": display_name,
+                    "url": prog.goto_link,
+                    "description": description,
+                })
+            else:
+                # Fallback: search by category
+                logger.debug(f"Primary partner {site_domain} not found in loaded programs")
+
+        return links
+
+    def format_primary_parts_links(self, region: str = DEFAULT_REGION) -> str:
+        """Format the three primary partner links as context for AI.
+
+        Returns a string like:
+        Партнёрские ссылки для запчастей (используй КАК ЕСТЬ!):
+        1. Росско (профессиональный подбор запчастей): https://...
+        2. Autopiter (крупнейший магазин автозапчастей в России): https://...
+        3. AvtoALL (автотовары и запчасти): https://...
+        """
+        links = self.get_primary_parts_links(region)
+        if not links:
+            return ""
+
+        lines = [
+            "ПАРТНЁРСКИЕ ССЫЛКИ ДЛЯ ЗАПЧАСТЕЙ (давай ВСЕГДА в этом порядке! Используй КАК ЕСТЬ, ничего не меняй!):",
+        ]
+        for i, link in enumerate(links, 1):
+            lines.append(f"{i}. {link['name']} ({link['description']}): {link['url']}")
+        lines.append("")
+        lines.append("На всех трёх сайтах можно искать по VIN-коду и артикулу запчастей. Есть чаты с подбором запчастей.")
 
         return "\n".join(lines)
 

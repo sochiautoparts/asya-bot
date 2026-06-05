@@ -258,7 +258,7 @@ async def cmd_help(message: Message):
     help_text = (
         "Если что, я могу:\n\n"
         "🔧 Помочь с диагностикой — расскажи, что с машиной, разберёмся вместе\n"
-        "🔍 Найти запчасть — кинь артикул, я поищу\n"
+        "🔍 Подобрать запчасти — подскажу где искать по VIN и артикулу\n"
         "📊 Расшифровать VIN или номер кузова — просто отправь\n"
         "📸 Посмотреть фото — отправь, я расскажу что вижу\n"
         "💬 Просто поболтать — я люблю общаться на любые темы!\n"
@@ -332,7 +332,7 @@ async def cmd_parts(message: Message):
 
     await set_chat_mode(message.from_user.id, "parts")
     await message.answer(
-        "Ищем запчасти 🔍 Кидай артикул — и я поищу"
+        "Ищем запчасти 🔍 Подскажу где искать — Росско, Autopiter, AvtoALL"
     )
 
 
@@ -605,32 +605,31 @@ async def handle_photo(message: Message):
                 reply_text = response.text
                 reply_text = _clean_markdown(reply_text)
 
-                # Check if AI found a VIN in the photo — if so, also search parts by VIN
+                # Check if AI found a VIN in the photo — suggest partner links for parts
                 detected_vin = _detect_vin(reply_text)
                 if detected_vin and len(detected_vin) == 17:
                     try:
-                        vin_parts = await search_parts_by_vin(detected_vin, max_results=5)
-                        if vin_parts:
-                            vin_links = "\n\nЗапчасти по этому VIN:\n"
-                            for r in vin_parts[:5]:
-                                vin_links += f"— {r.title}: {r.url}\n"
-                            reply_text += vin_links
+                        primary_links = partner_manager.format_primary_parts_links()
+                        if primary_links:
+                            reply_text += f"\n\nЗапчасти по VIN {detected_vin} можно подобрать здесь:\n"
+                            links = partner_manager.get_primary_parts_links()
+                            for link in links:
+                                reply_text += f"— {link['name']} ({link['description']}): {link['url']}\n"
                     except Exception as e:
-                        logger.debug(f"VIN parts search from photo error: {e}")
+                        logger.debug(f"Primary links from photo error: {e}")
 
-                # Check if AI found part numbers — add direct purchase links
+                # Check if AI found part numbers — suggest partner links
                 detected_parts = extract_part_numbers(reply_text)
                 if detected_parts:
-                    for article in detected_parts[:2]:
-                        try:
-                            part_results = await search_spare_part(article, max_results=3)
-                            if part_results:
-                                part_links = f"\n\n{article} — где купить:\n"
-                                for r in part_results[:3]:
-                                    part_links += f"— {r.url}\n"
-                                reply_text += part_links
-                        except Exception:
-                            pass
+                    try:
+                        primary_links = partner_manager.format_primary_parts_links()
+                        if primary_links:
+                            reply_text += f"\n\nИщите запчасти на партнёрских сайтах:\n"
+                            links = partner_manager.get_primary_parts_links()
+                            for link in links:
+                                reply_text += f"— {link['name']} ({link['description']}): {link['url']}\n"
+                    except Exception as e:
+                        logger.debug(f"Primary links from photo parts error: {e}")
 
                 # Split if too long
                 if len(reply_text) <= config.TELEGRAM_TEXT_LIMIT:
@@ -760,7 +759,6 @@ async def _process_text_message(message: Message, text: str):
         
         # Try web search for VIN info (car history, specs, etc.)
         vin_search_context = ""
-        vin_parts_context = ""
         if vin_code and len(vin_code) == 17:
             try:
                 search_query = f"VIN {vin_code} расшифровка автомобиль характеристики"
@@ -769,34 +767,19 @@ async def _process_text_message(message: Message, text: str):
                     vin_search_context = "Результаты поиска по VIN:\n" + format_search_results(results, max_items=3)
             except Exception as e:
                 logger.debug(f"VIN web search error: {e}")
-            
-            # Also search for parts by VIN — give user direct shop links
-            try:
-                # Check if user also mentions a specific part
-                part_name = ""
-                part_keywords = ["колодки", "фильтр", "свечи", "ремень", "амортизатор", "подшипник",
-                                 "сальник", "прокладк", "датчик", "реле", "насос", "стойка",
-                                 "шаровая", "наконечник", "тяга", "сцепление", "диск", "барабан",
-                                 "катушк", "генератор", "стартер", "компрессор", "радиатор",
-                                 "термостат", "помп", "глушитель", "подушка", "опора"]
-                for kw in part_keywords:
-                    if kw in text.lower():
-                        part_name = kw
-                        break
-                
-                vin_parts = await search_parts_by_vin(vin_code, part_name=part_name, max_results=5)
-                if vin_parts:
-                    vin_parts_context = "Ссылки на подбор запчастей по VIN (вставь естественно в ответ):\n"
-                    for r in vin_parts[:5]:
-                        vin_parts_context += f"— {r.title}: {r.url}\n"
-            except Exception as e:
-                logger.debug(f"VIN parts search error: {e}")
+        
+        # Add primary partner links (Rossko, Autopiter RU, AvtoALL)
+        primary_links_context = ""
+        try:
+            primary_links_context = partner_manager.format_primary_parts_links()
+        except Exception as e:
+            logger.debug(f"Primary links context error: {e}")
         
         all_context = extra_context_parts.copy()
         if vin_search_context:
             all_context.append(vin_search_context)
-        if vin_parts_context:
-            all_context.append(vin_parts_context)
+        if primary_links_context:
+            all_context.append(primary_links_context)
         
         response = await ai_router.decode_vin(
             user_id=user_id,
@@ -838,18 +821,18 @@ async def _process_text_message(message: Message, text: str):
             except Exception as e:
                 logger.error(f"Error searching diagnostic code: {e}")
 
-    # 4. Detect part numbers
+    # 4. Detect part numbers — NO MORE catalog searches, give partner links instead
     part_numbers = extract_part_numbers(text)
     is_part_query = bool(part_numbers) or is_part_number(text.strip()) or chat_mode == "parts"
 
+    # Always add primary partner links for parts/VIN queries
     if is_part_query:
-        articles = part_numbers or [text.strip()]
-        for article in articles[:3]:
-            try:
-                part_info = await search_part_by_article(article)
-                extra_context_parts.append(format_part_info(part_info))
-            except Exception as e:
-                logger.error(f"Error searching part: {e}")
+        try:
+            primary_links = partner_manager.format_primary_parts_links()
+            if primary_links:
+                extra_context_parts.append(primary_links)
+        except Exception as e:
+            logger.debug(f"Primary links error: {e}")
 
     # 5. Detect car symptoms
     symptoms = detect_symptoms(text)
@@ -889,7 +872,7 @@ async def _process_text_message(message: Message, text: str):
         except Exception as e:
             logger.error(f"Web search error: {e}")
 
-    # 6.5. Spare part search — if user mentions parts/articles, search shops specifically
+    # 6.5. Spare part query — give partner links instead of searching catalogs
     is_spare_part_query = (
         any(kw in text.lower() for kw in [
             "запчаст", "деталь", "артикул", "купить запчас", "купить детал",
@@ -905,54 +888,37 @@ async def _process_text_message(message: Message, text: str):
         or chat_mode == "parts"
     )
 
-    if is_spare_part_query and part_numbers:
+    # Add primary partner links (Rossko, Autopiter RU, AvtoALL) for ANY spare part query
+    if is_spare_part_query:
         try:
-            for article in part_numbers[:3]:
-                part_results = await search_spare_part(article, max_results=5)
-                if part_results:
-                    extra_context_parts.append(
-                        f"Результаты поиска запчастей по артикулу {article}:\n"
-                        + format_search_results(part_results, max_items=5)
-                    )
+            primary_links = partner_manager.format_primary_parts_links()
+            if primary_links and primary_links not in extra_context_parts:
+                extra_context_parts.append(primary_links)
         except Exception as e:
-            logger.error(f"Spare part search error: {e}")
-    elif is_spare_part_query and brand:
-        # No article but mentions brand + parts — general search
-        try:
-            part_query = f"{brand} запчасти купить"
-            if is_diagnostic and symptoms:
-                part_query = f"{brand} {' '.join(symptoms[:2])} запчасти замена"
-            results = await search_spare_part(part_query, max_results=5)
-            if results:
-                extra_context_parts.append(
-                    "Результаты поиска запчастей:\n"
-                    + format_search_results(results, max_items=5)
-                )
-        except Exception as e:
-            logger.error(f"Brand spare part search error: {e}")
+            logger.debug(f"Primary links for spare parts error: {e}")
 
-    # 7. Partner program context (including Rossko professional parts selection)
+    # 7. Partner program context — additional partner links for non-parts topics
+    # (tires, insurance, tools, etc.) — primary parts links already added above
     try:
-        partner_context = partner_manager.generate_partner_context(text)
-        if partner_context:
-            extra_context_parts.append(partner_context)
+        # Only add category-based partner context for non-parts topics
+        text_lower = text.lower()
+        parts_keywords = ["запчаст", "деталь", "артикул", "купить запчас", "vin", "вин"]
+        is_only_parts = is_spare_part_query or is_part_query or is_vin_query
+        
+        if not is_only_parts:
+            partner_context = partner_manager.generate_partner_context(text)
+            if partner_context:
+                extra_context_parts.append(partner_context)
+        else:
+            # For parts queries, add OTHER partner links (tires, insurance, etc.) if relevant
+            other_keywords = ["шины", "диски", "резина", "страховка", "осаго", "каско",
+                             "инструмент", "проверк", "аренда"]
+            if any(kw in text_lower for kw in other_keywords):
+                partner_context = partner_manager.generate_partner_context(text)
+                if partner_context:
+                    extra_context_parts.append(partner_context)
     except Exception as e:
         logger.error(f"Partner context error: {e}")
-
-    # 7.5. Additional partner links for parts queries — using admitad goto_links
-    # These links come from admitad_ads.json and are ready to use (no subid additions!)
-    if is_spare_part_query or is_part_query:
-        try:
-            await partner_manager.maybe_refresh()
-            search_article = part_numbers[0] if part_numbers else text.strip()
-            partner_links = partner_manager.get_all_partner_links_for_parts(search_article)
-            if partner_links:
-                link_lines = ["Ссылки на магазины запчастей (вставь естественно в ответ с описанием! Ссылки ПАРТНЁРСКИЕ из admitad_ads.json — используй КАК ЕСТЬ!):"]
-                for pl in partner_links:
-                    link_lines.append(f"- {pl['name']} ({pl.get('description', '')}): {pl['url']}")
-                extra_context_parts.append("\n".join(link_lines))
-        except Exception as e:
-            logger.error(f"Partner links error: {e}")
 
     # ── Route to AI ────────────────────────────────────────────────────────
 
