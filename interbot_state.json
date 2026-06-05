@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-05T19:36:27Z",
+  "last_updated": "2026-06-05T19:55:18Z",
   "pending_reviews": [
     {
       "id": "c_1780674401_d094e8",
@@ -71,6 +71,16 @@
       "summary": "For the true RX experience, go for the nicer and comfortable RX350h. The F Sport's aggro body bits, orange brake pads, and overly-loud red interior don't do this SUV any favors. The post 2026 Lexus RX500h Pros and Cons Review: For Best Results, Skip the F Sport appeared first on The Drive.",
       "category": "auto",
       "timestamp": 1780688187.9110365,
+      "status": "pending"
+    },
+    {
+      "id": "c_1780689318_f3a442",
+      "from": "asya",
+      "type": "news_candidate",
+      "title": "Alonso slams 2026 F1 cars as “worst ever” in Monaco",
+      "summary": "Fernando Alonso notoriously dislikes Formula 1’s new-for-2026 machinery, and he made this abundantly clear following Friday practice at the Monaco Grand Prix.Alonso has been among the biggest critics of F1’s new rules ever since he first tested Aston Martin’s latest car, lamenting that high-speed co",
+      "category": "auto",
+      "timestamp": 1780689318.9313939,
       "status": "pending"
     }
   ],
