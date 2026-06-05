@@ -274,8 +274,8 @@ async def on_startup(bot: Bot) -> None:
     await ai_router.initialize()
     logger.info("AI router initialized")
 
-    # Load partner programs
-    partner_count = partner_manager.load()
+    # Load partner programs — try remote first (admitad_ads.json from GitHub)
+    partner_count = await partner_manager.load_async()
     logger.info(f"Partner programs loaded: {partner_count}")
 
     # Set bot in channel manager

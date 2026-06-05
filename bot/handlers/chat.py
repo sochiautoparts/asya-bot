@@ -879,34 +879,18 @@ async def _process_text_message(message: Message, text: str):
     except Exception as e:
         logger.error(f"Partner context error: {e}")
 
-    # 7.5. Additional partner links for parts queries — give AI direct shop links
+    # 7.5. Additional partner links for parts queries — using admitad goto_links
+    # These links come from admitad_ads.json and are ready to use (no subid additions!)
     if is_spare_part_query or is_part_query:
         try:
+            await partner_manager.maybe_refresh()
             search_article = part_numbers[0] if part_numbers else text.strip()
             partner_links = partner_manager.get_all_partner_links_for_parts(search_article)
             if partner_links:
-                link_lines = ["Ссылки на магазины запчастей (вставь естественно в ответ, ОБЯЗАТЕЛЬНО с описанием!):"]
+                link_lines = ["Ссылки на магазины запчастей (вставь естественно в ответ с описанием! Ссылки ПАРТНЁРСКИЕ из admitad_ads.json — используй КАК ЕСТЬ!):"]
                 for pl in partner_links:
-                    if pl['name'] == "Росско":
-                        link_lines.append(f"- Росско (профессиональный подбор, советую начать тут): {pl['url']}")
-                    else:
-                        link_lines.append(f"- {pl['name']}: {pl['url']}")
-                    if pl['description']:
-                        link_lines.append(f"  {pl['description']}")
+                    link_lines.append(f"- {pl['name']} ({pl.get('description', '')}): {pl['url']}")
                 extra_context_parts.append("\n".join(link_lines))
-            
-            # Also add direct shop links from search module
-            from bot.web_search import SHOP_SEARCH_URLS
-            from urllib.parse import quote_plus
-            direct_links = []
-            article_clean = search_article.strip().upper()
-            for shop_name, url_template in SHOP_SEARCH_URLS.items():
-                shop_url = url_template.format(article=quote_plus(article_clean))
-                direct_links.append(f"- {shop_name.capitalize()}: {shop_url}")
-            if direct_links:
-                extra_context_parts.append(
-                    f"Прямые ссылки на поиск {article_clean} в магазинах:\n" + "\n".join(direct_links)
-                )
         except Exception as e:
             logger.error(f"Partner links error: {e}")
 
