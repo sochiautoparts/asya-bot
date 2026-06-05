@@ -130,7 +130,12 @@ async def init_db() -> None:
 
 async def get_or_create_user(user_id: int, username: str = "", first_name: str = "",
                               last_name: str = "", language_code: str = "ru") -> Dict[str, Any]:
-    """Get or create a user record. Returns user dict."""
+    """Get or create a user record. Returns user dict.
+    
+    Handles race condition where two concurrent requests try to INSERT
+    the same user_id — uses INSERT OR IGNORE + SELECT instead of
+    INSERT + catch IntegrityError.
+    """
     now = time.time()
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -138,19 +143,41 @@ async def get_or_create_user(user_id: int, username: str = "", first_name: str =
             row = await cursor.fetchone()
 
         if row is None:
-            await db.execute(
-                """INSERT INTO users (user_id, username, first_name, last_name, language_code,
-                   first_seen, last_seen, message_count)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 1)""",
-                (user_id, username, first_name, last_name, language_code, now, now),
-            )
-            await db.commit()
-            return {
-                "user_id": user_id, "username": username, "first_name": first_name,
-                "last_name": last_name, "language_code": language_code,
-                "is_blocked": 0, "is_admin": 0, "first_seen": now,
-                "last_seen": now, "message_count": 1, "chat_mode": "normal",
-            }
+            try:
+                await db.execute(
+                    """INSERT INTO users (user_id, username, first_name, last_name, language_code,
+                       first_seen, last_seen, message_count)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, 1)""",
+                    (user_id, username, first_name, last_name, language_code, now, now),
+                )
+                await db.commit()
+                return {
+                    "user_id": user_id, "username": username, "first_name": first_name,
+                    "last_name": last_name, "language_code": language_code,
+                    "is_blocked": 0, "is_admin": 0, "first_seen": now,
+                    "last_seen": now, "message_count": 1, "chat_mode": "normal",
+                }
+            except aiosqlite.IntegrityError:
+                # Race condition: another request already inserted this user
+                # Re-fetch the existing row
+                async with db.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)) as cursor:
+                    row = await cursor.fetchone()
+                if row:
+                    # Still update last_seen
+                    await db.execute(
+                        """UPDATE users SET username=?, first_name=?, last_name=?,
+                           last_seen=?, message_count=message_count+1 WHERE user_id=?""",
+                        (username, first_name, last_name, now, user_id),
+                    )
+                    await db.commit()
+                    return dict(row)
+                # Shouldn't happen, but fallback
+                return {
+                    "user_id": user_id, "username": username, "first_name": first_name,
+                    "last_name": last_name, "language_code": language_code,
+                    "is_blocked": 0, "is_admin": 0, "first_seen": now,
+                    "last_seen": now, "message_count": 1, "chat_mode": "normal",
+                }
         else:
             await db.execute(
                 """UPDATE users SET username=?, first_name=?, last_name=?,

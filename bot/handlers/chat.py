@@ -481,8 +481,40 @@ async def cmd_mileage(message: Message):
 
 @chat_router.message(F.photo)
 async def handle_photo(message: Message):
-    """Handle photo messages — analyze with vision AI."""
+    """Handle photo messages — analyze with vision AI.
+
+    In GROUPS/SUPERGROUPS: use LOCAL-ONLY routing (comments mode).
+    Only use cloud vision for private chats (1-on-1 with user).
+    """
     if not await _check_user(message):
+        return
+
+    # Check if we're in a group/supergroup — use LOCAL-ONLY for comments
+    is_group = message.chat.type in ("group", "supergroup")
+
+    # In groups: Ася should just comment on local model, not use cloud vision
+    if is_group:
+        # Simple local comment about the photo — no cloud vision
+        caption = message.caption or ""
+        simple_prompt = (
+            f"Кто-то прислал фото в группе. "
+            f"{'С подписью: ' + caption[:100] if caption else 'Без подписи.'} "
+            f"Напиши короткий комментарий (до 200 символов) как автоэксперт. "
+            f"Без анализа фото — просто живой комментарий."
+        )
+        try:
+            response = await ai_router.chat(
+                user_id=message.from_user.id,
+                message=simple_prompt,
+                route_type="comment",  # LOCAL-ONLY
+                save_history=False,
+                use_cache=False,
+            )
+            if response.text:
+                reply_text = response.text[:COMMENT_MAX_CHARS]
+                await message.reply(reply_text)
+        except Exception as e:
+            logger.debug(f"Group photo comment error: {e}")
         return
 
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
@@ -926,6 +958,10 @@ async def _process_text_message(message: Message, text: str):
 
     extra_context = "\n\n".join(extra_context_parts) if extra_context_parts else ""
 
+    # Determine route type based on chat context
+    is_group_chat = message.chat.type in ("group", "supergroup")
+    is_own_channel = str(message.chat.id) == str(config.CHANNEL_ID)
+
     if is_diagnostic:
         response = await ai_router.diagnose_car(
             user_id=user_id,
@@ -937,6 +973,15 @@ async def _process_text_message(message: Message, text: str):
             user_id=user_id,
             article=part_numbers[0] if part_numbers else text.strip(),
             part_info=extra_context,
+        )
+    elif is_group_chat and not is_own_channel:
+        # GROUP/SUPERGROUP (not our channel) → LOCAL-ONLY (comment mode)
+        # No cloud waste on casual group comments!
+        response = await ai_router.chat(
+            user_id=user_id,
+            message=text,
+            extra_context=extra_context,
+            route_type="comment",  # LOCAL-ONLY — saves cloud balance!
         )
     else:
         response = await ai_router.chat(

@@ -43,8 +43,8 @@ ASYA_API_URL = f"https://api.github.com/repos/{ASYA_REPO}/contents/{INTERBOT_FIL
 
 # Settings
 LOCAL_CACHE = Path("data/interbot_state.json")
-REFRESH_INTERVAL = 60  # seconds
-CANDIDATE_TIMEOUT = 300  # 5 min — if Настя doesn't review, publish anyway
+REFRESH_INTERVAL = 30  # seconds — check more frequently for reviews
+CANDIDATE_TIMEOUT = 180  # 3 min — Настя reviews every 2 min, so 3 min gives buffer
 MAX_PENDING_CANDIDATES = 20
 
 
