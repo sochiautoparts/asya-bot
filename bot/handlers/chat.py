@@ -28,7 +28,7 @@ from bot.asya import (
     detect_symptoms, detect_obd2_codes, lookup_obd2_code,
     build_diagnostic_context, ASYA_PHRASES,
 )
-from bot.web_search import web_search, search_spare_part, format_search_results
+from bot.web_search import web_search, search_spare_part, search_parts_by_vin, format_search_results
 from bot.tech_docs import (
     search_part_by_article, search_diagnostic_code,
     search_repair_procedure, format_part_info, format_tech_context,
@@ -490,13 +490,45 @@ async def handle_photo(message: Message):
     if caption:
         prompt = caption
     else:
-        prompt = "Рассмотри это фото внимательно. Если на нём автомобиль — определи марку, модель, год. Если запчасть — что за деталь. Если проблема — опиши и посоветуй. Если что-то другое — просто опиши что видишь."
+        prompt = (
+            "Рассмотри это фото МАКСИМАЛЬНО внимательно и подробно:\n\n"
+            "1. Если на фото АВТОМОБИЛЬ — определи: марку, модель, поколение, год, тип кузова, "
+            "цвет, состояние. Укажи ориентировочную стоимость на вторичном рынке.\n\n"
+            "2. Если на фото ЗАПЧАСТЬ — определи: что это за деталь, для какого авто подходит, "
+            "артикул (OEM-номер), если виден. Посоветуй где купить и примерную цену.\n\n"
+            "3. Если на фото ДОКУМЕНТ на авто (ПТС, СТС, диагностическая карта, страховка) — "
+            "считай ВСЕ данные: VIN, марку, модель, год, двигатель, мощность, объём, "
+            "тип кузова, цвет, номер кузова. "
+            "НИКОГДА не показывай ФИО владельца и адрес — это персональные данные! "
+            "Покажи только технические данные.\n\n"
+            "4. Если на фото ЭКРАН СКАНЕРА OBD-II — считай коды ошибок и расшифруй их.\n\n"
+            "5. Если на фото ПОВРЕЖДЕНИЕ/ПОЛОМКА — опиши что видишь, возможные причины, "
+            "что делать и примерную стоимость ремонта.\n\n"
+            "6. Если что-то другое — просто опиши что видишь.\n\n"
+            "Пиши живо и заботливо, как девушка-автоэксперт."
+        )
 
     # Build extra context
     extra_context_parts = []
     user_context = _get_user_persona_context(message)
     if user_context:
         extra_context_parts.append(user_context)
+
+    # Add user car context if available
+    try:
+        user_cars = await get_user_cars(message.from_user.id)
+        if user_cars:
+            car_lines = ["Машины пользователя:"]
+            for car in user_cars[:3]:
+                car_line = f"- {car['brand']} {car['model']}"
+                if car['year']:
+                    car_line += f" {car['year']}"
+                if car['vin']:
+                    car_line += f", VIN: {car['vin']}"
+                car_lines.append(car_line)
+            extra_context_parts.append("\n".join(car_lines))
+    except Exception:
+        pass
 
     # Download the photo and convert to base64
     try:
@@ -535,6 +567,33 @@ async def handle_photo(message: Message):
 
                 reply_text = response.text
                 reply_text = _clean_markdown(reply_text)
+
+                # Check if AI found a VIN in the photo — if so, also search parts by VIN
+                detected_vin = _detect_vin(reply_text)
+                if detected_vin and len(detected_vin) == 17:
+                    try:
+                        vin_parts = await search_parts_by_vin(detected_vin, max_results=5)
+                        if vin_parts:
+                            vin_links = "\n\nЗапчасти по этому VIN:\n"
+                            for r in vin_parts[:5]:
+                                vin_links += f"— {r.title}: {r.url}\n"
+                            reply_text += vin_links
+                    except Exception as e:
+                        logger.debug(f"VIN parts search from photo error: {e}")
+
+                # Check if AI found part numbers — add direct purchase links
+                detected_parts = extract_part_numbers(reply_text)
+                if detected_parts:
+                    for article in detected_parts[:2]:
+                        try:
+                            part_results = await search_spare_part(article, max_results=3)
+                            if part_results:
+                                part_links = f"\n\n{article} — где купить:\n"
+                                for r in part_results[:3]:
+                                    part_links += f"— {r.url}\n"
+                                reply_text += part_links
+                        except Exception:
+                            pass
 
                 # Split if too long
                 if len(reply_text) <= config.TELEGRAM_TEXT_LIMIT:
@@ -634,6 +693,7 @@ async def _process_text_message(message: Message, text: str):
         
         # Try web search for VIN info (car history, specs, etc.)
         vin_search_context = ""
+        vin_parts_context = ""
         if vin_code and len(vin_code) == 17:
             try:
                 search_query = f"VIN {vin_code} расшифровка автомобиль характеристики"
@@ -642,10 +702,34 @@ async def _process_text_message(message: Message, text: str):
                     vin_search_context = "Результаты поиска по VIN:\n" + format_search_results(results, max_items=3)
             except Exception as e:
                 logger.debug(f"VIN web search error: {e}")
+            
+            # Also search for parts by VIN — give user direct shop links
+            try:
+                # Check if user also mentions a specific part
+                part_name = ""
+                part_keywords = ["колодки", "фильтр", "свечи", "ремень", "амортизатор", "подшипник",
+                                 "сальник", "прокладк", "датчик", "реле", "насос", "стойка",
+                                 "шаровая", "наконечник", "тяга", "сцепление", "диск", "барабан",
+                                 "катушк", "генератор", "стартер", "компрессор", "радиатор",
+                                 "термостат", "помп", "глушитель", "подушка", "опора"]
+                for kw in part_keywords:
+                    if kw in text.lower():
+                        part_name = kw
+                        break
+                
+                vin_parts = await search_parts_by_vin(vin_code, part_name=part_name, max_results=5)
+                if vin_parts:
+                    vin_parts_context = "Ссылки на подбор запчастей по VIN (вставь естественно в ответ):\n"
+                    for r in vin_parts[:5]:
+                        vin_parts_context += f"— {r.title}: {r.url}\n"
+            except Exception as e:
+                logger.debug(f"VIN parts search error: {e}")
         
         all_context = extra_context_parts.copy()
         if vin_search_context:
             all_context.append(vin_search_context)
+        if vin_parts_context:
+            all_context.append(vin_parts_context)
         
         response = await ai_router.decode_vin(
             user_id=user_id,
@@ -739,7 +823,11 @@ async def _process_text_message(message: Message, text: str):
         any(kw in text.lower() for kw in [
             "запчаст", "деталь", "артикул", "купить запчас", "купить детал",
             "оригинал", "аналог", "замена", "подбор", "номер детал",
-            "oem", "оригинальн",
+            "oem", "оригинальн", "цена", "стоимость", "скольк",
+            "колодки", "фильтр", "свечи", "ремень", "амортизатор",
+            "подшипник", "сальник", "прокладк", "датчик", "реле",
+            "насос", "стойка", "шаровая", "наконечник", "сцепление",
+            "где купить", "подобрать", "найти запчас",
         ])
         or is_part_number(text.strip())
         or bool(part_numbers)
@@ -749,11 +837,11 @@ async def _process_text_message(message: Message, text: str):
     if is_spare_part_query and part_numbers:
         try:
             for article in part_numbers[:3]:
-                part_results = await search_spare_part(article, max_results=3)
+                part_results = await search_spare_part(article, max_results=5)
                 if part_results:
                     extra_context_parts.append(
                         f"Результаты поиска запчастей по артикулу {article}:\n"
-                        + format_search_results(part_results, max_items=3)
+                        + format_search_results(part_results, max_items=5)
                     )
         except Exception as e:
             logger.error(f"Spare part search error: {e}")
@@ -766,11 +854,11 @@ async def _process_text_message(message: Message, text: str):
                 symptoms = detect_symptoms(text)
                 if symptoms:
                     part_query = f"{brand} {' '.join(symptoms[:2])} запчасти замена"
-            results = await search_spare_part(part_query, max_results=3)
+            results = await search_spare_part(part_query, max_results=5)
             if results:
                 extra_context_parts.append(
                     "Результаты поиска запчастей:\n"
-                    + format_search_results(results, max_items=3)
+                    + format_search_results(results, max_items=5)
                 )
         except Exception as e:
             logger.error(f"Brand spare part search error: {e}")
@@ -783,18 +871,33 @@ async def _process_text_message(message: Message, text: str):
     except Exception as e:
         logger.error(f"Partner context error: {e}")
 
-    # 7.5. Additional partner links for parts queries — give AI direct links
+    # 7.5. Additional partner links for parts queries — give AI direct shop links
     if is_spare_part_query or is_part_query:
         try:
             search_article = part_numbers[0] if part_numbers else text.strip()
             partner_links = partner_manager.get_all_partner_links_for_parts(search_article)
             if partner_links:
-                link_lines = ["Партнёрские ссылки для покупки запчастей (вставь естественно в ответ):"]
+                link_lines = ["Ссылки на магазины запчастей (вставь естественно в ответ, дай прямые ссылки):"]
                 for pl in partner_links:
                     link_lines.append(f"- {pl['name']}: {pl['url']}")
                     if pl['description']:
                         link_lines.append(f"  {pl['description']}")
                 extra_context_parts.append("\n".join(link_lines))
+            
+            # Also add direct shop links from search module
+            from bot.web_search import SHOP_SEARCH_URLS
+            from urllib.parse import quote_plus
+            direct_links = []
+            article_clean = search_article.strip().upper()
+            for shop_name, url_template in SHOP_SEARCH_URLS.items():
+                shop_url = url_template.format(article=quote_plus(article_clean))
+                if shop_name == "rossko":
+                    shop_url += "&subid=asya_bot"
+                direct_links.append(f"- {shop_name.capitalize()}: {shop_url}")
+            if direct_links:
+                extra_context_parts.append(
+                    f"Прямые ссылки на поиск {article_clean} в магазинах:\n" + "\n".join(direct_links)
+                )
         except Exception as e:
             logger.error(f"Partner links error: {e}")
 
@@ -850,9 +953,9 @@ async def _send_response(message: Message, response):
 # ── Utility functions ──────────────────────────────────────────────────────────
 
 def _clean_markdown(text: str) -> str:
-    """Remove markdown formatting that Asya shouldn't use."""
-    # Remove markdown links [text](url) → text
-    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\1', text)
+    """Remove markdown formatting that Asya shouldn't use, but preserve URLs."""
+    # Convert markdown links [text](url) → url (keep the URL, remove the text wrapper)
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\2', text)
     # Remove bold
     text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
     # Remove italic

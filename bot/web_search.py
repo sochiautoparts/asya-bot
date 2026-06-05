@@ -245,59 +245,124 @@ PART_SHOPS = [
     "zzap.ru",
     "partcost.ru",
     "avtoall.ru",
+    "autodoc-ru",
+    "zapravka.ru",
+    "ixora-auto.ru",
+    "part-review.ru",
+    "77Zap.ru",
+    "PARTRUN.RU",
 ]
 
+# Direct shop search URL templates for fast part lookup
+SHOP_SEARCH_URLS = {
+    "rossko": "https://rossko.ru/search?text={article}",
+    "autopiter": "https://www.autopiter.ru/search?querystr={article}",
+    "exist": "https://exist.ru/Price/?p={article}",
+    "emex": "https://emex.ru/products?search={article}",
+    "autodoc": "https://autodoc.ru/search?keyword={article}",
+    "zzap": "https://zzap.ru/search/?q={article}",
+    "avtoall": "https://avtoall.ru/search/?q={article}",
+    "ixora": "https://ixora-auto.ru/search/?q={article}",
+}
 
-async def search_spare_part(article: str, max_results: int = 5) -> List[SearchResult]:
-    """Search for a spare part by article number across auto parts sites."""
+
+async def search_spare_part(article: str, max_results: int = 8) -> List[SearchResult]:
+    """Search for a spare part by article number across auto parts sites.
+    
+    Enhanced search with:
+    - Direct shop URL generation for fast lookup
+    - DDG web search for real prices and availability
+    - Multiple shop site: searches
+    - Rossko partner link with affiliate tracking
+    - ZZAP aggregator link
+    """
     results = []
+    article_clean = article.strip().upper()
     query = f"{article} запчасть купить артикул"
 
-    # First try DDG
-    ddg_results = await search_ddg_html(query, max_results=max_results * 2)
-    for r in ddg_results:
-        if any(shop in r.url.lower() for shop in PART_SHOPS):
-            results.append(r)
-        elif article.upper() in r.title.upper() or article.upper() in r.snippet.upper():
-            results.append(r)
-
-    # If not enough, try specific shop searches
-    if len(results) < max_results:
-        for shop in PART_SHOPS[:3]:
-            shop_query = f"site:{shop} {article}"
-            shop_results = await search_ddg_html(shop_query, max_results=2)
-            results.extend(shop_results)
-
-    # Rossko direct link — professional parts selection (partner)
-    try:
-        from bot.config import config
-        rossko_url = f"{config.ROSSKO_SEARCH_URL}{quote_plus(article)}"
-        # Add affiliate tracking
-        rossko_url += ("&subid=asya_bot" if "?" in rossko_url else "?subid=asya_bot")
+    # Step 1: Generate direct shop links (instant, no HTTP needed)
+    for shop_name, url_template in SHOP_SEARCH_URLS.items():
+        shop_url = url_template.format(article=quote_plus(article_clean))
+        # Add affiliate tracking to Rossko
+        if shop_name == "rossko":
+            shop_url += ("&subid=asya_bot" if "?" in shop_url else "?subid=asya_bot")
         results.append(SearchResult(
-            title=f"Запчасть {article} на Росско — профессиональный подбор",
-            url=rossko_url,
-            snippet="Росско — крупная сеть автозапчастей с профессиональным подбором по VIN и артикулу",
-            source="rossko_direct",
+            title=f"{article_clean} — {shop_name.capitalize()}",
+            url=shop_url,
+            snippet=f"Поиск артикула {article_clean} на {shop_name.capitalize()}",
+            source=f"{shop_name}_direct",
         ))
-    except Exception:
-        pass
 
-    # Also try zzap specifically (aggregator)
-    if len(results) < max_results:
-        try:
-            async with httpx.AsyncClient(timeout=config.SEARCH_TIMEOUT_SECONDS, follow_redirects=True) as client:
-                zzap_url = f"https://zzap.ru/search/?q={quote_plus(article)}"
-                results.append(SearchResult(
-                    title=f"Запчасть {article} на ZZAP",
-                    url=zzap_url,
-                    snippet="Поиск по всем магазинам запчастей",
-                    source="zzap_direct",
-                ))
-        except Exception:
-            pass
+    # Step 2: DDG search for real prices and availability
+    try:
+        ddg_results = await search_ddg_html(query, max_results=max_results * 2)
+        for r in ddg_results:
+            if any(shop in r.url.lower() for shop in PART_SHOPS):
+                results.append(r)
+            elif article_clean in r.title.upper() or article_clean in r.snippet.upper():
+                results.append(r)
+    except Exception as e:
+        logger.error(f"DDG spare part search error: {e}")
+
+    # Step 3: If not enough from DDG, try specific shop site: searches
+    if len([r for r in results if r.source.startswith("duckduckgo")]) < 3:
+        for shop in ["rossko.ru", "autopiter.ru", "exist.ru"]:
+            try:
+                shop_query = f"site:{shop} {article}"
+                shop_results = await search_ddg_html(shop_query, max_results=2)
+                results.extend(shop_results)
+            except Exception:
+                pass
 
     return results[:max_results]
+
+
+async def search_parts_by_vin(vin: str, part_name: str = "", max_results: int = 5) -> List[SearchResult]:
+    """Search for parts by VIN code — finds parts specific to a vehicle.
+    
+    Generates direct shop links for VIN-based search and does web search
+    for compatibility info.
+    """
+    results = []
+    vin_clean = vin.strip().upper()
+    
+    # Build search query
+    query = f"VIN {vin_clean} запчасти подобрать"
+    if part_name:
+        query = f"VIN {vin_clean} {part_name} запчасть купить"
+    
+    # Step 1: Direct shop VIN-search links
+    vin_search_urls = [
+        (f"Росско — подбор по VIN {vin_clean}", 
+         f"https://rossko.ru/search?text={quote_plus(vin_clean)}&subid=asya_bot",
+         "Поиск запчастей по VIN на Росско — профессиональный подбор"),
+        (f"Autopiter — подбор по VIN {vin_clean}", 
+         f"https://www.autopiter.ru/search?querystr={quote_plus(vin_clean)}",
+         "Поиск запчастей по VIN на Autopiter"),
+        (f"Exist — подбор по VIN {vin_clean}", 
+         f"https://exist.ru/Price/?p={quote_plus(vin_clean)}",
+         "Поиск запчастей по VIN на Exist"),
+        (f"ZZAP — подбор по VIN {vin_clean}", 
+         f"https://zzap.ru/search/?q={quote_plus(vin_clean)}",
+         "Агрегатор запчастей — поиск по VIN"),
+        (f"Emex — подбор по VIN {vin_clean}", 
+         f"https://emex.ru/products?search={quote_plus(vin_clean)}",
+         "Поиск запчастей по VIN на Emex"),
+    ]
+    
+    for title, url, snippet in vin_search_urls:
+        results.append(SearchResult(
+            title=title, url=url, snippet=snippet, source="vin_direct",
+        ))
+    
+    # Step 2: Web search for VIN compatibility
+    try:
+        ddg_results = await search_ddg_html(query, max_results=max_results)
+        results.extend(ddg_results)
+    except Exception as e:
+        logger.error(f"VIN parts search error: {e}")
+    
+    return results[:max_results + 5]  # Allow more results for VIN searches
 
 
 # ── Combined multi-engine search ───────────────────────────────────────────────
