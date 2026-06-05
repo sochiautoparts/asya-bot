@@ -1,14 +1,21 @@
-"""Smart Content Engine v1.0 — Intelligent automotive content pipeline for @sochiautoparts.
+"""Smart Content Engine v2.0 — Web-Search-First automotive content pipeline for @sochiautoparts.
 
 ARCHITECTURE:
-  Phase 1: AGGREGATE — Multi-source collection (RSS + web search + trending topics)
-  Phase 2: DEDUPLICATE — Persistent topic registry with entity extraction
-  Phase 3: ENRICH — AI-powered deep content with expert opinion
-  Phase 4: IMAGE — Multi-strategy image sourcing with web search
-  Phase 5: POST — Quality validation with interest scoring
+  Phase 1: WEB SEARCH — Primary source: fresh automotive news from web search
+  Phase 2: SCORE & SELECT — AI interest scoring, pick top candidates
+  Phase 3: AI PICK — AI selects the BEST topic from top 5 candidates
+  Phase 4: RSS FALLBACK — Supplement when web search yields nothing good
+  Phase 5: DEDUPLICATE — Persistent topic registry with entity extraction
+  Phase 6: ENRICH — AI-powered deep content with expert opinion
+  Phase 7: IMAGE — Multi-strategy image sourcing with web search
+  Phase 8: POST — Quality validation with interest scoring
 
 KEY FEATURES:
-  - Web search supplements RSS — always finds fresh news
+  - WEB SEARCH FIRST — always starts with fresh web search results
+  - 20+ search queries in rotation (RU + EN) for broad coverage
+  - Russian-specific market coverage (АвтоВАЗ, LADA, ГАЗ, Sochi region)
+  - AI picks the BEST topic from top 5 — ensures most interesting content
+  - RSS as fallback/supplement, not primary source
   - Topic registry prevents duplicate coverage of same event
   - AI interest scoring — skip boring/technical news nobody reads
   - Entity extraction — brand, model, event tracking for smart dedup
@@ -168,13 +175,20 @@ _HIGH_INTEREST_KEYWORDS = [
     # Breaking/big news
     "reveal", "debut", "launch", "unveil", "first", "новинка", "премьера",
     "рекорд", "record", "breakthrough", "прорыв",
+    "дебют", "скандал", "отзыв", "ban", "recall", "revolutionary",
     # Popular brands
     "BMW M", "Mercedes AMG", "Porsche", "Ferrari", "Lamborghini",
     "Tesla", "Cybertruck", "Corvette", "Mustang", "Supra",
+    # Russian-specific brands & market
+    "АвтоВАЗ", "LADA", "ГАЗ", "УАЗ", "КамАЗ", "Соллерс",
+    "Веста", "Granta", "Niva", "Vesta",
     # Popular topics
-    "electric", "EV", "электромобиль", "autonomous", "беспилот",
+    "electric", "EV", "электромобиль", "электрокар", "autonomous", "беспилот",
     "recalls", "отзыв", "бан", "ban", "скандал", "scandal",
     "цена", "price", "стоимость", "стоить",
+    # EV/transition topics
+    "зарядная станция", "батарея", "battery", "электрокар",
+    "plug-in", "зарядк", "range anxiety", "запас хода",
     # Engagement hooks
     "лучший", "худший", "самый", "worst", "best", "топ",
     "секрет", "secret", "тайн", "hidden",
@@ -188,6 +202,9 @@ _MEDIUM_INTEREST_KEYWORDS = [
     "новый", "new", "next-gen", "следующ",
     "мощност", "horsepower", "speed", "скорост",
     "двигатель", "engine", "turbo", "турбо",
+    "автосалон", "auto show", "мотор-шоу", "motor show",
+    "продаж", "sales", "рынок", "market",
+    "китайск", "Chinese", "BYD", "Zeekr", "Haval", "Chery",
 ]
 
 _LOW_INTEREST_KEYWORDS = [
@@ -232,64 +249,191 @@ def _score_interest(title: str, summary: str = "") -> float:
             score += 0.05
             break
     
+    # Bonus for Russian-specific market topics
+    russian_market_kw = ["автоваз", "lada", "газ", "уаз", "камаз", "соллерс",
+                         "веста", "granta", "niva", "российск", "россия",
+                         "сочи", "краснодар"]
+    for kw in russian_market_kw:
+        if kw in text:
+            score += 0.08
+            break
+    
+    # Bonus for EV/transition topics
+    ev_kw = ["электромобиль", "электрокар", "зарядн", "ev", "батарея",
+             "battery", "electric vehicle", "запас хода"]
+    for kw in ev_kw:
+        if kw in text:
+            score += 0.08
+            break
+    
     return max(0.1, min(1.0, score))
 
 
 # ── Web Search Content — supplement RSS with search results ───────────────────
 
 _SEARCH_QUERIES_ROTATION = [
-    "automotive news today {year}",
-    "car industry latest news",
-    "new car models {year} reveal",
-    "electric vehicle news latest",
-    "auto show {year} news",
-    "car recalls {year} latest",
-    "BMW news latest",
-    "Tesla news latest",
+    # ── Russian-language queries (broad coverage) ──
     "автомобильные новости сегодня",
     "новые автомобили {year} премьера",
+    "автоновости Россия",
+    "новые модели авто {year}",
+    "автомобильные новости сегодня {year}",
+    "автопром России новости",
+    "новинки авто {year} дебют",
+    # ── English-language queries (international coverage) ──
+    "automotive news today",
+    "new car launches {year}",
+    "electric vehicle news",
+    "car industry updates",
+    "new car models {year} reveal",
+    "car recalls and safety {year}",
+    "auto show reveals {year}",
+    "automotive industry news today",
+    "electric vehicle updates {year}",
+    # ── Brand-specific queries (rotated) ──
+    "LADA ВАЗ новости {year}",
+    "Tesla news latest",
+    "BMW Mercedes news latest",
+    "BYD Chinese cars news",
 ]
 
+# Track recently used query indices to avoid repetition
+_recent_query_indices: list = []
+_MAX_RECENT_QUERIES = 5
+
+
 def _get_search_query() -> str:
-    """Get a weighted random search query with current year."""
+    """Get a search query avoiding recent repetition."""
+    global _recent_query_indices
     year = datetime.now(_MOSCOW_TZ).year
-    query = random.choice(_SEARCH_QUERIES_ROTATION)
+    
+    # Pick a query index not recently used
+    available = [i for i in range(len(_SEARCH_QUERIES_ROTATION)) if i not in _recent_query_indices]
+    if not available:
+        # All queries recently used — reset tracking
+        _recent_query_indices = []
+        available = list(range(len(_SEARCH_QUERIES_ROTATION)))
+    
+    idx = random.choice(available)
+    _recent_query_indices.append(idx)
+    if len(_recent_query_indices) > _MAX_RECENT_QUERIES:
+        _recent_query_indices = _recent_query_indices[-_MAX_RECENT_QUERIES:]
+    
+    query = _SEARCH_QUERIES_ROTATION[idx]
     return query.format(year=year)
 
 
 async def search_auto_news() -> List[Dict]:
-    """Search the web for fresh automotive news.
+    """Search the web for fresh automotive news using MULTIPLE queries for broad coverage.
     
+    Uses 3 different queries per call (rotated from 20+ pool) to maximize coverage.
     Returns list of news items with: title, url, summary, source, category, lang, image_urls
     """
-    query = _get_search_query()
-    logger.info(f"Searching web for auto news: {query}")
-    
     items = []
-    try:
-        results = await search_news(query, num_results=10)
-        for result in results:
-            title = result.get("name", "") or result.get("title", "")
-            url = result.get("url", "")
-            snippet = result.get("snippet", "") or result.get("description", "")
-            
-            if not title or not url:
-                continue
-            
-            items.append({
-                "source": result.get("host_name", "web_search"),
-                "title": title.strip(),
-                "url": url.strip(),
-                "summary": snippet.strip()[:500],
-                "published": time.time(),
-                "category": "auto",
-                "lang": "en",
-                "image_urls": [],  # Will be filled by image pipeline
-            })
-    except Exception as e:
-        logger.error(f"Web search for auto news failed: {e}")
+    seen_urls = set()
     
-    logger.info(f"Web search found {len(items)} auto news items")
+    # Use 3 different queries per call for broader coverage
+    queries = [_get_search_query() for _ in range(3)]
+    # Deduplicate queries (in case same one picked twice)
+    queries = list(dict.fromkeys(queries))
+    
+    for query in queries:
+        logger.info(f"Searching web for auto news: {query}")
+        try:
+            results = await search_news(query, max_results=8)
+            for result in results:
+                title = result.title or ""
+                url = result.url or ""
+                snippet = result.snippet or ""
+                
+                if not title or not url:
+                    continue
+                
+                # Dedup by URL
+                if url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                
+                # Detect language from title content
+                is_russian = any('\u0400' <= c <= '\u04FF' for c in title)
+                
+                items.append({
+                    "source": result.source or "web_search",
+                    "title": title.strip(),
+                    "url": url.strip(),
+                    "summary": snippet.strip()[:500],
+                    "published": time.time(),
+                    "category": "auto",
+                    "lang": "ru" if is_russian else "en",
+                    "image_urls": [],  # Will be filled by image pipeline
+                })
+        except Exception as e:
+            logger.error(f"Web search for auto news failed (query: {query}): {e}")
+    
+    logger.info(f"Web search found {len(items)} auto news items across {len(queries)} queries")
+    return items
+
+
+async def search_russian_auto_news() -> List[Dict]:
+    """Search for Russian-specific automotive market news.
+    
+    Specific searches for:
+    - sochiautoparts.ru relevant content
+    - Russian automotive brands (АвтоВАЗ, LADA, ГАЗ, УАЗ, КамАЗ)
+    - Sochi/Krasnodar region auto news
+    - Russian car market updates
+    
+    Returns list of news items.
+    """
+    items = []
+    seen_urls = set()
+    
+    russian_queries = [
+        "АвтоВАЗ LADA новости сегодня",
+        "УАЗ ГАЗ КамАЗ новости {year}",
+        "автоновости Сочи Краснодар",
+        "автомобильный рынок Россия {year}",
+        "sochiautoparts.ru новости авто",
+        "Российский автопром новости",
+        "LADA Веста Гранта Нива новости",
+        "Соллерс автомобили новости",
+    ]
+    
+    year = datetime.now(_MOSCOW_TZ).year
+    # Pick 2 queries per call to not overload search
+    selected = random.sample(russian_queries, min(2, len(russian_queries)))
+    
+    for query_template in selected:
+        query = query_template.format(year=year)
+        logger.info(f"Searching Russian auto news: {query}")
+        try:
+            results = await search_news(query, max_results=5)
+            for result in results:
+                title = result.title or ""
+                url = result.url or ""
+                snippet = result.snippet or ""
+                
+                if not title or not url:
+                    continue
+                
+                if url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                
+                items.append({
+                    "source": result.source or "web_search_ru",
+                    "title": title.strip(),
+                    "url": url.strip(),
+                    "summary": snippet.strip()[:500],
+                    "published": time.time(),
+                    "category": "auto",
+                    "lang": "ru",
+                    "image_urls": [],
+                })
+        except Exception as e:
+            logger.error(f"Russian auto news search failed (query: {query}): {e}")
+    
+    logger.info(f"Russian auto news search found {len(items)} items")
     return items
 
 
@@ -326,27 +470,56 @@ async def search_news_images(query: str, max_count: int = 2) -> List[str]:
 # ── Main Content Pipeline ────────────────────────────────────────────────────
 
 async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
-    """Select the best news item to post based on interest scoring and dedup.
+    """Select the best news item to post — WEB SEARCH FIRST pipeline.
     
-    Pipeline:
-    1. Score each item for interest
-    2. Extract entities and check topic registry
-    3. Filter out covered topics
-    4. Return the highest-scoring uncovered item
-    
-    If no good items from RSS, tries web search as fallback.
+    Pipeline (v2 — Web-Search-First):
+    1. Web search for fresh automotive news (PRIMARY source)
+    2. Score all items (web search + any RSS unposted) for interest
+    3. Extract entities and check topic registry
+    4. Filter out covered topics
+    5. Take top 5 candidates → AI picks the BEST one
+    6. RSS as fallback when web search yields nothing good
     """
-    if not unposted_items:
-        return None
-    
     # Cleanup old registry entries
     _cleanup_registry()
     
-    # Score and filter items
+    all_items = []
+    
+    # ── PHASE 1: Web Search FIRST (primary source) ──
+    logger.info("Phase 1: Searching web for automotive news (PRIMARY)")
+    try:
+        web_items = await search_auto_news()
+        all_items.extend(web_items)
+        logger.info(f"Web search provided {len(web_items)} items")
+    except Exception as e:
+        logger.warning(f"Web search failed: {e}")
+    
+    # Also search Russian-specific news
+    try:
+        ru_items = await search_russian_auto_news()
+        all_items.extend(ru_items)
+        logger.info(f"Russian auto search provided {len(ru_items)} items")
+    except Exception as e:
+        logger.warning(f"Russian auto news search failed: {e}")
+    
+    # ── PHASE 2: Add RSS unposted items as supplement ──
+    if unposted_items:
+        all_items.extend(unposted_items)
+        logger.info(f"Added {len(unposted_items)} RSS unposted items as supplement")
+    
+    # ── PHASE 3: Score, dedup, and filter ──
     scored_items = []
-    for item in unposted_items:
+    seen_titles = set()
+    
+    for item in all_items:
         title = item.get("title", "")
         summary = item.get("summary", "")
+        
+        # Skip exact title duplicates
+        title_lower = title.lower().strip()
+        if title_lower in seen_titles:
+            continue
+        seen_titles.add(title_lower)
         
         # Extract entities for dedup
         entity_key = _extract_entities(title)
@@ -365,31 +538,85 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
             "entity_key": entity_key,
         })
     
+    # ── PHASE 4: RSS FALLBACK — if web search yielded nothing good ──
     if not scored_items:
-        logger.info("All RSS items are covered topics or low interest — trying web search")
-        # Try web search as fallback
-        search_items = await search_auto_news()
-        for item in search_items:
-            title = item.get("title", "")
-            entity_key = _extract_entities(title)
-            if not _is_topic_covered(entity_key):
-                interest = _score_interest(title, item.get("summary", ""))
-                scored_items.append({
-                    "item": item,
-                    "interest": interest,
-                    "entity_key": entity_key,
-                })
+        logger.info("Web search + RSS yielded no fresh topics — trying RSS-only fallback")
+        # Try getting unposted items directly from DB (if not already provided)
+        if not unposted_items:
+            try:
+                from bot.database import get_unposted_news
+                fallback_items = await get_unposted_news(limit=10)
+                for item in fallback_items:
+                    title = item.get("title", "")
+                    entity_key = _extract_entities(title)
+                    if not _is_topic_covered(entity_key):
+                        interest = _score_interest(title, item.get("summary", ""))
+                        scored_items.append({
+                            "item": item,
+                            "interest": interest,
+                            "entity_key": entity_key,
+                        })
+            except Exception as e:
+                logger.warning(f"RSS fallback failed: {e}")
         
         if not scored_items:
-            logger.info("No fresh topics from web search either — skipping this cycle")
+            logger.info("No fresh topics from any source — skipping this cycle")
             return None
     
     # Sort by interest score (highest first)
     scored_items.sort(key=lambda x: x["interest"], reverse=True)
     
-    # Pick from top 3 (with some randomness for variety)
-    top_n = scored_items[:min(3, len(scored_items))]
-    chosen = random.choice(top_n)
+    # ── PHASE 5: AI picks the BEST from top 5 ──
+    top_n = scored_items[:min(5, len(scored_items))]
+    
+    if len(top_n) == 1:
+        chosen = top_n[0]
+    else:
+        # Let AI pick the most interesting one from top 5
+        try:
+            candidates_summary = []
+            for i, entry in enumerate(top_n):
+                item = entry["item"]
+                candidates_summary.append(
+                    f"{i+1}. [{entry['interest']:.2f}] {item.get('title', '')[:100]}"
+                )
+            
+            candidates_text = "\n".join(candidates_summary)
+            response = await ai_router._primary.chat(
+                messages=[
+                    {"role": "system", "content": (
+                        "Ты редактор автоканала в Telegram. Тебе даны 5 кандидатов на публикацию "
+                        "с оценкой интереса (0-1). Выбери САМЫЙ интересный для широкой аудитории — "
+                        "то, что вызовет наибольший отклик, обсуждение и репосты. "
+                        "Учитывай: премьеры, скандалы, рекорды, прорывы, российский рынок — "
+                        "всегда приоритетнее сухих новостей. "
+                        "Ответь ТОЛЬКО цифрой (1-5) — номер лучшего кандидата."
+                    )},
+                    {"role": "user", "content": f"Кандидаты:\n{candidates_text}"},
+                ],
+                model="openai-fast",
+                temperature=0.3,
+                max_tokens=5,
+            )
+            
+            if not response.error and response.text:
+                pick_str = response.text.strip()
+                # Extract number from response
+                pick_match = re.search(r'[1-5]', pick_str)
+                if pick_match:
+                    pick_idx = int(pick_match.group()) - 1
+                    if 0 <= pick_idx < len(top_n):
+                        chosen = top_n[pick_idx]
+                        logger.info(f"AI picked candidate #{pick_idx + 1}: {chosen['item'].get('title', '')[:60]}")
+                    else:
+                        chosen = top_n[0]
+                else:
+                    chosen = top_n[0]
+            else:
+                chosen = top_n[0]
+        except Exception as e:
+            logger.debug(f"AI topic selection failed, using top-1: {e}")
+            chosen = top_n[0]
     
     best_item = chosen["item"]
     entity_key = chosen["entity_key"]

@@ -1,4 +1,4 @@
-name: Asya Bot DUAL-KEY SMART ROUTING v4
+name: Asya Bot — POLLINATIONS-ONLY v5
 
 on:
   schedule:
@@ -18,26 +18,23 @@ env:
   OWNER_ID: ${{ secrets.OWNER_ID }}
   CHANNEL_ID: "-1001479468835"
   CHANNEL_USERNAME: ${{ secrets.CHANNEL_USERNAME }}
+  # Pollinations.ai — TRIPLE KEY FAILOVER
   POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
   POLLINATIONS_API_KEY_2: ${{ secrets.POLLINATIONS_API_KEY_2 }}
+  POLLINATIONS_API_KEY_3: ${{ secrets.POLLINATIONS_API_KEY_3 }}
   GH_PAT_TOKEN: ${{ secrets.GH_PAT_TOKEN }}
   GH_REPO: sochiautoparts/asya-bot
   ADMITAD_ADS_FILE: data/admitad_ads.json
   DB_PATH: asya_bot.db
   PYTHONUNBUFFERED: "1"
   LOG_LEVEL: INFO
-  # Local model — PRIMARY for simple chat (saves cloud balance!)
-  ENABLE_LOCAL_MODEL: "true"
-  MODEL_PATH: models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf
-  MODEL_N_CTX: 4096
-  MODEL_N_THREADS: 4
-  MODEL_MAX_TOKENS: 384
-  MODEL_HISTORY_LIMIT: 6
+  # Local model — DISABLED (Pollinations-only mode, restorable)
+  ENABLE_LOCAL_MODEL: "false"
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 330   # 5.5 hours max (slightly more than 5h interval)
+    timeout-minutes: 330   # 5.5 hours max
 
     steps:
       - name: Checkout repository
@@ -56,55 +53,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # ═══════════════════════════════════════════════════════════
-      #  LOCAL MODEL — Qwen3-4B (n_ctx=4096) PRIMARY for simple chat!
-      # ═══════════════════════════════════════════════════════════
-
-      - name: Install llama-cpp-python with AVX2
-        run: |
-          echo "=== Installing llama-cpp-python with AVX2 support ==="
-          CMAKE_ARGS="-DGGML_AVX2=on" pip install llama-cpp-python --force-reinstall --no-cache-dir 2>&1 || {
-            echo "WARNING: AVX2 build failed, trying without..."
-            pip install llama-cpp-python --force-reinstall --no-cache-dir
-          }
-          python3 -c "from llama_cpp import Llama; print('llama-cpp-python OK!')" || {
-            echo "WARNING: llama-cpp-python import failed — running CLOUD-ONLY"
-          }
-          pip install huggingface_hub
-
-      - name: Cache LOCAL PRIMARY model (Qwen3-4B)
-        id: cache-model
-        uses: actions/cache@v4
-        with:
-          path: models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf
-          key: qwen3-4b-instruct-q4km-v3
-
-      - name: Download Qwen3-4B-Instruct GGUF model
-        if: steps.cache-model.outputs.cache-hit != 'true'
-        run: |
-          echo "=== Downloading Qwen3-4B-Instruct Q4_K_M model (~2.4GB) — LOCAL PRIMARY ==="
-          mkdir -p models
-          python3 -c "
-          from huggingface_hub import hf_hub_download
-          path = hf_hub_download(
-              repo_id='unsloth/Qwen3-4B-Instruct-2507-GGUF',
-              filename='Qwen3-4B-Instruct-2507-Q4_K_M.gguf',
-              local_dir='models',
-          )
-          print('Downloaded to:', path)
-          " || echo "WARNING: Model download failed — running CLOUD-ONLY"
-
-      - name: Verify model
-        run: |
-          echo "=== Verifying GGUF model ==="
-          MODEL_FILE=models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf
-          if [ ! -f "$MODEL_FILE" ] || [ ! -s "$MODEL_FILE" ]; then
-            echo "WARNING: Model file missing or empty — running in CLOUD-ONLY mode"
-          else
-            MODEL_SIZE=$(du -h "$MODEL_FILE" | cut -f1)
-            echo "OK: Qwen3-4B-Instruct-Q4_K_M (${MODEL_SIZE}) — LOCAL PRIMARY"
-          fi
-
       - name: Download Admitad partner data
         run: |
           echo "=== Downloading admitad partner data ==="
@@ -121,7 +69,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: asya_bot.db
-          key: asya-bot-db-v3
+          key: asya-bot-db-v5
           restore-keys: |
             asya-bot-db-
 
@@ -134,14 +82,15 @@ jobs:
 
       - name: Run Asya Bot with auto-restart
         run: |
-          echo "=== Starting Asya Bot v4.0 DUAL-KEY SMART ROUTING ==="
-          echo "CHAT (user conversations): LOCAL-FIRST → Local → Cloud → Fallback (saves balance)"
-          echo "FUNCTION (posts, VIN, diagnostics, parts): CLOUD-FIRST → Cloud → Local → Fallback (better quality)"
-          echo "COMMENT (comments in groups): LOCAL-ONLY → Local → Static fallback (no cloud waste)"
-          echo "VISION: Pollinations vision for photos"
-          echo "STRATEGY: Chat→Local-first, Function→Cloud-first, Comment→Local-only, Dual-Key→KEY1+KEY2"
+          echo "=== Starting Asya Bot v5.0 POLLINATIONS-ONLY ==="
+          echo "ALL ROUTES: Pollinations.ai (61 models, triple-key failover)"
+          echo "CHAT: Pollinations → Static fallback"
+          echo "FUNCTION (posts, VIN, diagnostics): Pollinations → Static fallback"
+          echo "COMMENT: Pollinations (fast models) → Static fallback"
+          echo "VISION: Pollinations vision models"
+          echo "CONTENT ENGINE: Web-search-first, RSS fallback, AI topic selection"
+          echo "STRATEGY: Pollinations-only, triple-key=KEY1+KEY2+KEY3, circuit-break=5min"
           echo ""
-          echo "Config: strategy=SMART_ROUTING, n_ctx=4096, max_tokens=300(local)/2048(cloud), history=4(local)"
 
           MAX_RESTARTS=10
           RESTART_COUNT=0

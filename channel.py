@@ -72,7 +72,7 @@ _MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 # ── Keyword-based semantic dedup for channel posts ─────────────────────────────
 # Stores significant words from recently posted titles
 _recent_post_keywords: list = []
-_MAX_RECENT_POSTS = 20
+_MAX_RECENT_POSTS = 30
 
 # Words to ignore in semantic comparison
 _SEMANTIC_STOP_WORDS = frozenset([
@@ -85,19 +85,19 @@ _SEMANTIC_STOP_WORDS = frozenset([
 
 
 def _is_semantically_duplicate(title: str) -> bool:
-    """Check if 3+ significant words from title match a recently posted title."""
+    """Check if 4+ significant words from title match a recently posted title."""
     global _recent_post_keywords
 
     # Extract significant words from the new title
     words = re.findall(r'[a-zа-яё]{3,}', title.lower())
     significant = [w for w in words if w not in _SEMANTIC_STOP_WORDS]
 
-    if len(significant) < 3:
+    if len(significant) < 4:
         return False
 
     for recent_words in _recent_post_keywords:
         matches = sum(1 for w in significant if w in recent_words)
-        if matches >= 3:
+        if matches >= 4:
             return True
 
     return False
@@ -756,6 +756,9 @@ class ChannelManager:
             "Добавь своё мнение и эмоции как живой девушки-автоэксперта. "
             "Пиши ИНТЕРЕСНО — не просто пересказывай факты, а объясни почему это важно "
             "и что это значит для обычного водителя. "
+            "Пиши ЖИВО, как автожурналист для Telegram-канала. Не пересказывай новость сухо — "
+            "добавь мнение, эмоцию, провокационный вопрос. "
+            "НЕ повторяй формулировки из предыдущих постов — каждый пост уникален. "
         )
         if news_item.get("lang") and news_item.get("lang") != "ru":
             extra_instructions += (
@@ -795,11 +798,13 @@ class ChannelManager:
             extra_instructions += (
                 "К посту прикреплены РЕАЛЬНЫЕ фотографии из новости. "
                 "Не описывай фото — они уже прикреплены. Пиши текст новости. "
+                "Если есть реальные фото — обязательно используй. "
             )
         elif has_media:
             extra_instructions += (
                 "К посту прикреплены сгенерированные иллюстрации. "
                 "Не описывай их подробно — они иллюстративные. "
+                "AI-иллюстрации только если фото нет. "
             )
 
         response = await ai_router.generate_channel_post(

@@ -23,9 +23,10 @@ class BotConfig:
     CHANNEL_ID: str = os.getenv("CHANNEL_ID", "-1001479468835")
     CHANNEL_USERNAME: str = os.getenv("CHANNEL_USERNAME", "@sochiautoparts")
 
-    # Pollinations AI — DUAL KEY FAILOVER (KEY1 → KEY2 → local fallback)
+    # Pollinations AI — TRIPLE KEY FAILOVER (KEY1 → KEY2 → KEY3 → local fallback)
     POLLINATIONS_API_KEY: str = os.getenv("POLLINATIONS_API_KEY", "")
     POLLINATIONS_API_KEY_2: str = os.getenv("POLLINATIONS_API_KEY_2", "")
+    POLLINATIONS_API_KEY_3: str = os.getenv("POLLINATIONS_API_KEY_3", "")
     POLLINATIONS_BASE_URL: str = "https://gen.pollinations.ai"
 
     # GitHub PAT for self-dispatch

@@ -255,15 +255,70 @@ def is_blocked_topic(item: Dict, lang: str = "ru") -> bool:
 
 async def fetch_all_news() -> int:
     """
-    Fetch news from all configured sources + web search supplement.
+    Fetch news — WEB SEARCH FIRST, then RSS as fallback/supplement.
     Returns the number of new items added.
+    
+    Phase 1: Web search for automotive news (broad queries, primary source)
+    Phase 2: RSS feeds (fallback/supplement)
+    
+    All existing filtering is preserved (auto-relevance, political block, dedup).
     """
     total_new = 0
 
     # Reset fingerprint set for this cycle
     reset_fingerprints()
 
-    # ── Phase 1: RSS Feeds ──
+    # ── Phase 1: Web Search FIRST (primary source) ──
+    logger.info("Phase 1: Web search for automotive news")
+    web_search_queries = [
+        "automotive industry news today",
+        "new car models 2026",
+        "electric vehicle updates",
+        "автомобильные новости России",
+        "новые модели авто 2026",
+        "car recalls and safety",
+        "auto show reveals 2026",
+        "автоновости сегодня",
+        "electric vehicle news latest",
+        "car industry updates",
+    ]
+    try:
+        from bot.content_engine import search_auto_news
+        # search_auto_news already uses multiple rotated queries
+        search_items = await search_auto_news()
+        for item in search_items:
+            # Apply same filters as RSS
+            if is_blocked_topic(item, item.get("lang", "en")):
+                continue
+            if not is_auto_relevant(item, item.get("lang", "en")):
+                continue
+            if await is_duplicate_post(item["title"], hours=48):
+                continue
+            fp = _compute_fingerprint(item["title"])
+            if _fingerprint_matches_existing(fp):
+                continue
+
+            added = await add_news_item(
+                source=item["source"],
+                title=item["title"],
+                url=item["url"],
+                summary=item.get("summary", ""),
+                published=item.get("published", time.time()),
+                category=item.get("category", "auto"),
+                lang=item.get("lang", "en"),
+                image_urls=item.get("image_urls", []),
+            )
+            if added:
+                total_new += 1
+                _recent_fingerprints.add(fp)
+                logger.info(f"Web search added: {item['title'][:60]}")
+    except Exception as e:
+        logger.warning(f"Web search phase failed: {e}")
+
+    logger.info(f"Phase 1 (web search) complete: {total_new} new items")
+
+    # ── Phase 2: RSS Feeds (fallback/supplement) ──
+    logger.info("Phase 2: RSS feeds (fallback/supplement)")
     for source in news_config.sources:
         try:
             items = await fetch_rss(source)
@@ -306,40 +361,6 @@ async def fetch_all_news() -> int:
         except Exception as e:
             logger.error(f"Error processing source {source.name}: {e}")
             continue
-
-    # ── Phase 2: Web Search Supplement (if RSS was sparse) ──
-    if total_new < 3:
-        try:
-            from bot.content_engine import search_auto_news
-            search_items = await search_auto_news()
-            for item in search_items:
-                # Apply same filters
-                if is_blocked_topic(item, item.get("lang", "en")):
-                    continue
-                if not is_auto_relevant(item, item.get("lang", "en")):
-                    continue
-                if await is_duplicate_post(item["title"], hours=48):
-                    continue
-                fp = _compute_fingerprint(item["title"])
-                if _fingerprint_matches_existing(fp):
-                    continue
-
-                added = await add_news_item(
-                    source=item["source"],
-                    title=item["title"],
-                    url=item["url"],
-                    summary=item.get("summary", ""),
-                    published=item.get("published", time.time()),
-                    category=item.get("category", "auto"),
-                    lang=item.get("lang", "en"),
-                    image_urls=item.get("image_urls", []),
-                )
-                if added:
-                    total_new += 1
-                    _recent_fingerprints.add(fp)
-                    logger.info(f"Web search added: {item['title'][:60]}")
-        except Exception as e:
-            logger.warning(f"Web search supplement failed: {e}")
 
     logger.info(f"News fetch complete: {total_new} new items")
     return total_new
