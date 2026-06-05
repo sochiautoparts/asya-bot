@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-05T17:13:42Z",
+  "last_updated": "2026-06-05T17:44:02Z",
   "pending_reviews": [
     {
       "id": "c_1780674401_d094e8",
@@ -31,6 +31,16 @@
       "summary": "",
       "category": "auto",
       "timestamp": 1780679622.7047012,
+      "status": "pending"
+    },
+    {
+      "id": "c_1780681442_7f97fb",
+      "from": "asya",
+      "type": "news_candidate",
+      "title": "John Deere Tractor With V16 Detroit Diesel Tugboat Engine Is a Sled-Pulling Machine",
+      "summary": "The frame had to be lengthened by three feet to fit the two-stroke diesel engine measuring 1,136 cubic inches. The post John Deere Tractor With V16 Detroit Diesel Tugboat Engine Is a Sled-Pulling Machine appeared first on The Drive.",
+      "category": "auto",
+      "timestamp": 1780681442.749755,
       "status": "pending"
     }
   ],
