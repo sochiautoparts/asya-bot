@@ -102,6 +102,7 @@ class BackgroundTasks:
             asyncio.create_task(self._morning_greeting(), name="morning_greeting"),
             asyncio.create_task(self._news_fetcher(), name="news_fetcher"),
             asyncio.create_task(self._channel_poster(), name="channel_poster"),
+            asyncio.create_task(self._interbot_checker(), name="interbot_checker"),
         ]
         logger.info("Background tasks started")
 
@@ -244,6 +245,51 @@ class BackgroundTasks:
                     break
                 await asyncio.sleep(1)
 
+    async def _interbot_checker(self) -> None:
+        """Periodically check for reviews from Настя and manage interbot state.
+        
+        This background task:
+        - Refreshes interbot state from GitHub
+        - Checks for pending reviews that have timed out
+        - Logs interbot status for monitoring
+        """
+        # Wait a bit after startup
+        await asyncio.sleep(60)
+
+        while self._running:
+            try:
+                from bot.interbot import interbot_manager
+
+                # Refresh state from GitHub
+                await interbot_manager.maybe_refresh()
+
+                # Check for timed-out candidates that should be published independently
+                pending = interbot_manager._own_state.get("pending_reviews", [])
+                for candidate in pending:
+                    if candidate.get("status") == "pending" and interbot_manager.should_publish_without_review(candidate):
+                        logger.info(f"Candidate '{candidate.get('title', '')[:40]}' timed out — can publish independently")
+                        # Note: actual publishing is handled by post_news flow
+                        # This just logs the timeout for monitoring
+
+                # Log status periodically
+                status = interbot_manager.get_status()
+                if status["pending_candidates"] > 0 or status["unread_messages"] > 0:
+                    logger.info(f"Interbot status: {status}")
+
+                # Check for unread messages from Настя
+                messages = await interbot_manager.check_messages()
+                for msg in messages:
+                    logger.info(f"Message from Настя: {msg.get('text', '')[:80]}")
+
+            except Exception as e:
+                logger.error(f"Interbot checker error: {e}")
+
+            # Check every 2 minutes
+            for _ in range(120):
+                if not self._running:
+                    break
+                await asyncio.sleep(1)
+
 
 # ── Conflict Resolution ────────────────────────────────────────────────────────
 
@@ -277,6 +323,13 @@ async def on_startup(bot: Bot) -> None:
     # Load partner programs — try remote first (admitad_ads.json from GitHub)
     partner_count = await partner_manager.load_async()
     logger.info(f"Partner programs loaded: {partner_count}")
+
+    # Initialize interbot communication
+    from bot.interbot import interbot_manager
+    gh_pat = os.getenv("GH_PAT_TOKEN", "")
+    interbot_manager.configure(gh_pat=gh_pat, channel_manager=channel_manager)
+    await interbot_manager.init()
+    logger.info("Interbot communication initialized")
 
     # Set bot in channel manager
     channel_manager.set_bot(bot)

@@ -33,6 +33,7 @@ from bot.database import (
 from ai.router import ai_router
 from bot.partners import partner_manager
 from bot.web_search import web_search, search_news, SearchResult
+from bot.interbot import interbot_manager
 
 logger = logging.getLogger("asya.channel")
 
@@ -804,6 +805,50 @@ class ChannelManager:
 
         # Smart character limit enforcement — always preserve footer
         post_text = _enforce_char_limit(post_text, has_media)
+
+        # ── AI-Filter: Check with Настя before publishing ──
+        try:
+            candidate_id = await interbot_manager.submit_news_candidate(
+                title=news_item.get("title", ""),
+                summary=news_item.get("summary", "")[:300],
+                category=news_item.get("category", "auto"),
+            )
+
+            # Wait briefly for review (max 10 seconds)
+            review_found = False
+            for _ in range(5):
+                await asyncio.sleep(2)
+                reviewed = await interbot_manager.get_reviewed_candidates()
+                for item in reviewed:
+                    if item["candidate"].get("id") == candidate_id:
+                        review = item["review"]
+                        verdict = review.get("verdict", "approved")
+                        if verdict == "rejected":
+                            logger.info(f"Настя REJECTED post: {news_item.get('title', '')[:50]}")
+                            await interbot_manager.mark_candidate_processed(candidate_id)
+                            return False
+                        elif verdict == "improved" and review.get("improved_text"):
+                            post_text = _clean_post_text(review["improved_text"])
+                            post_text = _ensure_footer(post_text)
+                            post_text = _enforce_char_limit(post_text, has_media)
+                            logger.info(f"Настя IMPROVED post: {news_item.get('title', '')[:50]}")
+                        else:
+                            logger.info(f"Настя APPROVED post: {news_item.get('title', '')[:50]}")
+                        await interbot_manager.mark_candidate_processed(candidate_id)
+                        review_found = True
+                        break
+                if review_found:
+                    break
+            else:
+                # No review from Настя — publish independently (fallback)
+                logger.info(f"No review from Настя, publishing independently")
+        except Exception as e:
+            logger.warning(f"AI-Filter check failed, publishing without review: {e}")
+
+        # Re-validate after potential modification by Настя
+        if not _validate_post_text(post_text):
+            logger.error(f"Post validation failed after review, skipping")
+            return False
 
         # HARD SAFETY CHECK: never post more than MAX_IMAGES_PER_POST images
         if has_media and image_list and len(image_list) > MAX_IMAGES_PER_POST:

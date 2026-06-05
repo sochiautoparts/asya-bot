@@ -44,6 +44,7 @@ chat_router = Router()
 # ── Character limits for chat responses ──────────────────────────────────────
 CHAT_MAX_CHARS = 1500    # Private chat max (system prompt asks for 500-1000, this is hard limit)
 GROUP_MAX_CHARS = 600    # Group/supergroup max (system prompt asks for 300, this is hard limit)
+COMMENT_MAX_CHARS = 300  # Comments in other groups (not Ася's own channel)
 
 
 # ── VIN / Body number detection ───────────────────────────────────────────────
@@ -678,6 +679,25 @@ async def _process_text_message(message: Message, text: str):
     if user_context:
         extra_context_parts.append(user_context)
 
+    # 0.1. Inter-bot chat detection — check if message is from Настя (the other bot)
+    NASTYA_BOT_USERNAME = "asnastya_bot"
+    if (
+        message.chat.type in ("group", "supergroup")
+        and message.from_user
+        and message.from_user.username
+        and message.from_user.username.lower() == NASTYA_BOT_USERNAME
+    ):
+        extra_context_parts.append(
+            "Это сообщение от Насти — другого бота, который тоже в этом чате. "
+            "Ты можешь отвечать ей и обсуждать темы."
+        )
+        # Register as shared chat for interbot coordination
+        try:
+            from bot.interbot import interbot_manager
+            interbot_manager.register_shared_chat(message.chat.id, message.chat.title or "")
+        except Exception as e:
+            logger.debug(f"Interbot register error: {e}")
+
     # 0.5. User car profile context — so Asya knows their cars
     try:
         user_cars = await get_user_cars(user_id)
@@ -755,7 +775,11 @@ async def _process_text_message(message: Message, text: str):
         return
 
     # 2. Detect car brand
-    brand = identify_car_brand(text)
+    try:
+        brand = identify_car_brand(text)
+    except Exception as e:
+        logger.debug(f"identify_car_brand error: {e}")
+        brand = None
     if brand:
         from bot.asya import get_brand_info
         info = get_brand_info(brand)
@@ -924,6 +948,49 @@ async def _process_text_message(message: Message, text: str):
     await _send_response(message, response, status_msg)
 
 
+def _smart_truncate(text: str, max_chars: int) -> str:
+    """Truncate text to max_chars, trying not to cut in the middle of a sentence.
+    
+    Looks for the last sentence boundary (. ! ? …) within the limit.
+    Falls back to last newline, then last space, then hard cut.
+    Always appends "..." if truncated.
+    """
+    if len(text) <= max_chars:
+        return text
+
+    # Reserve 3 chars for "..."
+    limit = max_chars - 3
+    if limit <= 0:
+        return "..."
+
+    # Try to find last sentence boundary within limit
+    sentence_endings = ['. ', '! ', '? ', '… ', '.\n', '!\n', '?\n', '…\n']
+    best_pos = -1
+    best_ending_len = 0
+    for ending in sentence_endings:
+        pos = text.rfind(ending, 0, limit + 1)
+        if pos > best_pos:
+            best_pos = pos
+            best_ending_len = len(ending)
+
+    if best_pos > limit // 2:
+        # Found a good sentence boundary — cut after the punctuation mark
+        return text[:best_pos + best_ending_len].rstrip() + "..."
+
+    # Try last newline
+    nl_pos = text.rfind('\n', 0, limit + 1)
+    if nl_pos > limit // 2:
+        return text[:nl_pos].rstrip() + "..."
+
+    # Try last space
+    sp_pos = text.rfind(' ', 0, limit + 1)
+    if sp_pos > limit // 2:
+        return text[:sp_pos].rstrip() + "..."
+
+    # Hard cut
+    return text[:limit].rstrip() + "..."
+
+
 async def _send_response(message: Message, response, status_msg=None):
     """Send AI response to user, handling errors and length limits."""
     # Delete the "thinking" status message
@@ -948,15 +1015,25 @@ async def _send_response(message: Message, response, status_msg=None):
     # ── Enforce character limits based on chat type ──
     # Private chat: max CHAT_MAX_CHARS (1500) — AI asked for 500-1000, this is hard limit
     # Group/supergroup: max GROUP_MAX_CHARS (600) — AI asked for 300, this is hard limit
+    # Comment in other group (not our channel): max COMMENT_MAX_CHARS (300)
     if message.chat.type == "private":
         if len(reply_text) > CHAT_MAX_CHARS:
             logger.info(f"Truncating private chat response: {len(reply_text)} → {CHAT_MAX_CHARS} chars")
-            reply_text = reply_text[:CHAT_MAX_CHARS - 3] + "..."
+            reply_text = _smart_truncate(reply_text, CHAT_MAX_CHARS)
     else:
-        # Group or supergroup — keep it short!
-        if len(reply_text) > GROUP_MAX_CHARS:
+        # Check if this is a comment in another group (not our channel)
+        is_own_channel = (
+            str(message.chat.id) == str(config.CHANNEL_ID)
+            or message.chat.username == config.CHANNEL_ID.replace("@", "")
+        )
+        if not is_own_channel and message.chat.type in ("group", "supergroup"):
+            if len(reply_text) > COMMENT_MAX_CHARS:
+                logger.info(f"Truncating comment in other group: {len(reply_text)} → {COMMENT_MAX_CHARS} chars")
+                reply_text = _smart_truncate(reply_text, COMMENT_MAX_CHARS)
+        elif len(reply_text) > GROUP_MAX_CHARS:
+            # Group or supergroup — keep it short!
             logger.info(f"Truncating group response: {len(reply_text)} → {GROUP_MAX_CHARS} chars")
-            reply_text = reply_text[:GROUP_MAX_CHARS - 3] + "..."
+            reply_text = _smart_truncate(reply_text, GROUP_MAX_CHARS)
 
     # Split long messages (Telegram limit 4096 chars)
     if len(reply_text) <= config.TELEGRAM_TEXT_LIMIT:

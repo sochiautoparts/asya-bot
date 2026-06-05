@@ -383,8 +383,13 @@ def lookup_obd2_code(code: str) -> Optional[str]:
 
 
 def identify_car_brand(text: str) -> Optional[str]:
-    """Identify a car brand from text."""
-    text_upper = text.upper()
+    """Identify a car brand from text. Returns None if no brand found or text is invalid."""
+    if not text or not isinstance(text, str):
+        return None
+    try:
+        text_upper = text.upper()
+    except (AttributeError, UnicodeDecodeError):
+        return None
     for brand in CAR_BRANDS:
         if brand in text_upper:
             return brand
