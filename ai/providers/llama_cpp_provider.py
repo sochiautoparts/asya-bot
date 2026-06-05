@@ -1,13 +1,15 @@
-"""LlamaCppProvider — SINGLE-MODEL llama-cpp-python provider for Asya Bot.
+"""LlamaCppProvider v3.1 — SINGLE-MODEL llama-cpp-python provider for Asya Bot.
 
 Qwen3-4B-Instruct as LOCAL FALLBACK when Pollinations is unavailable.
 Only ONE model loaded at a time — minimal RAM usage.
 
-Features:
-  - max_tokens=256 — decent response length for local fallback
-  - n_ctx=2048, history=10 — optimized for speed
-  - stop=["<think"] — BLOCKS Qwen3 thinking mode
+v3.1 FIX: Context window overflow prevention!
+  - Aggressively truncate system prompt (max 500 chars for local model)
+  - Reduce history to max 4 messages (was 10 — too many for 2048 ctx)
+  - Truncate each message to max 200 chars
+  - Token estimation before sending — skip messages if too long
   - /no_think prefix for Qwen models
+  - stop=["<think"] — BLOCKS Qwen3 thinking mode
   - asyncio.Semaphore(1) for serialized generation
   - asyncio.to_thread() for non-blocking generation
 """
@@ -45,6 +47,15 @@ DEFAULT_GEN_CONFIG = {
     "presence_penalty": 0.0,
     "stop": ["<think", "<|im_end|>"],  # Block thinking mode
 }
+
+# ── Context window limits for local model ──
+# Qwen3-4B with n_ctx=2048 needs aggressive truncation
+# Rough estimate: 1 token ≈ 4 chars for Russian text
+LOCAL_MAX_SYSTEM_CHARS = 500    # Short system prompt for local
+LOCAL_MAX_HISTORY_MSGS = 4     # Max 4 history messages (was 10 — too many)
+LOCAL_MAX_MSG_CHARS = 200      # Max chars per history message
+LOCAL_MAX_USER_CHARS = 800     # Max chars for current user message
+LOCAL_MAX_TOTAL_CHARS = 6000   # Safety limit (~1500 tokens estimate)
 
 
 class LlamaCppProvider(BaseAIProvider):
@@ -172,6 +183,7 @@ class LlamaCppProvider(BaseAIProvider):
 
         Uses asyncio.to_thread() to not block event loop.
         Semaphore ensures only one request at a time.
+        v3.1: Aggressively truncates messages to fit n_ctx=2048.
         """
         if not self._llm:
             return AIResponse(
@@ -182,7 +194,7 @@ class LlamaCppProvider(BaseAIProvider):
                 error_message="Model not loaded",
             )
 
-        # Limit history to prevent context overflow
+        # ── Aggressive truncation for local model context window ──
         system_msg = ""
         chat_msgs = []
         for msg in messages:
@@ -193,9 +205,19 @@ class LlamaCppProvider(BaseAIProvider):
             elif role in ("user", "assistant") and content:
                 chat_msgs.append({"role": role, "content": content})
 
-        # Keep only last N messages for local model
-        if len(chat_msgs) > 10:
-            chat_msgs = chat_msgs[-10:]
+        # Truncate system prompt — local model doesn't need the full prompt
+        if len(system_msg) > LOCAL_MAX_SYSTEM_CHARS:
+            system_msg = system_msg[:LOCAL_MAX_SYSTEM_CHARS].rsplit('.', 1)[0] + '.'
+
+        # Keep only last N messages (was 10 — too many for 2048 ctx)
+        if len(chat_msgs) > LOCAL_MAX_HISTORY_MSGS:
+            chat_msgs = chat_msgs[-LOCAL_MAX_HISTORY_MSGS:]
+
+        # Truncate each message to prevent context overflow
+        for i, msg in enumerate(chat_msgs):
+            content = msg.get("content", "")
+            if len(content) > LOCAL_MAX_MSG_CHARS:
+                chat_msgs[i]["content"] = content[:LOCAL_MAX_MSG_CHARS] + "..."
 
         # For Qwen3: add /no_think prefix to disable thinking mode
         if chat_msgs and chat_msgs[-1].get("role") == "user":
@@ -207,6 +229,17 @@ class LlamaCppProvider(BaseAIProvider):
         if system_msg:
             ollama_messages.append({"role": "system", "content": system_msg})
         ollama_messages.extend(chat_msgs)
+
+        # Safety check: estimate total tokens
+        total_chars = sum(len(m.get("content", "")) for m in ollama_messages)
+        if total_chars > LOCAL_MAX_TOTAL_CHARS:
+            # Remove oldest history messages until it fits
+            while len(ollama_messages) > 2 and total_chars > LOCAL_MAX_TOTAL_CHARS:
+                if ollama_messages[0].get("role") == "system":
+                    ollama_messages.pop(1)
+                else:
+                    ollama_messages.pop(0)
+                total_chars = sum(len(m.get("content", "")) for m in ollama_messages)
 
         async with self._semaphore:
             self._request_count += 1

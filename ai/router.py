@@ -261,11 +261,32 @@ class AIRouter:
         if response.error and self._local and self._local.is_available():
             logger.warning("Pollinations failed, falling back to LOCAL model")
             try:
+                # Build LOCAL-OPTIMIZED messages — short system prompt for 2048 ctx
+                local_system_prompt = (
+                    "Ты Ася — автоэксперт, редактор канала @sochiautoparts. "
+                    "Пиши живо, с юмором, как автожурналист. "
+                    "Без политики, без markdown. "
+                    f"Сейчас {datetime.now(_MOSCOW_TZ).strftime('%d.%m.%Y %H:%M')} по Москве."
+                )
+                # Rebuild messages with short system prompt
+                local_messages = [{"role": "system", "content": local_system_prompt}]
+                # Add last 4 history messages only
+                if history:
+                    for msg in history[-4:]:
+                        role = msg.get("role", "user")
+                        content = msg.get("content", "")
+                        if role in ("user", "assistant") and content:
+                            # Truncate long messages for local model
+                            if len(content) > 200:
+                                content = content[:200] + "..."
+                            local_messages.append({"role": role, "content": content})
+                local_messages.append({"role": "user", "content": message[:800]})
+
                 local_response = await self._local.chat(
-                    messages=messages,
+                    messages=local_messages,
                     model="",
-                    temperature=temperature or 0.82,
-                    max_tokens=min(max_tokens or 256, 256),
+                    temperature=0.82,
+                    max_tokens=256,
                 )
                 if not local_response.error and local_response.text:
                     self._local_requests += 1
@@ -542,8 +563,13 @@ class AIRouter:
         if response.error and self._local and self._local.is_available():
             logger.warning("Pollinations failed for channel post, trying local model")
             try:
+                # Use short system prompt for local model
+                local_messages = [
+                    {"role": "system", "content": "Ты Ася — автоэксперт, редактор канала @sochiautoparts. Пиши живо, с юмором. Без политики. Обязательно добавь подпись: Автор @asiaexp_bot / @sochiautoparts / #sochiautoparts"},
+                    {"role": "user", "content": user_content[:800]},
+                ]
                 local_response = await self._local.chat(
-                    messages=messages,
+                    messages=local_messages,
                     model="",
                     temperature=0.8,
                     max_tokens=256,
