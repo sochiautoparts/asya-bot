@@ -144,9 +144,10 @@ def _clean_post_text(text: str) -> str:
     # ── Remove AI meta-comments about duplicates / "do not publish" remarks ──
     # These appear when AI sees channel context saying "already posted" and includes
     # that remark in the generated text instead of choosing a different topic.
+    # IMPORTANT: Patterns must handle words BETWEEN key terms (e.g. "уже дважды был")
     meta_comment_patterns = [
-        # Russian: "уже было", "уже опубликовано", "не публиковать", etc.
-        r'[^\n]*уже\s+(был|публиковал|опубликован|пост|писал)[^\n]*',
+        # Russian: "уже было", "уже дважды был", "уже публиковал", etc.
+        r'[^\n]*уже.{0,20}(был|публиковал|опубликован|пост|писал|появлялся)[^\n]*',
         r'[^\n]*не\s+(публикуй|публиковать|надо|стоит|нужно)\s+(публиковать|это|этот|данный)[^\n]*',
         r'[^\n]*дубликат[^\n]*',
         r'[^\n]*повтор(я|ять|ный|ная)[^\n]*',
@@ -154,6 +155,13 @@ def _clean_post_text(text: str) -> str:
         r'[^\n]*об\s+этом\s+(уже\s+)?(писал|говорил|публиковал|был)[^\n]*',
         r'[^\n]*ЭТО\s+УЖЕ\s+ОПУБЛИКОВАНО[^\n]*',
         r'[^\n]*такой\s+пост\s+(уже\s+)?есть[^\n]*',
+        # New: catch "брать нельзя", "лучше не брать", "повтор будет заметен"
+        r'[^\n]*(брать|взять)\s+нельзя[^\n]*',
+        r'[^\n]*лучше\s+(не\s+)?(брать|писать|публиковать)[^\n]*',
+        r'[^\n]*повтор\s+будет[^\n]*',
+        r'[^\n]*крутить(ся)?\s+вокруг[^\n]*',
+        r'[^\n]*сменить\s+(угол|тему|ракурс)[^\n]*',
+        r'[^\n]*другую\s+(зарубежн|автоистори|тему|новост)[^\n]*',
         # English variants
         r'[^\n]*already\s+(posted|published|covered|wrote)[^\n]*',
         r'[^\n]*do\s+not\s+(publish|post)[^\n]*',
@@ -162,10 +170,10 @@ def _clean_post_text(text: str) -> str:
         # Common AI refusal patterns
         r'[^\n]*я\s+(не\s+)?буду\s+(это\s+)?публиковать[^\n]*',
         r'[^\n]*не\s+буду\s+повторять[^\n]*',
-        r'[^\n]*лучше\s+(не\s+)?публиковать[^\n]*',
         r'[^\n]*пропущу\s+эту\s+новость[^\n]*',
         r'[^\n]*выберу\s+другую[^\n]*',
         r'[^\n]*напишу\s+о\s+друг[^\n]*',
+        r'[^\n]*могу\s+сразу\s+сделать[^\n]*',
     ]
     for pattern in meta_comment_patterns:
         text = re.sub(pattern, '', text, flags=re.IGNORECASE)
@@ -243,14 +251,19 @@ def _validate_post_text(text: str) -> bool:
     # Such posts should NEVER be published.
     duplicate_indicator_phrases = [
         "уже опубликован", "уже было", "уже публиковал", "уже писал об",
+        "уже дважды", "уже трижды",  # "уже дважды был Алонсо"
         "не публиковать", "не публикуй", "не надо публиковать",
         "этот пост уже", "такой пост уже", "об этом уже",
         "дубликат", "это повтор",
+        "брать нельзя", "взять нельзя",  # "Эту тему брать нельзя"
+        "повтор будет", "крутиться вокруг",  # "канал начнёт крутиться вокруг"
+        "лучше сменить", "лучше не брать", "лучше не публиковать",
+        "другую зарубежн", "другую автоистори",  # "взять другую зарубежную автоисторию"
         "already posted", "already published", "already covered",
         "do not publish", "do not post",
         "this was already", "duplicate post",
         "я не буду публиковать", "не буду повторять",
-        "лучше не публиковать", "пропущу эту новость",
+        "пропущу эту новость",
     ]
     for phrase in duplicate_indicator_phrases:
         if phrase in text_lower:

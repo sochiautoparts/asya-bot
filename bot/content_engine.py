@@ -63,6 +63,24 @@ _AUTO_BRANDS = [
     "Bugatti", "McLaren", "Aston Martin", "Lotus",
 ]
 
+# Notable people / F1 drivers for entity extraction (prevents re-posting same person's story)
+_NOTABLE_PEOPLE = [
+    "Alonso", "Hamilton", "Verstappen", "Vettel", "Leclerc", "Norris",
+    "Sainz", "Russell", "Perez", "Piastri", "Ricciardo", "Stroll",
+    "Ocon", "Gasly", "Tsunoda", "Albon", "Zhou", "Bottas", "Hulkenberg",
+    "Senna", "Prost", "Schumacher", "Lauda", "Hunt", "Moss",
+    "Musk", "Toyota CEO", "VW CEO", "Diess", "Zellmer",
+    "Маск", "Шумахер", "Сенна",
+]
+
+# F1 / motorsport teams for entity extraction
+_MOTORSPORT_TEAMS = [
+    "Red Bull", "Ferrari", "Mercedes", "McLaren", "Aston Martin",
+    "Alpine", "Williams", "Haas", "RB", "Sauber", "Kick Sauber",
+    "F1", "Formula 1", "Формула 1", "WRC", "WEC", "Le Mans",
+    "NASCAR", "IndyCar", "MotoGP",
+]
+
 # Event keywords for entity extraction
 _EVENT_KEYWORDS = [
     "reveal", "launch", "debut", "unveil", "release", "announce",
@@ -77,9 +95,10 @@ _EVENT_KEYWORDS = [
 def _extract_entities(title: str) -> str:
     """Extract key entities from a news title for dedup.
     
-    Returns a normalized entity key like "bmw_m5_reveal" or "toyota_recalls".
+    Returns a normalized entity key like "bmw_m5_reveal", "alonso_criticism", or "toyota_recalls".
     This allows us to detect that "BMW M5 2027 revealed" and "BMW unveils new M5"
     are about the SAME event and should not be posted twice.
+    Also detects notable people (F1 drivers, CEOs) and motorsport topics.
     """
     title_lower = title.lower()
     
@@ -87,7 +106,21 @@ def _extract_entities(title: str) -> str:
     brand = ""
     for b in _AUTO_BRANDS:
         if b.lower() in title_lower:
-            brand = b.lower()
+            brand = b.lower().replace(" ", "_")
+            break
+    
+    # Extract notable person (F1 driver, CEO, etc.)
+    person = ""
+    for p in _NOTABLE_PEOPLE:
+        if p.lower() in title_lower:
+            person = p.lower().replace(" ", "_")
+            break
+    
+    # Extract motorsport team/series
+    team = ""
+    for t in _MOTORSPORT_TEAMS:
+        if t.lower() in title_lower:
+            team = t.lower().replace(" ", "_")
             break
     
     # Extract model (alphanumeric after brand)
@@ -115,7 +148,7 @@ def _extract_entities(title: str) -> str:
             event = e
             break
     
-    parts = [p for p in [brand, model, event] if p]
+    parts = [p for p in [brand, person, team, model, event] if p]
     return "_".join(parts) if parts else ""
 
 
@@ -638,6 +671,11 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
         chosen = top_n[0]
     else:
         # Let AI pick the most interesting one from top 5
+        # NOTE: Do NOT use "openai-fast" — it always returns empty responses.
+        # Use a reliable content model instead.
+        _TOPIC_PICK_MODELS = ["mistral-4", "deepseek", "qwen-large", "gpt-5.4-2026-03-05"]
+        _pick_model = _TOPIC_PICK_MODELS[0]  # Use first reliable model
+        
         try:
             candidates_summary = []
             for i, entry in enumerate(top_n):
@@ -647,24 +685,34 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
                 )
             
             candidates_text = "\n".join(candidates_summary)
-            response = await ai_router._primary.chat(
-                messages=[
-                    {"role": "system", "content": (
-                        "Ты редактор автоканала в Telegram. Тебе даны 5 кандидатов на публикацию "
-                        "с оценкой интереса (0-1). Выбери САМЫЙ интересный для широкой аудитории — "
-                        "то, что вызовет наибольший отклик, обсуждение и репосты. "
-                        "Учитывай: премьеры, скандалы, рекорды, прорывы, российский рынок — "
-                        "всегда приоритетнее сухих новостей. "
-                        "Ответь ТОЛЬКО цифрой (1-5) — номер лучшего кандидата."
-                    )},
-                    {"role": "user", "content": f"Кандидаты:\n{candidates_text}"},
-                ],
-                model="openai-fast",
-                temperature=0.3,
-                max_tokens=5,
-            )
             
-            if not response.error and response.text:
+            # Try multiple models — skip openai-fast (always empty)
+            for model_name in _TOPIC_PICK_MODELS:
+                try:
+                    response = await ai_router._primary.chat(
+                        messages=[
+                            {"role": "system", "content": (
+                                "Ты редактор автоканала в Telegram. Тебе даны 5 кандидатов на публикацию "
+                                "с оценкой интереса (0-1). Выбери САМЫЙ интересный для широкой аудитории — "
+                                "то, что вызовет наибольший отклик, обсуждение и репосты. "
+                                "Учитывай: премьеры, скандалы, рекорды, прорывы, российский рынок — "
+                                "всегда приоритетнее сухих новостей. "
+                                "Ответь ТОЛЬКО цифрой (1-5) — номер лучшего кандидата."
+                            )},
+                            {"role": "user", "content": f"Кандидаты:\n{candidates_text}"},
+                        ],
+                        model=model_name,
+                        temperature=0.3,
+                        max_tokens=5,
+                    )
+                    
+                    if not response.error and response.text and response.text.strip():
+                        _pick_model = model_name
+                        break
+                except Exception:
+                    continue
+            
+            if not response.error and response.text and response.text.strip():
                 pick_str = response.text.strip()
                 # Extract number from response
                 pick_match = re.search(r'[1-5]', pick_str)
@@ -672,12 +720,13 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
                     pick_idx = int(pick_match.group()) - 1
                     if 0 <= pick_idx < len(top_n):
                         chosen = top_n[pick_idx]
-                        logger.info(f"AI picked candidate #{pick_idx + 1}: {chosen['item'].get('title', '')[:60]}")
+                        logger.info(f"AI picked candidate #{pick_idx + 1} (model={_pick_model}): {chosen['item'].get('title', '')[:60]}")
                     else:
                         chosen = top_n[0]
                 else:
                     chosen = top_n[0]
             else:
+                logger.warning(f"All topic pick models failed, using top-1")
                 chosen = top_n[0]
         except Exception as e:
             logger.debug(f"AI topic selection failed, using top-1: {e}")
