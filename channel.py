@@ -64,6 +64,49 @@ POLL_TEMPLATES = [
 # Moscow timezone
 _MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 
+# ── Keyword-based semantic dedup for channel posts ─────────────────────────────
+# Stores significant words from recently posted titles
+_recent_post_keywords: list = []
+_MAX_RECENT_POSTS = 20
+
+# Words to ignore in semantic comparison
+_SEMANTIC_STOP_WORDS = frozenset([
+    "в", "на", "с", "о", "у", "по", "из", "за", "от", "до", "к", "не", "и", "но",
+    "а", "что", "как", "это", "тот", "этот", "для", "при", "через", "между",
+    "после", "перед", "без", "под", "над", "об", "со", "то", "же", "ли", "бы",
+    "уже", "ещё", "еще", "также", "тоже", "или", "либо", "год", "могут", "будет",
+    "стал", "стала", "был", "была", "есть", "может", "очень", "так", "где", "когда",
+])
+
+
+def _is_semantically_duplicate(title: str) -> bool:
+    """Check if 3+ significant words from title match a recently posted title."""
+    global _recent_post_keywords
+
+    # Extract significant words from the new title
+    words = re.findall(r'[a-zа-яё]{3,}', title.lower())
+    significant = [w for w in words if w not in _SEMANTIC_STOP_WORDS]
+
+    if len(significant) < 3:
+        return False
+
+    for recent_words in _recent_post_keywords:
+        matches = sum(1 for w in significant if w in recent_words)
+        if matches >= 3:
+            return True
+
+    return False
+
+
+def _record_post_title(title: str):
+    """Record a posted title's significant words for semantic dedup."""
+    global _recent_post_keywords
+    words = re.findall(r'[a-zа-яё]{3,}', title.lower())
+    significant = [w for w in words if w not in _SEMANTIC_STOP_WORDS]
+    _recent_post_keywords.append(significant)
+    if len(_recent_post_keywords) > _MAX_RECENT_POSTS:
+        _recent_post_keywords = _recent_post_keywords[-_MAX_RECENT_POSTS:]
+
 
 def _clean_post_text(text: str) -> str:
     """Clean post text: remove markdown links, formatting artifacts, SSE garbage."""
@@ -657,7 +700,7 @@ class ChannelManager:
             if unposted:
                 # Filter out duplicates using fingerprint system
                 for item in unposted:
-                    if await is_duplicate_post(item.get("title", ""), hours=48):
+                    if await is_duplicate_post(item.get("title", ""), hours=72):
                         logger.info(f"Skipping duplicate news: {item.get('title', '')[:60]}")
                         # Mark as posted so we don't pick it again
                         if item.get("url"):
@@ -684,9 +727,16 @@ class ChannelManager:
 
         # ── DEDUPLICATION: Check if this news was already posted ──
         if news_item and news_item.get("title"):
-            if await is_duplicate_post(news_item["title"], hours=48):
+            if await is_duplicate_post(news_item["title"], hours=72):
                 logger.warning(f"DUPLICATE post blocked: {news_item['title'][:60]}")
                 # Mark as posted to avoid picking again
+                if news_item.get("url"):
+                    await mark_news_posted(news_item["url"])
+                return False
+
+            # Keyword-based semantic dedup: if 3+ significant words match a recently posted title, skip
+            if _is_semantically_duplicate(news_item["title"]):
+                logger.warning(f"SEMANTIC DUPLICATE blocked: {news_item['title'][:60]}")
                 if news_item.get("url"):
                     await mark_news_posted(news_item["url"])
                 return False
@@ -847,6 +897,10 @@ class ChannelManager:
                 asyncio.create_task(self._post_poll(news_item))
 
             logger.info(f"Posted news to channel: {news_item['title'][:50]}...")
+
+            # Record title for semantic dedup
+            _record_post_title(news_item.get("title", ""))
+
             return True
 
         except Exception as e:
@@ -912,7 +966,7 @@ class ChannelManager:
                     }
 
                     # Check for duplicate BEFORE returning
-                    if await is_duplicate_post(result.title, hours=48):
+                    if await is_duplicate_post(result.title, hours=72):
                         logger.info(f"Internet news is duplicate: {result.title[:60]}")
                         continue
 

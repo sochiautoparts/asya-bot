@@ -1,4 +1,4 @@
-name: Asya Bot LOCAL-FIRST v2
+name: Asya Bot SMART ROUTING v3
 
 on:
   schedule:
@@ -21,7 +21,7 @@ env:
   POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
   GH_PAT_TOKEN: ${{ secrets.GH_PAT_TOKEN }}
   GH_REPO: sochiautoparts/asya-bot
-  ADMITAD_ADS_FILE: admitad_ads.json
+  ADMITAD_ADS_FILE: data/admitad_ads.json
   DB_PATH: asya_bot.db
   PYTHONUNBUFFERED: "1"
   LOG_LEVEL: INFO
@@ -106,8 +106,15 @@ jobs:
 
       - name: Download Admitad partner data
         run: |
+          echo "=== Downloading admitad partner data ==="
+          mkdir -p data
           curl -sL "https://raw.githubusercontent.com/creastudioai-beep/pr/main/data/admitad_ads.json" \
-            -o admitad_ads.json || echo "Failed to download admitad data, will use cached version"
+            -o data/admitad_ads.json || echo "Failed to download admitad data, will use cached version"
+          if [ -f data/admitad_ads.json ]; then
+            echo "OK: admitad_ads.json downloaded ($(wc -c < data/admitad_ads.json) bytes)"
+          else
+            echo "WARNING: admitad_ads.json not found"
+          fi
 
       - name: Restore database from cache
         uses: actions/cache@v4
@@ -126,14 +133,14 @@ jobs:
 
       - name: Run Asya Bot with auto-restart
         run: |
-          echo "=== Starting Asya Bot v2.0 LOCAL-FIRST (saves cloud balance!) ==="
-          echo "PRIMARY: LOCAL Qwen3-4B (n_ctx=4096) for simple chat — FREE!"
-          echo "COMPLEX: Pollinations.ai for VIN, diagnostics, parts, search"
+          echo "=== Starting Asya Bot v3.0 SMART ROUTING ==="
+          echo "CHAT (user conversations): LOCAL-FIRST → Local → Cloud → Fallback (saves balance)"
+          echo "FUNCTION (posts, VIN, diagnostics, parts): CLOUD-FIRST → Cloud → Local → Fallback (better quality)"
+          echo "COMMENT (comments in groups): LOCAL-ONLY → Local → Static fallback (no cloud waste)"
           echo "VISION: Pollinations vision for photos"
-          echo "BACKGROUND: LOCAL model for channel posts — saves balance!"
-          echo "STRATEGY: Simple→Local, Complex→Cloud, Vision→Cloud only"
+          echo "STRATEGY: Chat→Local-first, Function→Cloud-first, Comment→Local-only"
           echo ""
-          echo "Config: strategy=LOCAL_FIRST, n_ctx=4096, max_tokens=384(local)/2048(cloud), history=6"
+          echo "Config: strategy=SMART_ROUTING, n_ctx=4096, max_tokens=300(local)/2048(cloud), history=4(local)"
 
           MAX_RESTARTS=10
           RESTART_COUNT=0

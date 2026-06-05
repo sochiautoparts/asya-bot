@@ -17,6 +17,40 @@ from bot.database import add_news_item, get_unposted_news, mark_news_posted, is_
 
 logger = logging.getLogger("asya.news")
 
+# ── Fingerprint-based deduplication ────────────────────────────────────────────
+# Stores simplified title fingerprints to prevent similar news from being added
+_recent_fingerprints: set = set()
+
+
+def _compute_fingerprint(title: str) -> str:
+    """Compute a simplified fingerprint for dedup.
+    Remove articles, lowercase, take first 5 words.
+    """
+    import re
+    # Remove common articles/prepositions
+    cleaned = re.sub(r'\b(в|на|с|о|у|по|из|за|от|до|к|не|и|но|а|что|как|это|тот|этот|для|при|через|между|после|перед|без|под|над|об|со|из-за|то|же|ли|бы|уже|ещё|еще|также|тоже|или|либо)\b', '', title.lower())
+    cleaned = re.sub(r'[^a-zа-яё0-9]', ' ', cleaned)
+    words = cleaned.split()
+    return ' '.join(words[:5])
+
+
+def _fingerprint_matches_existing(fingerprint: str) -> bool:
+    """Check if a fingerprint matches any recently used fingerprint (edit distance on first 4 words)."""
+    fp_words = fingerprint.split()[:4]
+    for existing in _recent_fingerprints:
+        ex_words = existing.split()[:4]
+        # Count matching words
+        matches = sum(1 for w in fp_words if w in ex_words)
+        if matches >= 3:
+            return True
+    return False
+
+
+def reset_fingerprints():
+    """Reset fingerprint set (called each news cycle)."""
+    global _recent_fingerprints
+    _recent_fingerprints = set()
+
 # ── Keywords for auto-relevance filtering ──────────────────────────────────────
 
 AUTO_KEYWORDS_RU = [
@@ -226,6 +260,9 @@ async def fetch_all_news() -> int:
     """
     total_new = 0
 
+    # Reset fingerprint set for this cycle
+    reset_fingerprints()
+
     for source in news_config.sources:
         try:
             items = await fetch_rss(source)
@@ -244,6 +281,12 @@ async def fetch_all_news() -> int:
                     logger.debug(f"Skipping duplicate news title: {item['title'][:60]}")
                     continue
 
+                # Fingerprint-based dedup: skip if similar to recently added news
+                fp = _compute_fingerprint(item["title"])
+                if _fingerprint_matches_existing(fp):
+                    logger.debug(f"Skipping similar news (fingerprint match): {item['title'][:60]}")
+                    continue
+
                 # Add to database (dedup by URL)
                 added = await add_news_item(
                     source=item["source"],
@@ -257,6 +300,7 @@ async def fetch_all_news() -> int:
                 )
                 if added:
                     total_new += 1
+                    _recent_fingerprints.add(fp)
 
         except Exception as e:
             logger.error(f"Error processing source {source.name}: {e}")

@@ -41,6 +41,10 @@ logger = logging.getLogger("asya.handlers.chat")
 
 chat_router = Router()
 
+# ── Character limits for chat responses ──────────────────────────────────────
+CHAT_MAX_CHARS = 1500    # Private chat max (system prompt asks for 500-1000, this is hard limit)
+GROUP_MAX_CHARS = 600    # Group/supergroup max (system prompt asks for 300, this is hard limit)
+
 
 # ── VIN / Body number detection ───────────────────────────────────────────────
 
@@ -940,6 +944,19 @@ async def _send_response(message: Message, response, status_msg=None):
 
     # Ensure Asya doesn't use markdown formatting in chat
     reply_text = _clean_markdown(reply_text)
+
+    # ── Enforce character limits based on chat type ──
+    # Private chat: max CHAT_MAX_CHARS (1500) — AI asked for 500-1000, this is hard limit
+    # Group/supergroup: max GROUP_MAX_CHARS (600) — AI asked for 300, this is hard limit
+    if message.chat.type == "private":
+        if len(reply_text) > CHAT_MAX_CHARS:
+            logger.info(f"Truncating private chat response: {len(reply_text)} → {CHAT_MAX_CHARS} chars")
+            reply_text = reply_text[:CHAT_MAX_CHARS - 3] + "..."
+    else:
+        # Group or supergroup — keep it short!
+        if len(reply_text) > GROUP_MAX_CHARS:
+            logger.info(f"Truncating group response: {len(reply_text)} → {GROUP_MAX_CHARS} chars")
+            reply_text = reply_text[:GROUP_MAX_CHARS - 3] + "..."
 
     # Split long messages (Telegram limit 4096 chars)
     if len(reply_text) <= config.TELEGRAM_TEXT_LIMIT:
