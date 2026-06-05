@@ -1,19 +1,12 @@
-"""
-Pollinations AI Provider v3.0 — TRIPLE API KEY + 60+ MODEL SUPPORT
+"""Pollinations AI Provider v4.0 — DUAL API KEY + 60+ MODEL SUPPORT
 OpenAI-compatible API at gen.pollinations.ai
 
-v3.0 UPDATES (from v2.0):
-  TRIPLE API KEY FAILOVER:
-  - KEY1 (new primary) → KEY2 → KEY3 → Error
-  - KEY1 = config.POLLINATIONS_API_KEY_3 (new primary key, falls back to hardcoded)
-  - KEY2 = sk_Bxe1lAQ3oZ5yslfCLHl7jFPRG9r3dJxH (demoted from KEY1)
-  - KEY3 = config.POLLINATIONS_API_KEY (demoted from KEY2)
+v4.0 UPDATES:
+  DUAL API KEY FAILOVER:
+  - KEY1 (config.POLLINATIONS_API_KEY) -> KEY2 (config.POLLINATIONS_API_KEY_2) -> Error
   - On 402/401: mark current key as depleted, auto-switch to next
   - Depleted keys auto-retry after 600 seconds cooldown
-
-  REMOVED:
-  - API unavailable mode removed — no local fallback anymore
-  - If all keys fail, return error and let the router decide
+  - NO hardcoded keys — all from environment/config
 
   EXPANDED MODEL LIST (60+ models from API catalog, June 2026):
   - Chat: 43+ models for conversation
@@ -25,21 +18,9 @@ v3.0 UPDATES (from v2.0):
   - Audio: 3 models
 
   IMPORTANT: Models are NEVER deleted when temporarily unavailable.
-  Pollinations.ai rotates model availability — a 402/404 today
+  Pollinations.ai rotates model availability -- a 402/404 today
   doesn't mean the model is gone. We keep all models and use
   circuit breaking (5-min cooldown) for recently failed models.
-
-  MODELS THAT MAY RETURN EMPTY CONTENT:
-  - openai-fast: sometimes returns empty response
-  - step-flash: sometimes returns empty response
-  - qwen-large: sometimes returns empty response
-  - openai-audio: needs audio input, may return empty for text-only
-  These are kept in lists but their empty responses are handled
-  gracefully — marked as temporary failure, NOT removed.
-
-  PAID-ONLY MODELS (return 402 without paid balance):
-  - claude, gemini, gemini-large, llama-maverick
-  These are kept in lists for users with paid balance.
 """
 
 import httpx
@@ -57,8 +38,7 @@ logger = logging.getLogger("asya.ai.pollinations")
 # ── Cooldown for depleted API keys (seconds) ──
 KEY_COOLDOWN: float = 600.0  # 10 minutes before retrying a depleted key
 
-# ── New primary API key (v3.0) ──
-PRIMARY_API_KEY: str = "sk_Bxe1lAQ3oZ5yslfCLHl7jFPRG9r3dJxH"
+# No hardcoded API keys — all from config/environment
 
 # ── Model Categories ──────────────────────────────────────────────────────────
 
@@ -252,16 +232,15 @@ _FAILURE_COOLDOWN = 300  # 5 minutes
 
 
 class PollinationsProvider(BaseAIProvider):
-    """Pollinations AI provider v3.0 — TRIPLE KEY + 60+ MODELS!
+    """Pollinations AI provider v4.0 — DUAL KEY + 60+ MODELS!
 
     Uses gen.pollinations.ai/v1/chat/completions (OpenAI-compatible).
 
-    TRIPLE API KEY FAILOVER:
-      1. Try KEY1 first (config.POLLINATIONS_API_KEY_3, falls back to hardcoded)
-      2. On 402/401 from KEY1 → switch to KEY2 (hardcoded PRIMARY_API_KEY)
-      3. On 402/401 from KEY2 → switch to KEY3 (config.POLLINATIONS_API_KEY)
-      4. On 402/401 from KEY3 → return error (router decides fallback)
-      5. Depleted keys auto-retry after 600 seconds cooldown
+    DUAL API KEY FAILOVER:
+      1. Try KEY1 first (config.POLLINATIONS_API_KEY)
+      2. On 402/401 from KEY1 -> switch to KEY2 (config.POLLINATIONS_API_KEY_2)
+      3. On 402/401 from KEY2 -> return error (router decides fallback)
+      4. Depleted keys auto-retry after 600 seconds cooldown
 
     IMPORTANT: Models are NEVER removed when unavailable.
     Pollinations.ai rotates model availability — a failure today
@@ -272,19 +251,17 @@ class PollinationsProvider(BaseAIProvider):
     def __init__(self):
         super().__init__(
             name="pollinations",
-            api_key=config.POLLINATIONS_API_KEY_3 or PRIMARY_API_KEY,
+            api_key=config.POLLINATIONS_API_KEY,
             base_url=config.POLLINATIONS_BASE_URL,
         )
-        # ── Triple API key storage ──
-        # KEY1 = new primary key (POLLINATIONS_API_KEY_3), falls back to hardcoded key
-        self._api_key_1: str = config.POLLINATIONS_API_KEY_3 or PRIMARY_API_KEY  # New primary key
-        self._api_key_2: str = PRIMARY_API_KEY                                    # Demoted: was KEY1
-        self._api_key_3: str = config.POLLINATIONS_API_KEY                        # Demoted: was KEY2
+        # ── Dual API key storage ──
+        # KEY1 = primary key from config
+        self._api_key_1: str = config.POLLINATIONS_API_KEY
+        self._api_key_2: str = config.POLLINATIONS_API_KEY_2
         # ── Per-key balance depletion tracking ──
         # 0 = active/never depleted; >0 = timestamp when depleted
         self._key1_depleted_at: float = 0.0
         self._key2_depleted_at: float = 0.0
-        self._key3_depleted_at: float = 0.0
 
     # ── API Key Management ──────────────────────────────────────
 
@@ -297,8 +274,7 @@ class PollinationsProvider(BaseAIProvider):
             depleted_at = self._key2_depleted_at
             key_val = self._api_key_2
         else:
-            depleted_at = self._key3_depleted_at
-            key_val = self._api_key_3
+            return False  # Only KEY1 and KEY2 supported
 
         if not key_val:
             return False
@@ -310,10 +286,8 @@ class PollinationsProvider(BaseAIProvider):
         if elapsed >= KEY_COOLDOWN:
             if key_index == 1:
                 self._key1_depleted_at = 0
-            elif key_index == 2:
-                self._key2_depleted_at = 0
             else:
-                self._key3_depleted_at = 0
+                self._key2_depleted_at = 0
             logger.info(f"API KEY{key_index} cooldown expired after {elapsed:.0f}s — retrying")
             return True
 
@@ -323,28 +297,19 @@ class PollinationsProvider(BaseAIProvider):
         """Mark an API key as depleted (balance exhausted)."""
         if key_index == 1:
             self._key1_depleted_at = time.time()
-        elif key_index == 2:
-            self._key2_depleted_at = time.time()
         else:
-            self._key3_depleted_at = time.time()
+            self._key2_depleted_at = time.time()
         logger.warning(
             f"API KEY{key_index} depleted (402/401). "
             f"Will auto-retry after {KEY_COOLDOWN}s cooldown."
         )
 
     def _get_active_key_tier(self) -> Tuple[str, int]:
-        """Determine which key/tier to use for the next request.
-
-        Returns:
-            Tuple of (api_key_or_empty_string, key_tier)
-            key_tier: 1=KEY1, 2=KEY2, 3=KEY3, 0=no available key
-        """
+        """Determine which key/tier to use for the next request."""
         if self._is_key_available(1):
             return self._api_key_1, 1
         if self._is_key_available(2):
             return self._api_key_2, 2
-        if self._is_key_available(3):
-            return self._api_key_3, 3
         return "", 0
 
     def _get_key_status_summary(self) -> str:
@@ -353,7 +318,6 @@ class PollinationsProvider(BaseAIProvider):
         for idx, (key_val, depleted_at) in enumerate([
             (self._api_key_1, self._key1_depleted_at),
             (self._api_key_2, self._key2_depleted_at),
-            (self._api_key_3, self._key3_depleted_at),
         ], start=1):
             if not key_val:
                 parts.append(f"KEY{idx}=not_set")
@@ -371,8 +335,6 @@ class PollinationsProvider(BaseAIProvider):
             tiers.append((self._api_key_1, 1))
         if self._is_key_available(2):
             tiers.append((self._api_key_2, 2))
-        if self._is_key_available(3):
-            tiers.append((self._api_key_3, 3))
         return tiers
 
     async def chat(
@@ -383,13 +345,12 @@ class PollinationsProvider(BaseAIProvider):
         max_tokens: int = 2048,
         **kwargs,
     ) -> AIResponse:
-        """Send a chat completion request to Pollinations API with TRIPLE-KEY FAILOVER.
+        """Send a chat completion request to Pollinations API with DUAL-KEY FAILOVER.
 
         Strategy:
         1. Try with KEY1 first (if balance available)
-        2. On 402/401 from KEY1 → switch to KEY2
-        3. On 402/401 from KEY2 → switch to KEY3
-        4. On 402/401 from KEY3 → return error (router decides fallback)
+        2. On 402/401 from KEY1 -> switch to KEY2
+        3. On 402/401 from KEY2 -> return error (router decides fallback)
 
         Empty content handling:
         - If a model returns empty content, check reasoning_content field
@@ -557,9 +518,8 @@ class PollinationsProvider(BaseAIProvider):
         )
 
     async def generate_image(self, prompt: str, model: str = "flux") -> Optional[bytes]:
-        """
-        Generate an image using Pollinations image API.
-        Uses triple-key failover: KEY1 → KEY2 → KEY3.
+        """Generate an image using Pollinations image API.
+        Uses dual-key failover: KEY1 -> KEY2.
         Returns image bytes or None on failure.
         """
         # Build key tier list
@@ -618,9 +578,8 @@ class PollinationsProvider(BaseAIProvider):
         max_tokens: int = 600,
         temperature: float = 0.7,
     ) -> AIResponse:
-        """
-        Analyze an image using vision-capable models.
-        Uses triple-key failover for each vision model attempt.
+        """Analyze an image using vision-capable models.
+        Uses dual-key failover for each vision model attempt.
         """
         # Build the content array for vision
         content = [
