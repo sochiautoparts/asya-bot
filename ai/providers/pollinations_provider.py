@@ -171,10 +171,19 @@ _model_failures: Dict[str, float] = {}
 _FAILURE_COOLDOWN = 300  # 5 minutes
 
 # Free tier models — known to work without API key/balance
+# These models are typically available on Pollinations free tier (no auth needed)
+# The free tier rotates — models may become available/unavailable
 FREE_TIER_MODELS = [
-    "openai", "mistral-small", "llama-3.3", "deepseek-v4",
+    "openai", "openai-fast", "mistral-small", "llama-3.3", "deepseek-v4",
     "gemma", "nova-fast", "qwen3-coder", "mistral-small-3.2",
-    "step-3.5-flash", "polly",
+    "step-3.5-flash", "polly", "llama-scout", "llama-4-scout",
+    "nova-2", "qwen-coder", "kimi", "glm",
+]
+
+# Priority models to try first (fast + reliable)
+PRIORITY_FREE_MODELS = [
+    "openai-fast", "mistral-small", "llama-3.3", "deepseek-v4",
+    "nova-fast", "gemma", "qwen3-coder", "step-3.5-flash",
 ]
 
 
@@ -194,7 +203,12 @@ class PollinationsProvider(BaseAIProvider):
         )
         # Free tier state
         self._balance_depleted_at: Optional[float] = None
-        self._BALANCE_RETRY_INTERVAL = 1800  # Try API key again after 30 min
+        self._BALANCE_RETRY_INTERVAL = 600  # Try API key again after 10 min
+        # API unavailable state — when ALL models fail (even free tier)
+        self._api_unavailable_at: Optional[float] = None
+        self._API_UNAVAILABLE_COOLDOWN = 120  # Wait 2 min before retrying after total failure
+        self._consecutive_auth_failures: int = 0  # Track repeated 401/402 failures
+        self._MAX_AUTH_FAILURES = 3  # After this many, enter unavailable mode
 
     def _should_use_api_key(self) -> bool:
         """Check if we should try using the API key (not balance-depleted)."""
@@ -206,8 +220,25 @@ class PollinationsProvider(BaseAIProvider):
         if time.time() - self._balance_depleted_at > self._BALANCE_RETRY_INTERVAL:
             logger.info("Retrying with API key after balance cooldown...")
             self._balance_depleted_at = None
+            self._consecutive_auth_failures = 0
             return True
         return False
+
+    def _is_api_available(self) -> bool:
+        """Check if the API is available (not in total unavailable mode)."""
+        if self._api_unavailable_at is None:
+            return True
+        if time.time() - self._api_unavailable_at > self._API_UNAVAILABLE_COOLDOWN:
+            logger.info("Retrying API after unavailable cooldown...")
+            self._api_unavailable_at = None
+            self._consecutive_auth_failures = 0
+            return True
+        return False
+
+    def _mark_api_unavailable(self):
+        """Mark the API as totally unavailable (all models failing)."""
+        self._api_unavailable_at = time.time()
+        logger.warning(f"API marked as unavailable for {self._API_UNAVAILABLE_COOLDOWN}s — all models failing")
 
     async def chat(
         self,
@@ -220,11 +251,23 @@ class PollinationsProvider(BaseAIProvider):
         """Send a chat completion request to Pollinations API.
 
         Strategy:
-        1. Try with API key first (if balance available)
-        2. On 402 (Insufficient Balance), switch to free tier (no API key)
-        3. Free tier works without authentication but may have rate limits
+        1. If API is totally unavailable, return error immediately
+        2. Try with API key first (if balance available)
+        3. On 402 (Insufficient Balance), switch to free tier (no API key)
+        4. On 401 on free tier, try other free models quickly (max 3 attempts)
+        5. If all free models also fail with auth errors, mark API as unavailable
         """
         model = model or DEFAULT_MODEL
+
+        # Fast fail: if API is totally unavailable, don't waste time
+        if not self._is_api_available():
+            return AIResponse(
+                text="",
+                model=model,
+                provider=self.name,
+                error=True,
+                error_message="API temporarily unavailable (cooldown)",
+            )
 
         # Check if model is in cooldown from recent failures
         if self._is_model_in_cooldown(model):
@@ -277,6 +320,12 @@ class PollinationsProvider(BaseAIProvider):
                     actual_model = data.get("model", model)
                     tier = "paid" if use_api_key else "free"
 
+                    # Success! Reset failure counters
+                    self._consecutive_auth_failures = 0
+                    if self._balance_depleted_at and use_api_key:
+                        logger.info("API key balance restored!")
+                        self._balance_depleted_at = None
+
                     logger.info(
                         f"Pollinations response ({tier}): model={actual_model}, "
                         f"tokens={tokens_used}, time={elapsed:.1f}s, "
@@ -294,56 +343,129 @@ class PollinationsProvider(BaseAIProvider):
                     # Balance depleted — switch to free tier and retry
                     logger.warning("Pollinations balance depleted, switching to free tier")
                     self._balance_depleted_at = time.time()
-                    # Retry without API key
-                    free_headers = {"Content-Type": "application/json"}
-                    # Use a free-tier model if current model might not be free
-                    free_model = model if model in FREE_TIER_MODELS else FREE_TIER_MODELS[0]
-                    payload["model"] = free_model
+                    self._consecutive_auth_failures += 1
 
-                    start_time = time.time()
-                    response = await client.post(url, headers=free_headers, json=payload)
-                    elapsed = time.time() - start_time
+                    # Try free tier models quickly — max 3 attempts
+                    free_models_to_try = [m for m in PRIORITY_FREE_MODELS if m != model][:3]
+                    for free_model in free_models_to_try:
+                        if self._is_model_in_cooldown(free_model):
+                            continue
+                        free_headers = {"Content-Type": "application/json"}
+                        payload["model"] = free_model
 
-                    if response.status_code == 200:
-                        data = response.json()
-                        text = ""
-                        choices = data.get("choices", [])
-                        if choices:
-                            msg = choices[0].get("message", {})
-                            text = msg.get("content", "")
-                            if not text:
-                                text = msg.get("reasoning_content", "")
+                        start_time = time.time()
+                        response = await client.post(url, headers=free_headers, json=payload)
+                        elapsed = time.time() - start_time
 
-                        usage = data.get("usage", {})
-                        tokens_used = usage.get("total_tokens", 0)
-                        actual_model = data.get("model", free_model)
+                        if response.status_code == 200:
+                            data = response.json()
+                            text = ""
+                            choices = data.get("choices", [])
+                            if choices:
+                                msg = choices[0].get("message", {})
+                                text = msg.get("content", "")
+                                if not text:
+                                    text = msg.get("reasoning_content", "")
 
-                        logger.info(
-                            f"Pollinations free tier response: model={actual_model}, "
-                            f"tokens={tokens_used}, time={elapsed:.1f}s, "
-                            f"length={len(text)}"
-                        )
+                            usage = data.get("usage", {})
+                            tokens_used = usage.get("total_tokens", 0)
+                            actual_model = data.get("model", free_model)
 
-                        return AIResponse(
-                            text=text,
-                            model=actual_model,
-                            provider=self.name,
-                            tokens_used=tokens_used,
-                        )
-                    else:
-                        error_text = response.text[:500]
-                        logger.error(
-                            f"Pollinations free tier error: status={response.status_code}, "
-                            f"model={free_model}, error={error_text}"
-                        )
-                        _model_failures[free_model] = time.time()
-                        return AIResponse(
-                            text="",
-                            model=free_model,
-                            provider=self.name,
-                            error=True,
-                            error_message=f"HTTP {response.status_code} (free): {error_text}",
-                        )
+                            # Success on free tier!
+                            self._consecutive_auth_failures = 0
+
+                            logger.info(
+                                f"Pollinations free tier response: model={actual_model}, "
+                                f"tokens={tokens_used}, time={elapsed:.1f}s, "
+                                f"length={len(text)}"
+                            )
+
+                            return AIResponse(
+                                text=text,
+                                model=actual_model,
+                                provider=self.name,
+                                tokens_used=tokens_used,
+                            )
+                        elif response.status_code in (401, 402):
+                            # Auth error on free tier too — model needs auth
+                            _model_failures[free_model] = time.time()
+                            self._consecutive_auth_failures += 1
+                            logger.warning(f"Free tier model {free_model} also returned {response.status_code}")
+                            continue
+                        else:
+                            # Other error — try next model
+                            _model_failures[free_model] = time.time()
+                            continue
+
+                    # All free tier models failed with auth errors
+                    if self._consecutive_auth_failures >= self._MAX_AUTH_FAILURES:
+                        self._mark_api_unavailable()
+
+                    return AIResponse(
+                        text="",
+                        model=model,
+                        provider=self.name,
+                        error=True,
+                        error_message=f"API unavailable (balance depleted, free tier also failing). Retry in {self._API_UNAVAILABLE_COOLDOWN}s",
+                    )
+
+                elif response.status_code == 401 and not use_api_key:
+                    # Free tier model requires auth — try another free model
+                    _model_failures[model] = time.time()
+                    self._consecutive_auth_failures += 1
+                    logger.warning(f"Free tier model {model} requires auth, trying alternatives")
+
+                    # Try 2 more free models quickly
+                    alt_models = [m for m in PRIORITY_FREE_MODELS if m != model and not self._is_model_in_cooldown(m)][:2]
+                    for alt_model in alt_models:
+                        payload["model"] = alt_model
+                        start_time = time.time()
+                        response = await client.post(url, headers=headers, json=payload)
+                        elapsed = time.time() - start_time
+
+                        if response.status_code == 200:
+                            data = response.json()
+                            text = ""
+                            choices = data.get("choices", [])
+                            if choices:
+                                msg = choices[0].get("message", {})
+                                text = msg.get("content", "")
+                                if not text:
+                                    text = msg.get("reasoning_content", "")
+
+                            usage = data.get("usage", {})
+                            tokens_used = usage.get("total_tokens", 0)
+                            actual_model = data.get("model", alt_model)
+
+                            self._consecutive_auth_failures = 0
+
+                            logger.info(
+                                f"Pollinations free tier response (alt): model={actual_model}, "
+                                f"tokens={tokens_used}, time={elapsed:.1f}s, "
+                                f"length={len(text)}"
+                            )
+
+                            return AIResponse(
+                                text=text,
+                                model=actual_model,
+                                provider=self.name,
+                                tokens_used=tokens_used,
+                            )
+                        else:
+                            _model_failures[alt_model] = time.time()
+                            self._consecutive_auth_failures += 1
+                            continue
+
+                    if self._consecutive_auth_failures >= self._MAX_AUTH_FAILURES:
+                        self._mark_api_unavailable()
+
+                    return AIResponse(
+                        text="",
+                        model=model,
+                        provider=self.name,
+                        error=True,
+                        error_message="All free tier models require authentication",
+                    )
 
                 else:
                     error_text = response.text[:500]

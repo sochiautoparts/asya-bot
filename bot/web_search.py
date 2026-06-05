@@ -188,22 +188,36 @@ async def search_yandex(query: str, max_results: int = 5) -> List[SearchResult]:
 SEARXNG_INSTANCES = [
     "https://search.sapti.me",
     "https://searx.be",
-    "https://search.bus-hit.me",
-    "https://searx.fmac.xyz",
-    "https://search.mdosch.de",
     "https://searxng.ch",
     "https://search.ononoki.org",
     "https://baresearch.org",
     "https://searx.tiekoetter.com",
+    "https://search.bus-hit.me",
+    "https://searx.fmac.xyz",
+    "https://search.mdosch.de",
+    # Additional reliable instances
+    "https://searx.prvcy.eu",
+    "https://search.rowie.at",
+    "https://searx.divided-by-zero.eu",
+    "https://search.lvkaszus.pl",
 ]
 
 
 async def search_searxng(query: str, max_results: int = 5, language: str = "ru") -> List[SearchResult]:
-    """Search using SearXNG public instances."""
+    """Search using SearXNG public instances.
+    
+    Tries instances in order and returns results from the first one that responds.
+    Uses shuffling to distribute load across instances.
+    """
+    import random
     results = []
-    for instance in SEARXNG_INSTANCES:
+    # Shuffle instances to distribute load and avoid always hitting the same one
+    instances = SEARXNG_INSTANCES.copy()
+    random.shuffle(instances)
+    
+    for instance in instances:
         try:
-            async with httpx.AsyncClient(timeout=config.SEARCH_TIMEOUT_SECONDS) as client:
+            async with httpx.AsyncClient(timeout=8.0) as client:  # Shorter timeout per instance
                 params = {
                     "q": query,
                     "format": "json",
@@ -402,9 +416,10 @@ async def search_parts_by_vin(vin: str, part_name: str = "", max_results: int = 
 async def web_search(query: str, max_results: int = None, region: str = "ru") -> List[SearchResult]:
     """
     Multi-engine web search with fallback chain:
-    SearXNG → DDG HTML → Yandex → Google → DDG API
+    SearXNG → DDG HTML → DDG Lite → Yandex → Google → DDG API
     
     SearXNG is tried first because DDG HTML frequently returns 202 (block) responses.
+    Each engine is tried with a short timeout, and we move on quickly if it fails.
     """
     max_results = max_results or config.SEARCH_MAX_RESULTS
 

@@ -154,26 +154,33 @@ class AIRouter:
             max_tokens=max_tokens,
         )
 
-        # If primary failed, try fallback models
-        # Smart fallback: detect 402 (balance depleted) and only try free-tier models
+        # If primary failed, try fallback models with SMART switching
+        # The Pollinations provider already tries free-tier models internally,
+        # so we only add a small number of additional fallbacks here
         if response.error:
-            is_402 = "402" in (response.error_message or "")
+            is_auth_error = any(code in (response.error_message or "") 
+                               for code in ["401", "402", "unavailable", "cooldown"])
             
-            if is_402:
-                # Balance depleted — only try 2-3 free-tier models, don't waste time
-                from ai.providers.pollinations_provider import FREE_TIER_MODELS
-                fallback_models = [m for m in FREE_TIER_MODELS if m != model][:3]
-                logger.info(f"Balance depleted, trying free-tier fallbacks: {fallback_models}")
+            if is_auth_error:
+                # Auth/balance errors — the provider already tried free-tier internally
+                # Only try 2 more models with different strategy
+                from ai.providers.pollinations_provider import PRIORITY_FREE_MODELS
+                fallback_models = [m for m in PRIORITY_FREE_MODELS 
+                                   if m != model and not self._primary._is_model_in_cooldown(m)][:2]
+                if fallback_models:
+                    logger.info(f"Auth error, trying {len(fallback_models)} priority free fallbacks")
             else:
-                # Other errors — try broader fallback but limit to 5 attempts
+                # Other errors (timeout, server error) — try broader fallback but limit to 3 attempts
                 fallback_models = [
                     "mistral-small", "deepseek-v4", "llama-3.3", "nova-fast",
-                    "gemma", "mistral-small-3.2", "qwen3-coder", "step-3.5-flash",
-                    "openai", "polly", "kimi", "grok", "glm",
-                ][:5]  # Limit to 5 attempts max
+                    "gemma", "qwen3-coder", "step-3.5-flash",
+                ][:3]
+                logger.info(f"Non-auth error, trying fallbacks: {fallback_models}")
             
             for fallback_model in fallback_models:
                 if fallback_model == model:
+                    continue
+                if self._primary._is_model_in_cooldown(fallback_model):
                     continue
                 logger.info(f"Trying fallback model: {fallback_model}")
                 response = await self._primary.chat(
@@ -274,11 +281,18 @@ class AIRouter:
         if extra_context:
             vin_context += f"\n{extra_context}"
 
+        # Use a strong model for VIN, but fall back to free tier if balance depleted
+        vin_model = "gpt-5.5"
+        if self._primary._balance_depleted_at is not None:
+            from ai.providers.pollinations_provider import PRIORITY_FREE_MODELS
+            vin_model = PRIORITY_FREE_MODELS[0]  # Use free model when balance is low
+            logger.info(f"Balance depleted, using free model {vin_model} for VIN decode")
+
         return await self.chat(
             user_id=user_id,
             message=f"Расшифруй VIN: {vin_clean}",
             system_prompt=persona.system_prompt + persona.vin_prompt_suffix,
-            model="gpt-5.5",  # Use reasoning model for VIN decoding
+            model=vin_model,
             temperature=0.3,  # More precise for VIN
             extra_context=vin_context,
         )
@@ -625,11 +639,18 @@ class AIRouter:
         if car_info:
             extra_context = f"Информация об авто: {car_info}\n{extra_context}"
 
+        # Use reasoning model for diagnostics, but fall back to free tier if balance depleted
+        diag_model = model or "gpt-5.5"
+        if self._primary._balance_depleted_at is not None:
+            from ai.providers.pollinations_provider import PRIORITY_FREE_MODELS
+            diag_model = PRIORITY_FREE_MODELS[0]
+            logger.info(f"Balance depleted, using free model {diag_model} for diagnostics")
+
         return await self.chat(
             user_id=user_id,
             message=symptoms,
             system_prompt=persona.system_prompt + persona.diagnostic_prompt_suffix,
-            model=model or "gpt-5.5",  # Use reasoning for diagnostics
+            model=diag_model,
             temperature=0.5,  # More precise for diagnostics
             extra_context=extra_context,
         )

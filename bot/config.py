@@ -305,30 +305,25 @@ class NewsConfig:
     """All news sources for Asya bot — auto-focused."""
 
     sources: List[NewsSource] = field(default_factory=lambda: [
-        # ── Selected high-quality RSS sources ──
+        # ── Working RSS sources (verified June 2026) ──
         # International auto industry
         NewsSource("OICA", "https://oica.net/feed/", "en", "auto"),
-        NewsSource("Autonews", "https://www.autonews.com/rss/story/autonews/news.xml", "en", "auto"),
-        NewsSource("WardsAuto", "https://www.wardsauto.com/rss.xml?sitemap=wardsauto%2Fnews", "en", "auto"),
         NewsSource("Autocar UK", "https://www.autocar.co.uk/rss.xml", "en", "auto"),
-        NewsSource("Autonews Europe", "https://europe.autonews.com/rss/story/europe-autonews/news.xml", "en", "auto"),
-        NewsSource("ACEA", "https://www.acea.auto/feed/", "en", "auto"),
-        NewsSource("Autocar Pro India", "https://www.autocarpro.in/rss/feeds/autocarpro-india-news.xml", "en", "auto"),
         # EV & Chinese auto
         NewsSource("CnEVPost", "https://cnevpost.com/feed/", "en", "auto"),
         # Asian auto
         NewsSource("PaulTan", "https://paultan.org/feed/", "en", "auto"),
         NewsSource("Autosport", "https://www.autosport.com/rss/f1/news/", "en", "auto"),
-        # Tech & Innovation
-        NewsSource("NewAtlas", "https://newatlas.com/automotive/rss/", "en", "auto"),
-        # Russian auto
-        NewsSource("auto.ru", "https://auto.ru/magazine/rss/", "ru", "auto"),
-        # News & Rumors
-        NewsSource("Carscoops", "https://www.carscoops.com/tag/news/feed/", "en", "auto"),
-        # Additional reliable sources as fallbacks
+        # Australian auto
         NewsSource("CarExpert", "https://carexpert.com.au/feed/", "en", "auto"),
-        NewsSource("Motor1", "https://www.motor1.com/rss/feed/news/", "en", "auto"),
-        NewsSource("TopGear", "https://www.topgear.com/rss/feed/news", "en", "auto"),
+        # Automotive news & reviews
+        NewsSource("MotorAuthority", "https://www.motorauthority.com/rss.xml", "en", "auto"),
+        NewsSource("TheDrive", "https://www.thedrive.com/feed", "en", "auto"),
+        NewsSource("Jalopnik", "https://jalopnik.com/rss", "en", "auto"),
+        NewsSource("AutoExpress", "https://www.autoexpress.co.uk/rss", "en", "auto"),
+        NewsSource("EVO", "https://www.evo.co.uk/rss", "en", "auto"),
+        NewsSource("CarMagazine", "https://www.carmagazine.co.uk/rss/", "en", "auto"),
+        NewsSource("AutoCarIndia", "https://www.autocarindia.com/rss", "en", "auto"),
     ])
 
 
