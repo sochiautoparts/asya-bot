@@ -116,7 +116,8 @@ def _record_post_title(title: str):
 
 
 def _clean_post_text(text: str) -> str:
-    """Clean post text: remove markdown links, formatting artifacts, SSE garbage."""
+    """Clean post text: remove markdown links, formatting artifacts, SSE garbage,
+    AI meta-comments about duplicates, and other content that should not appear in posts."""
     if not text:
         return text
 
@@ -139,6 +140,35 @@ def _clean_post_text(text: str) -> str:
     # Remove think tags
     text = re.sub(r'<think\b[^>]*>.*?</think\s*>', '', text, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r'</?think[^>]*>', '', text, flags=re.IGNORECASE)
+
+    # ── Remove AI meta-comments about duplicates / "do not publish" remarks ──
+    # These appear when AI sees channel context saying "already posted" and includes
+    # that remark in the generated text instead of choosing a different topic.
+    meta_comment_patterns = [
+        # Russian: "уже было", "уже опубликовано", "не публиковать", etc.
+        r'[^\n]*уже\s+(был|публиковал|опубликован|пост|писал)[^\n]*',
+        r'[^\n]*не\s+(публикуй|публиковать|надо|стоит|нужно)\s+(публиковать|это|этот|данный)[^\n]*',
+        r'[^\n]*дубликат[^\n]*',
+        r'[^\n]*повтор(я|ять|ный|ная)[^\n]*',
+        r'[^\n]*этот\s+пост\s+(уже\s+)?(был|публиковал)[^\n]*',
+        r'[^\n]*об\s+этом\s+(уже\s+)?(писал|говорил|публиковал|был)[^\n]*',
+        r'[^\n]*ЭТО\s+УЖЕ\s+ОПУБЛИКОВАНО[^\n]*',
+        r'[^\n]*такой\s+пост\s+(уже\s+)?есть[^\n]*',
+        # English variants
+        r'[^\n]*already\s+(posted|published|covered|wrote)[^\n]*',
+        r'[^\n]*do\s+not\s+(publish|post)[^\n]*',
+        r'[^\n]*this\s+(was\s+)?already[^\n]*',
+        r'[^\n]*duplicate[^\n]*',
+        # Common AI refusal patterns
+        r'[^\n]*я\s+(не\s+)?буду\s+(это\s+)?публиковать[^\n]*',
+        r'[^\n]*не\s+буду\s+повторять[^\n]*',
+        r'[^\n]*лучше\s+(не\s+)?публиковать[^\n]*',
+        r'[^\n]*пропущу\s+эту\s+новость[^\n]*',
+        r'[^\n]*выберу\s+другую[^\n]*',
+        r'[^\n]*напишу\s+о\s+друг[^\n]*',
+    ]
+    for pattern in meta_comment_patterns:
+        text = re.sub(pattern, '', text, flags=re.IGNORECASE)
 
     # Remove "Настя:" or "Ася:" prefixes
     for prefix in ["Настя:", "Ася:", "Nastya:", "Asya:", "Assistant:"]:
@@ -174,9 +204,11 @@ def _validate_post_text(text: str) -> bool:
     Checks for:
     - Empty text
     - SSE/API artifacts
+    - AI meta-comments about duplicates ("already posted", "do not publish")
     - Blocked topics (politics, war, Putin, etc.)
     - Provider ad artifacts
     - Raw JSON
+    - Duplicate indicators that leaked through cleaning
     """
     if not text or not text.strip():
         return False
@@ -205,6 +237,25 @@ def _validate_post_text(text: str) -> bool:
     # Block raw JSON
     if text.strip().startswith(('{', '[', '```', 'data:')):
         return False
+
+    # ── Block AI meta-comments about duplicates that leaked through cleaning ──
+    # These indicate the AI recognized a duplicate but generated content anyway.
+    # Such posts should NEVER be published.
+    duplicate_indicator_phrases = [
+        "уже опубликован", "уже было", "уже публиковал", "уже писал об",
+        "не публиковать", "не публикуй", "не надо публиковать",
+        "этот пост уже", "такой пост уже", "об этом уже",
+        "дубликат", "это повтор",
+        "already posted", "already published", "already covered",
+        "do not publish", "do not post",
+        "this was already", "duplicate post",
+        "я не буду публиковать", "не буду повторять",
+        "лучше не публиковать", "пропущу эту новость",
+    ]
+    for phrase in duplicate_indicator_phrases:
+        if phrase in text_lower:
+            logger.warning(f"Post BLOCKED (duplicate indicator '{phrase}'): {text[:120]}...")
+            return False
 
     # Block political/war content — LAST CHANCE filter before posting
     blocked_keywords = [
@@ -753,7 +804,10 @@ class ChannelManager:
                     _register_topic(entity_key, news_item["title"])
                     return False
             except Exception as e:
-                logger.warning(f"Channel scanner check failed (allowing post): {e}")
+                # BUG FIX: Channel scanner failure must BLOCK the post, not allow it!
+                # If we can't verify the post is not a duplicate, we MUST NOT publish.
+                logger.error(f"Channel scanner check FAILED — BLOCKING post to prevent duplicate: {e}")
+                return False
 
         # Generate post content using AI
         source_text = ""
@@ -897,6 +951,40 @@ class ChannelManager:
             logger.error(f"Post validation failed after review, skipping")
             return False
 
+        # ── DEDUPLICATION LAYER 4: Post-generation dedup ──
+        # Check the GENERATED post text against the channel scanner.
+        # This catches cases where the AI wrote about the same topic despite
+        # the channel context, even if the news title was different enough.
+        try:
+            if await is_duplicate_in_channel(post_text, threshold=0.40):
+                logger.warning(f"POST-GENERATION DUPLICATE blocked (generated text matches channel): "
+                               f"{news_item.get('title', '')[:60]}")
+                if news_item.get("url"):
+                    await mark_news_posted(news_item["url"])
+                entity_key = _extract_entities(news_item.get("title", ""))
+                _register_topic(entity_key, news_item.get("title", ""))
+                return False
+        except Exception as e:
+            # Scanner failure = BLOCK (conservative approach)
+            logger.error(f"Post-generation channel scanner FAILED — BLOCKING: {e}")
+            return False
+
+        # ── DEDUPLICATION LAYER 5: DB fingerprint check on generated text ──
+        # Check if the actual generated post content matches a recently posted one.
+        # This catches near-duplicate rewrites of the same topic.
+        try:
+            if await is_duplicate_post(news_item.get("title", ""), content=post_text, hours=72):
+                logger.warning(f"POST-CONTENT DUPLICATE blocked: {news_item.get('title', '')[:60]}")
+                if news_item.get("url"):
+                    await mark_news_posted(news_item["url"])
+                return False
+        except Exception as e:
+            logger.warning(f"Post-content fingerprint check failed: {e}")
+
+        # ── Record in in-memory dedup BEFORE publishing ──
+        # This ensures the second post in the same cycle will see this one.
+        _record_post_title(news_item.get("title", ""))
+
         # HARD SAFETY CHECK: never post more than MAX_IMAGES_PER_POST images
         if has_media and image_list and len(image_list) > MAX_IMAGES_PER_POST:
             logger.warning(f"SAFETY: Truncating {len(image_list)} images to {MAX_IMAGES_PER_POST}")
@@ -990,8 +1078,8 @@ class ChannelManager:
 
             logger.info(f"Posted news to channel: {news_item['title'][:50]}...")
 
-            # Record title for semantic dedup
-            _record_post_title(news_item.get("title", ""))
+            # Note: _record_post_title is already called BEFORE publishing
+            # (in the dedup section above) to ensure same-cycle dedup works.
 
             return True
 
