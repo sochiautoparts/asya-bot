@@ -609,12 +609,11 @@ async def handle_photo(message: Message):
                 detected_vin = _detect_vin(reply_text)
                 if detected_vin and len(detected_vin) == 17:
                     try:
-                        primary_links = partner_manager.format_primary_parts_links()
-                        if primary_links:
-                            reply_text += f"\n\nЗапчасти по VIN {detected_vin} можно подобрать здесь:\n"
-                            links = partner_manager.get_primary_parts_links()
-                            for link in links:
-                                reply_text += f"— {link['name']} ({link['description']}): {link['url']}\n"
+                        links = partner_manager.get_primary_parts_links()
+                        vin_partner_links = [(link['name'], link['url']) for link in links[:5]]
+                        partner_section = _format_partner_links_section(vin_partner_links)
+                        if partner_section:
+                            reply_text = reply_text.rstrip() + "\n\n" + partner_section
                     except Exception as e:
                         logger.debug(f"Primary links from photo error: {e}")
 
@@ -622,12 +621,11 @@ async def handle_photo(message: Message):
                 detected_parts = extract_part_numbers(reply_text)
                 if detected_parts:
                     try:
-                        primary_links = partner_manager.format_primary_parts_links()
-                        if primary_links:
-                            reply_text += f"\n\nИщите запчасти на партнёрских сайтах:\n"
-                            links = partner_manager.get_primary_parts_links()
-                            for link in links:
-                                reply_text += f"— {link['name']} ({link['description']}): {link['url']}\n"
+                        links = partner_manager.get_primary_parts_links()
+                        part_links_list = [(link['name'], link['url']) for link in links[:3]]
+                        part_section = _format_partner_links_section(part_links_list)
+                        if part_section:
+                            reply_text = reply_text.rstrip() + "\n\n" + part_section
                     except Exception as e:
                         logger.debug(f"Primary links from photo parts error: {e}")
 
@@ -704,6 +702,7 @@ async def _process_text_message(message: Message, text: str):
     # ── Build extra context ────────────────────────────────────────────────
 
     extra_context_parts = []
+    collected_partner_links = []  # List of (name, url) tuples — for clean formatting after AI response
 
     # 0. User persona context for personalized communication
     user_context = _get_user_persona_context(message)
@@ -786,7 +785,15 @@ async def _process_text_message(message: Message, text: str):
             vin_code=vin_or_body,
             extra_context="\n".join(all_context),
         )
-        await _send_response(message, response, status_msg)
+        # Collect VIN partner links for clean formatting
+        vin_partner_links = []
+        try:
+            primary_links_data = partner_manager.get_primary_parts_links()
+            for pl in primary_links_data:
+                vin_partner_links.append((pl['name'], pl['url']))
+        except Exception:
+            pass
+        await _send_response(message, response, status_msg, vin_partner_links)
         return
 
     # 2. Detect car brand
@@ -894,6 +901,13 @@ async def _process_text_message(message: Message, text: str):
             primary_links = partner_manager.format_primary_parts_links()
             if primary_links and primary_links not in extra_context_parts:
                 extra_context_parts.append(primary_links)
+            # Collect primary partner links for post-processing (clean formatting)
+            try:
+                primary_links_data = partner_manager.get_primary_parts_links()
+                for pl in primary_links_data:
+                    collected_partner_links.append((pl['name'], pl['url']))
+            except Exception:
+                pass
         except Exception as e:
             logger.debug(f"Primary links for spare parts error: {e}")
 
@@ -956,7 +970,7 @@ async def _process_text_message(message: Message, text: str):
             extra_context=extra_context,
         )
 
-    await _send_response(message, response, status_msg)
+    await _send_response(message, response, status_msg, collected_partner_links)
 
 
 def _smart_truncate(text: str, max_chars: int) -> str:
@@ -1002,8 +1016,12 @@ def _smart_truncate(text: str, max_chars: int) -> str:
     return text[:limit].rstrip() + "..."
 
 
-async def _send_response(message: Message, response, status_msg=None):
-    """Send AI response to user, handling errors and length limits."""
+async def _send_response(message: Message, response, status_msg=None, partner_links=None):
+    """Send AI response to user, handling errors and length limits.
+    
+    If partner_links is provided (list of (name, url) tuples), appends a cleanly
+    formatted section with named links after the AI response text.
+    """
     # Delete the "thinking" status message
     if status_msg:
         try:
@@ -1022,6 +1040,16 @@ async def _send_response(message: Message, response, status_msg=None):
 
     # Ensure Asya doesn't use markdown formatting in chat
     reply_text = _clean_markdown(reply_text)
+
+    # Remove raw affiliate URLs that AI may have dumped into the response
+    if partner_links:
+        reply_text = _clean_raw_partner_urls(reply_text, partner_links)
+
+    # Append cleanly formatted partner links section
+    if partner_links:
+        partner_section = _format_partner_links_section(partner_links)
+        if partner_section:
+            reply_text = reply_text.rstrip() + "\n\n" + partner_section
 
     # ── Enforce character limits based on chat type ──
     # Private chat: max CHAT_MAX_CHARS (1500) — AI asked for 500-1000, this is hard limit
@@ -1056,6 +1084,78 @@ async def _send_response(message: Message, response, status_msg=None):
 
 
 # ── Utility functions ──────────────────────────────────────────────────────────
+
+# Shop icon mapping for clean link formatting
+_SHOP_ICONS = {
+    "rossko": "🔧",
+    "autopiter": "🔍",
+    "avtoall": "🛒",
+    "exist": "📋",
+    "emex": "🔩",
+    "autodoc": "🚗",
+    "zzap": "💰",
+    "ixora": "⚙️",
+}
+_DEFAULT_SHOP_ICON = "🔗"
+
+
+def _format_partner_links_section(partner_links: list) -> str:
+    """Format partner links as a clean, readable section with shop names.
+    
+    Takes a list of (name, url) tuples and returns a nicely formatted
+    string like:
+    
+    Где купить:
+    🔧 Росско — https://...
+    🔍 Autopiter — https://...
+    🛒 AvtoALL — https://...
+    """
+    if not partner_links:
+        return ""
+    
+    lines = ["Где купить:"]
+    for name, url in partner_links[:5]:
+        icon = _DEFAULT_SHOP_ICON
+        name_lower = name.lower()
+        for shop_key, shop_icon in _SHOP_ICONS.items():
+            if shop_key in name_lower:
+                icon = shop_icon
+                break
+        lines.append(f"{icon} {name} — {url}")
+    
+    return "\n".join(lines)
+
+
+def _clean_raw_partner_urls(text: str, partner_links: list) -> str:
+    """Remove raw affiliate URLs that AI may have dumped into the response.
+    
+    If the AI already included the full affiliate URLs in its response text,
+    this function removes them to avoid duplication with the clean formatted
+    section that will be appended by _format_partner_links_section.
+    """
+    if not partner_links:
+        return text
+    
+    for name, url in partner_links:
+        url_escaped = re.escape(url)
+        # Remove standalone URL lines
+        text = re.sub(
+            rf'^[\s\-—]*{url_escaped}[\s]*$',
+            '',
+            text,
+            flags=re.MULTILINE
+        )
+        # Remove "name: URL" or "name — URL" patterns on their own lines
+        text = re.sub(
+            rf'^[\s\-—]*{re.escape(name)}\s*[:\-—]\s*{url_escaped}[\s]*$',
+            '',
+            text,
+            flags=re.MULTILINE
+        )
+    
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
 
 def _clean_markdown(text: str) -> str:
     """Remove markdown formatting that Asya shouldn't use, but preserve URLs."""
