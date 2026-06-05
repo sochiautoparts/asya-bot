@@ -140,7 +140,10 @@ def _is_topic_covered(entity_key: str) -> bool:
 
 
 def _register_topic(entity_key: str, title: str):
-    """Register that a topic was posted about."""
+    """Register that a topic was posted about.
+    
+    Also persists to DB so the registry survives restarts.
+    """
     if not entity_key:
         return
     
@@ -156,10 +159,25 @@ def _register_topic(entity_key: str, title: str):
             "post_count": 1,
             "titles": [title],
         }
+    
+    # Persist to DB (async, fire-and-forget via background task)
+    try:
+        entry = _topic_registry[entity_key]
+        import asyncio
+        from bot.database import save_topic_to_registry
+        asyncio.create_task(save_topic_to_registry(
+            entity_key=entity_key,
+            first_seen=entry["first_seen"],
+            last_posted=entry["last_posted"],
+            post_count=entry["post_count"],
+            titles=entry["titles"],
+        ))
+    except Exception as e:
+        logger.debug(f"Could not persist topic to DB: {e}")
 
 
 def _cleanup_registry():
-    """Remove old entries from topic registry."""
+    """Remove old entries from topic registry (in-memory and DB)."""
     now = time.time()
     max_age = _REGISTRY_MAX_AGE_HOURS * 3600
     expired = [k for k, v in _topic_registry.items() if now - v["last_posted"] > max_age]
@@ -167,6 +185,13 @@ def _cleanup_registry():
         del _topic_registry[k]
     if expired:
         logger.info(f"Cleaned {len(expired)} expired topics from registry")
+        # Also clean DB
+        try:
+            import asyncio
+            from bot.database import cleanup_topic_registry
+            asyncio.create_task(cleanup_topic_registry(_REGISTRY_MAX_AGE_HOURS))
+        except Exception:
+            pass
 
 
 # ── Interest Scoring — rate how interesting a news item is ────────────────────
@@ -477,11 +502,23 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
     2. Score all items (web search + any RSS unposted) for interest
     3. Extract entities and check topic registry
     4. Filter out covered topics
-    5. Take top 5 candidates → AI picks the BEST one
-    6. RSS as fallback when web search yields nothing good
+    5. Check channel scanner for already-posted topics
+    6. Take top 5 candidates → AI picks the BEST one
+    7. RSS as fallback when web search yields nothing good
     """
     # Cleanup old registry entries
     _cleanup_registry()
+    
+    # Load persisted registry from DB if empty (first call after restart)
+    global _topic_registry
+    if not _topic_registry:
+        try:
+            from bot.database import load_topic_registry
+            _topic_registry = await load_topic_registry()
+            if _topic_registry:
+                logger.info(f"Loaded {len(_topic_registry)} topics from DB registry")
+        except Exception as e:
+            logger.debug(f"Could not load topic registry from DB: {e}")
     
     all_items = []
     
@@ -511,6 +548,18 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
     scored_items = []
     seen_titles = set()
     
+    # Load channel posts for scanner dedup
+    channel_posts_set = set()
+    try:
+        from bot.channel_scanner import fetch_channel_posts
+        channel_posts = await fetch_channel_posts(max_posts=50)
+        for post in channel_posts:
+            # Extract key words from each channel post for quick matching
+            words = set(re.findall(r'[a-zа-яё]{3,}', post.lower()))
+            channel_posts_set.add(frozenset(words))
+    except Exception as e:
+        logger.debug(f"Could not fetch channel posts for dedup: {e}")
+    
     for item in all_items:
         title = item.get("title", "")
         summary = item.get("summary", "")
@@ -524,10 +573,26 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
         # Extract entities for dedup
         entity_key = _extract_entities(title)
         
-        # Check if topic is already covered
+        # Check if topic is already covered (in-memory + DB registry)
         if _is_topic_covered(entity_key):
             logger.debug(f"Topic already covered: {entity_key} — {title[:50]}")
             continue
+        
+        # Check if topic is already in the channel (channel scanner dedup)
+        is_channel_dup = False
+        if channel_posts_set:
+            title_words = set(re.findall(r'[a-zа-яё]{3,}', title.lower()))
+            if title_words:
+                for channel_words in channel_posts_set:
+                    overlap = title_words & channel_words
+                    if len(overlap) >= 4 and len(overlap) / max(len(title_words), 1) >= 0.35:
+                        logger.debug(f"Channel dedup in content engine: {title[:50]}")
+                        # Register as covered so we don't see it again
+                        _register_topic(entity_key, title)
+                        is_channel_dup = True
+                        break
+        if is_channel_dup:
+            continue  # Skip this item (it's a duplicate in the channel)
         
         # Score interest
         interest = _score_interest(title, summary)

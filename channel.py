@@ -37,7 +37,9 @@ from bot.interbot import interbot_manager
 from bot.content_engine import (
     get_best_news_item, enrich_with_search_images, get_date_context,
     _is_topic_covered, _extract_entities, _score_interest,
+    _register_topic,
 )
+from bot.channel_scanner import is_duplicate_in_channel, get_channel_context_for_prompt
 
 logger = logging.getLogger("asya.channel")
 
@@ -709,10 +711,10 @@ class ChannelManager:
             logger.info(f"Hourly post limit reached ({hourly_count}/{config.CHANNEL_MAX_POSTS_PER_HOUR})")
             return False
 
-        # Check minimum interval
-        min_interval = config.CHANNEL_POST_INTERVAL_MINUTES * 60
+        # Check minimum interval — within a cycle, allow 2 minutes between posts
+        min_interval = 120  # 2 minutes minimum between any two posts
         if time.time() - self._last_post_time < min_interval:
-            logger.info("Post interval too short")
+            logger.info("Post interval too short (2 min min)")
             return False
 
         # Get news item if not provided — use Smart Content Engine!
@@ -725,21 +727,33 @@ class ChannelManager:
                 logger.info("No fresh topics found (content engine)")
                 return False
 
-        # ── DEDUPLICATION: Check if this news was already posted ──
+        # ── DEDUPLICATION LAYER 1: DB-level dedup (title hash, keyword overlap) ──
         if news_item and news_item.get("title"):
             if await is_duplicate_post(news_item["title"], hours=72):
-                logger.warning(f"DUPLICATE post blocked: {news_item['title'][:60]}")
-                # Mark as posted to avoid picking again
+                logger.warning(f"DB DUPLICATE blocked: {news_item['title'][:60]}")
                 if news_item.get("url"):
                     await mark_news_posted(news_item["url"])
                 return False
 
-            # Keyword-based semantic dedup: if 3+ significant words match a recently posted title, skip
+            # ── DEDUPLICATION LAYER 2: In-memory semantic dedup ──
             if _is_semantically_duplicate(news_item["title"]):
                 logger.warning(f"SEMANTIC DUPLICATE blocked: {news_item['title'][:60]}")
                 if news_item.get("url"):
                     await mark_news_posted(news_item["url"])
                 return False
+
+            # ── DEDUPLICATION LAYER 3: Channel scanner — check what's ACTUALLY in the channel ──
+            try:
+                if await is_duplicate_in_channel(news_item["title"], threshold=0.45):
+                    logger.warning(f"CHANNEL DUPLICATE blocked: {news_item['title'][:60]}")
+                    if news_item.get("url"):
+                        await mark_news_posted(news_item["url"])
+                    # Also register in topic registry to prevent re-selection
+                    entity_key = _extract_entities(news_item["title"])
+                    _register_topic(entity_key, news_item["title"])
+                    return False
+            except Exception as e:
+                logger.warning(f"Channel scanner check failed (allowing post): {e}")
 
         # Generate post content using AI
         source_text = ""
@@ -748,6 +762,13 @@ class ChannelManager:
 
         # ── DATE CONTEXT — Ася знает какой сейчас год! ──
         date_context = get_date_context()
+
+        # ── CHANNEL CONTEXT — show AI what's ALREADY posted to prevent repetition ──
+        channel_context = ""
+        try:
+            channel_context = await get_channel_context_for_prompt(max_items=15)
+        except Exception as e:
+            logger.warning(f"Could not get channel context: {e}")
 
         extra_instructions = (
             f"{date_context} Учитывай текущую дату — не пиши про прошлые годы как про текущие! "
@@ -760,6 +781,8 @@ class ChannelManager:
             "добавь мнение, эмоцию, провокационный вопрос. "
             "НЕ повторяй формулировки из предыдущих постов — каждый пост уникален. "
         )
+        if channel_context:
+            extra_instructions += f"\n\n{channel_context}\nЭТО УЖЕ ОПУБЛИКОВАНО — НЕ ПИШИ ПРО ТО ЖЕ САМОЕ! Выбери СОВЕРШЕННО ДРУГУЮ тему! "
         if news_item.get("lang") and news_item.get("lang") != "ru":
             extra_instructions += (
                 "Это новость из зарубогного источника. "

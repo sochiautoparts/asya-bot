@@ -14,6 +14,7 @@ Features:
 import asyncio
 import logging
 import os
+import random
 import signal
 import sys
 import time
@@ -223,20 +224,38 @@ class BackgroundTasks:
                 await asyncio.sleep(1)
 
     async def _channel_poster(self) -> None:
-        """Periodically post to channel.
+        """Periodically post to channel — 2 DIFFERENT posts per cycle.
         
-        Uses config.CHANNEL_POST_INTERVAL_MINUTES for the interval.
+        Each 30-min cycle publishes 2 different posts:
+        1st post: news or partner content
+        2nd post: a DIFFERENT news item (different topic)
+        
+        Both posts go through full dedup pipeline to ensure no duplicates.
         """
         # Wait a bit after startup
         await asyncio.sleep(30)
 
         while self._running:
-            try:
-                posted = await channel_manager.run_scheduled_post()
-                if posted:
-                    logger.info("Channel poster: posted successfully")
-            except Exception as e:
-                logger.error(f"Channel poster error: {e}")
+            posts_this_cycle = 0
+            for post_num in range(2):  # Try to post 2 different items per cycle
+                try:
+                    posted = await channel_manager.run_scheduled_post()
+                    if posted:
+                        posts_this_cycle += 1
+                        logger.info(f"Channel poster: post {post_num + 1}/2 published successfully")
+                        # Small gap between posts (2-5 minutes) so they don't look like spam
+                        if post_num == 0:
+                            gap = random.randint(120, 300)  # 2-5 minutes
+                            logger.info(f"Waiting {gap}s before next post in this cycle")
+                            for _ in range(gap):
+                                if not self._running:
+                                    break
+                                await asyncio.sleep(1)
+                except Exception as e:
+                    logger.error(f"Channel poster error (post {post_num + 1}): {e}")
+            
+            if posts_this_cycle > 0:
+                logger.info(f"Channel poster cycle complete: {posts_this_cycle} posts published")
 
             # Wait for next cycle — check every configured interval
             interval = config.CHANNEL_POST_INTERVAL_MINUTES * 60

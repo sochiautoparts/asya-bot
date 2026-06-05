@@ -42,8 +42,8 @@ class BotConfig:
 
     # Channel posting
     CHANNEL_POST_INTERVAL_MINUTES: int = int(os.getenv("CHANNEL_POST_INTERVAL_MINUTES", "30"))
-    CHANNEL_MAX_POSTS_PER_HOUR: int = 2
-    CHANNEL_MAX_POSTS_PER_DAY: int = 24
+    CHANNEL_MAX_POSTS_PER_HOUR: int = 4  # 2 posts × 2 times per hour
+    CHANNEL_MAX_POSTS_PER_DAY: int = 48  # 4 posts × 12 hours active
 
     # Telegram character limits
     TELEGRAM_TEXT_LIMIT: int = 4096       # Max chars for text-only message

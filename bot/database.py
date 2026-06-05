@@ -118,6 +118,16 @@ CREATE TABLE IF NOT EXISTS post_fingerprints (
 CREATE INDEX IF NOT EXISTS idx_fingerprints_title ON post_fingerprints(title_hash);
 CREATE INDEX IF NOT EXISTS idx_fingerprints_content ON post_fingerprints(content_hash);
 CREATE INDEX IF NOT EXISTS idx_fingerprints_created ON post_fingerprints(created_at);
+
+CREATE TABLE IF NOT EXISTS topic_registry (
+    entity_key TEXT PRIMARY KEY,
+    first_seen REAL DEFAULT 0,
+    last_posted REAL DEFAULT 0,
+    post_count INTEGER DEFAULT 1,
+    titles TEXT DEFAULT '[]'
+);
+
+CREATE INDEX IF NOT EXISTS idx_topic_registry_last ON topic_registry(last_posted);
 """
 
 
@@ -876,3 +886,77 @@ async def get_stats() -> Dict[str, Any]:
         async with db.execute("SELECT COUNT(*) FROM ai_cache") as cursor:
             stats["cached_queries"] = (await cursor.fetchone())[0]
         return stats
+
+
+# ── Topic Registry (persistent) ──────────────────────────────────────────────
+
+async def load_topic_registry() -> Dict:
+    """Load topic registry from DB into memory. Returns dict of entity_key -> {first_seen, last_posted, post_count, titles}.
+
+    Only loads topics that are NOT expired (within 72h of last_posted).
+    This is called at startup to restore the registry after restart.
+    """
+    max_age = 72 * 3600  # 72 hours
+    cutoff = time.time() - max_age
+    registry = {}
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute(
+                "SELECT entity_key, first_seen, last_posted, post_count, titles FROM topic_registry WHERE last_posted >= ?",
+                (cutoff,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                for row in rows:
+                    entity_key, first_seen, last_posted, post_count, titles_json = row
+                    try:
+                        titles = json.loads(titles_json) if titles_json else []
+                    except (json.JSONDecodeError, TypeError):
+                        titles = []
+                    registry[entity_key] = {
+                        "first_seen": first_seen,
+                        "last_posted": last_posted,
+                        "post_count": post_count,
+                        "titles": titles,
+                    }
+    except Exception as e:
+        # Table might not exist yet on first run — that's OK
+        import logging
+        logging.getLogger("asya.database").debug(f"Could not load topic registry: {e}")
+    return registry
+
+
+async def save_topic_to_registry(entity_key: str, first_seen: float, last_posted: float,
+                                  post_count: int, titles: list) -> None:
+    """Save or update a single topic in the DB registry."""
+    if not entity_key:
+        return
+    titles_json = json.dumps(titles[-20:], ensure_ascii=False)  # Keep last 20 titles
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                """INSERT INTO topic_registry (entity_key, first_seen, last_posted, post_count, titles)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(entity_key) DO UPDATE SET
+                       last_posted = excluded.last_posted,
+                       post_count = excluded.post_count,
+                       titles = excluded.titles""",
+                (entity_key, first_seen, last_posted, post_count, titles_json),
+            )
+            await db.commit()
+    except Exception as e:
+        import logging
+        logging.getLogger("asya.database").debug(f"Could not save topic to registry: {e}")
+
+
+async def cleanup_topic_registry(max_age_hours: int = 72) -> int:
+    """Remove expired topics from the DB registry. Returns count of removed rows."""
+    cutoff = time.time() - (max_age_hours * 3600)
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            cursor = await db.execute(
+                "DELETE FROM topic_registry WHERE last_posted < ?", (cutoff,)
+            )
+            await db.commit()
+            return cursor.rowcount
+    except Exception:
+        return 0
