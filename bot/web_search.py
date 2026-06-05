@@ -237,12 +237,12 @@ async def search_google(query: str, max_results: int = 5) -> List[SearchResult]:
 # ── Spare part search ──────────────────────────────────────────────────────────
 
 PART_SHOPS = [
+    "rossko.ru",       # Professional parts selection — top priority partner
     "autopiter.ru",
     "exist.ru",
     "emex.ru",
     "autodoc.ru",
     "zzap.ru",
-    "rossko.ru",
     "partcost.ru",
     "avtoall.ru",
 ]
@@ -267,6 +267,21 @@ async def search_spare_part(article: str, max_results: int = 5) -> List[SearchRe
             shop_query = f"site:{shop} {article}"
             shop_results = await search_ddg_html(shop_query, max_results=2)
             results.extend(shop_results)
+
+    # Rossko direct link — professional parts selection (partner)
+    try:
+        from bot.config import config
+        rossko_url = f"{config.ROSSKO_SEARCH_URL}{quote_plus(article)}"
+        # Add affiliate tracking
+        rossko_url += ("&subid=asya_bot" if "?" in rossko_url else "?subid=asya_bot")
+        results.append(SearchResult(
+            title=f"Запчасть {article} на Росско — профессиональный подбор",
+            url=rossko_url,
+            snippet="Росско — крупная сеть автозапчастей с профессиональным подбором по VIN и артикулу",
+            source="rossko_direct",
+        ))
+    except Exception:
+        pass
 
     # Also try zzap specifically (aggregator)
     if len(results) < max_results:

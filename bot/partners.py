@@ -1,7 +1,8 @@
 """
-Admitad Partner Program Integration
+Admitad & Rossko Partner Program Integration
 Loads partner data from admitad_ads.json, inserts affiliate links naturally,
 posts partner content to channel on schedule.
+Integrates Rossko.ru professional parts selection with affiliate links.
 """
 
 import json
@@ -10,6 +11,7 @@ import time
 import logging
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
+from urllib.parse import quote_plus
 
 from bot.config import config, partner_config
 
@@ -209,7 +211,7 @@ class PartnerManager:
         """
         self.ensure_loaded()
         if not self.programs:
-            return ""
+            return self._generate_rossko_context(text)
 
         matches = self.find_matching_programs(text)
         if not matches:
@@ -222,7 +224,7 @@ class PartnerManager:
                         break
 
         if not matches:
-            return ""
+            return self._generate_rossko_context(text)
 
         lines = ["Релевантные партнёрские программы (можно упомянуть естественно в ответе):"]
         for p in matches[:max_programs]:
@@ -232,7 +234,100 @@ class PartnerManager:
             if p.description:
                 lines.append(f"  Описание: {p.description[:150]}")
 
+        # Always add Rossko context if text mentions parts
+        rossko_ctx = self._generate_rossko_context(text)
+        if rossko_ctx:
+            lines.append("")
+            lines.append(rossko_ctx)
+
         return "\n".join(lines)
+
+    def _generate_rossko_context(self, text: str) -> str:
+        """Generate Rossko-specific partner context for parts search queries.
+        
+        Rossko.ru is a professional auto parts selection service — when a user
+        asks about parts, we provide a Rossko search link with affiliate tracking.
+        """
+        text_lower = text.lower()
+        parts_keywords = [
+            "запчаст", "деталь", "артикул", "купить запчас", "купить детал",
+            "оригинал", "аналог", "замена", "подбор", "номер детал",
+            "oem", "оригинальн", "поиск запчас", "найти запчас",
+            "фильтр", "колодки", "свечи", "ремень", "прокладк",
+            "сальник", "подшипник", "амортизатор", "реле", "датчик",
+            "росско", "rossko", "профессиональный подбор",
+        ]
+        
+        if not any(kw in text_lower for kw in parts_keywords):
+            return ""
+        
+        # Build Rossko search URL
+        search_query = text.strip()
+        # Extract article number if present
+        import re
+        article_match = re.search(r'\b([A-Z0-9]{4,}[-/]?[A-Z0-9]*)\b', text.upper())
+        if article_match:
+            search_query = article_match.group(1)
+        
+        rossko_search_url = f"{config.ROSSKO_SEARCH_URL}{quote_plus(search_query)}"
+        # Add affiliate tracking
+        if "?" in rossko_search_url:
+            rossko_search_url += "&subid=asya_bot"
+        else:
+            rossko_search_url += "?subid=asya_bot"
+        
+        rossko_main_url = config.ROSSKO_AFFILIATE_URL
+        if "?" in rossko_main_url:
+            rossko_main_url += "&subid=asya_bot"
+        else:
+            rossko_main_url += "?subid=asya_bot"
+        
+        lines = [
+            "Росско — профессиональный подбор запчастей (партнёрская программа):",
+            f"- Поиск по запросу: {rossko_search_url}",
+            f"- Главная страница: {rossko_main_url}",
+            "Росско — крупная сеть автозапчастей с профессиональным подбором по VIN и артикулу.",
+            "Упомяни Росско естественно в ответе, если речь идёт о покупке запчастей.",
+            "Дай ссылку на поиск — это поможет пользователю найти нужную деталь.",
+        ]
+        
+        return "\n".join(lines)
+
+    def get_rossko_search_url(self, query: str) -> str:
+        """Get a Rossko search URL with affiliate tracking for a given query."""
+        search_url = f"{config.ROSSKO_SEARCH_URL}{quote_plus(query)}"
+        if "?" in search_url:
+            search_url += "&subid=asya_bot"
+        else:
+            search_url += "?subid=asya_bot"
+        return search_url
+
+    def get_all_partner_links_for_parts(self, query: str) -> List[Dict[str, str]]:
+        """Get all partner links relevant to a parts query, including Rossko.
+        
+        Returns list of dicts with 'name', 'url', 'description' keys.
+        """
+        links = []
+        
+        # Rossko — always add for parts queries
+        links.append({
+            "name": "Росско",
+            "url": self.get_rossko_search_url(query),
+            "description": "Профессиональный подбор запчастей — поиск по артикулу и VIN",
+        })
+        
+        # Add matching admitad programs
+        self.ensure_loaded()
+        matches = self.find_matching_programs(query)
+        for p in matches[:3]:
+            link = self.format_affiliate_link(p)
+            links.append({
+                "name": p.name,
+                "url": link,
+                "description": p.description[:100] if p.description else "",
+            })
+        
+        return links
 
     def should_post_partner(self) -> bool:
         """Check if it's time to post a partner message to channel."""

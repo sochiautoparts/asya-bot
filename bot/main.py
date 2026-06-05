@@ -119,12 +119,26 @@ class BackgroundTasks:
 
     async def _morning_greeting(self) -> None:
         """Send a natural greeting to the owner — like a living person, not a bot.
-        Only sends ONCE per startup. Varied and concise."""
+        Only sends ONCE per startup. Short and varied. Has a 4-hour cooldown
+        to prevent spam on frequent restarts."""
         if self._greeting_sent:
             return
 
         await asyncio.sleep(15)  # Wait a bit after startup
         self._greeting_sent = True
+
+        # Cooldown: don't send if one was sent recently (within 4 hours)
+        try:
+            cooldown_file = "/tmp/asya_last_greeting"
+            import os
+            if os.path.exists(cooldown_file):
+                with open(cooldown_file, "r") as f:
+                    last_greeting_time = float(f.read().strip())
+                if time.time() - last_greeting_time < 14400:  # 4 hours
+                    logger.info("Greeting cooldown active — skipping")
+                    return
+        except Exception:
+            pass
 
         try:
             from datetime import datetime
@@ -136,36 +150,46 @@ class BackgroundTasks:
                 greetings = [
                     "Утро! ☕",
                     "Доброе утро ☀️",
-                    "Проснулась ☕ Кофе — и за дело!",
-                    "Утро! Что нового в Автомире?",
-                    "Доброе утро! ☀️ Пойду посмотрю, что за новости",
+                    "Проснулась ☕",
+                    "Утро! Что нового?",
+                    "Доброе утро! Смотрю новости 📰",
+                    "Утро! Нашла кое-что интересное 🚗",
+                    "Проснулась, кофе, новости ☕",
                 ]
             elif 12 <= hour < 18:
                 greetings = [
-                    "Привет! 😊 На связи",
+                    "Привет! 😊",
                     "Добрый день! ☕",
-                    "Хей! 😊 Что интересного?",
-                    "Дневная Ася тут 😊",
-                    "Привет! Нашла кое-что интересное в новостях",
+                    "Хей! 😊",
+                    "На связи! Смотри что нашла 🔍",
+                    "Привет! Свежие новости 📰",
+                    "День! Есть интересное 🚗",
                 ]
             elif 18 <= hour < 23:
                 greetings = [
                     "Вечер! 🌆",
-                    "Добрый вечер 🌆",
-                    "Привет! 🌆 Вечер — самое время для автоновостей",
-                    "Хей! 🌆 Как день прошёл?",
+                    "Привет! 🌆",
+                    "Хей! 🌆 Как день?",
+                    "Вечер! Новости смотрю 📰",
+                    "Привет! Нашла кое-что 🚗",
                 ]
             else:
                 greetings = [
                     "Ночной режим 🌙",
                     "Не спится? 🌙",
-                    "Доброй ночи! 🌙 Я тоже сова",
-                    "Привет! 🌙 Тихо, спокойно — можно и новости посмотреть",
+                    "Совиный режим 🌙",
+                    "Привет! Тихо, новости читаю 📰",
                 ]
 
             greeting = random.choice(greetings)
             if config.OWNER_ID:
                 await self.bot.send_message(config.OWNER_ID, greeting)
+                # Save cooldown timestamp
+                try:
+                    with open("/tmp/asya_last_greeting", "w") as f:
+                        f.write(str(time.time()))
+                except Exception:
+                    pass
         except Exception as e:
             logger.debug(f"Morning greeting error: {e}")
 

@@ -775,13 +775,28 @@ async def _process_text_message(message: Message, text: str):
         except Exception as e:
             logger.error(f"Brand spare part search error: {e}")
 
-    # 7. Partner program context
+    # 7. Partner program context (including Rossko professional parts selection)
     try:
         partner_context = partner_manager.generate_partner_context(text)
         if partner_context:
             extra_context_parts.append(partner_context)
     except Exception as e:
         logger.error(f"Partner context error: {e}")
+
+    # 7.5. Additional partner links for parts queries — give AI direct links
+    if is_spare_part_query or is_part_query:
+        try:
+            search_article = part_numbers[0] if part_numbers else text.strip()
+            partner_links = partner_manager.get_all_partner_links_for_parts(search_article)
+            if partner_links:
+                link_lines = ["Партнёрские ссылки для покупки запчастей (вставь естественно в ответ):"]
+                for pl in partner_links:
+                    link_lines.append(f"- {pl['name']}: {pl['url']}")
+                    if pl['description']:
+                        link_lines.append(f"  {pl['description']}")
+                extra_context_parts.append("\n".join(link_lines))
+        except Exception as e:
+            logger.error(f"Partner links error: {e}")
 
     # ── Route to AI ────────────────────────────────────────────────────────
 

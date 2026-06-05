@@ -355,6 +355,17 @@ async def get_today_post_count() -> int:
             return row[0] if row else 0
 
 
+async def get_hourly_post_count() -> int:
+    """Get number of posts made in the last hour."""
+    hour_ago = time.time() - 3600
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT COUNT(*) FROM channel_posts WHERE created_at >= ?", (hour_ago,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else 0
+
+
 async def get_ai_cached(query_hash: str) -> Optional[str]:
     """Get cached AI response if available and fresh (< 1 hour)."""
     max_age = time.time() - 3600
@@ -506,19 +517,23 @@ async def add_post_fingerprint(title: str, content: str, post_id: int = 0) -> No
         await db.commit()
 
 
-async def is_duplicate_post(title: str, content: str = "", hours: int = 48) -> bool:
+async def is_duplicate_post(title: str, content: str = "", hours: int = 48,
+                            source_url: str = "") -> bool:
     """Check if a post with similar title or content was recently posted.
 
     Checks (in order):
-    1. Exact title hash match (same title, possibly different source)
-    2. Title prefix match (first 30 chars — catches reworded titles about same topic)
-    3. Keyword overlap match (extract key nouns — catches paraphrased titles about same subject)
-    4. Content hash match (same content, possibly different title)
+    1. Source URL match (same article from different RSS feeds)
+    2. Exact title hash match (same title, possibly different source)
+    3. Title prefix match (first 30 chars — catches reworded titles about same topic)
+    4. Keyword overlap match (extract key nouns — catches paraphrased titles about same subject)
+       Also normalizes car brand names (BMW/Bayerische, LADA/ВАЗ, etc.)
+    5. Content hash match (same content, possibly different title)
 
     Args:
         title: News item title to check
         content: Post content to check (optional)
         hours: How many hours back to check (default 48h)
+        source_url: Original article URL for URL-based dedup (optional)
 
     Returns:
         True if a similar post was found (DUPLICATE), False if unique
@@ -528,7 +543,22 @@ async def is_duplicate_post(title: str, content: str = "", hours: int = 48) -> b
     title_prefix = _normalize_text(title)[:30]
 
     async with aiosqlite.connect(DB_PATH) as db:
-        # Check 1: Exact title hash match
+        # Check 1: Source URL match — same article from different RSS feeds
+        # Compares the path component of URLs (ignores www/http/https differences)
+        if source_url:
+            url_fingerprint = _make_url_fingerprint(source_url)
+            if url_fingerprint:
+                async with db.execute(
+                    "SELECT source_url FROM channel_posts WHERE created_at >= ?",
+                    (cutoff,),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                    for row in rows:
+                        existing_url = row[0] if row else ""
+                        if existing_url and _make_url_fingerprint(existing_url) == url_fingerprint:
+                            return True
+
+        # Check 2: Exact title hash match
         async with db.execute(
             "SELECT COUNT(*) FROM post_fingerprints WHERE title_hash = ? AND created_at >= ?",
             (title_hash, cutoff),
@@ -537,7 +567,7 @@ async def is_duplicate_post(title: str, content: str = "", hours: int = 48) -> b
             if row and row[0] > 0:
                 return True
 
-        # Check 2: Title prefix match (catches reworded titles about same topic)
+        # Check 3: Title prefix match (catches reworded titles about same topic)
         if len(title_prefix) >= 10:
             async with db.execute(
                 "SELECT COUNT(*) FROM post_fingerprints WHERE title_prefix = ? AND created_at >= ?",
@@ -547,11 +577,11 @@ async def is_duplicate_post(title: str, content: str = "", hours: int = 48) -> b
                 if row and row[0] > 0:
                     return True
 
-        # Check 3: Keyword overlap — extract significant words from title and compare
-        # This catches paraphrased titles like "BMW X5 gets new engine" vs "New engine for BMW X5"
+        # Check 4: Keyword overlap — extract significant words from title and compare
+        # Also normalizes car brand names (BMW/Bayerische, LADA/ВАЗ, etc.)
         title_keywords = _extract_title_keywords(title)
-        if len(title_keywords) >= 2:
-            # Get all recent fingerprints for keyword comparison
+        title_keywords_normalized = _normalize_brand_keywords(title_keywords)
+        if len(title_keywords_normalized) >= 2:
             async with db.execute(
                 "SELECT title_prefix FROM post_fingerprints WHERE created_at >= ?",
                 (cutoff,),
@@ -562,17 +592,23 @@ async def is_duplicate_post(title: str, content: str = "", hours: int = 48) -> b
                     if not existing_prefix:
                         continue
                     existing_keywords = _extract_title_keywords(existing_prefix)
-                    if not existing_keywords:
+                    existing_keywords_normalized = _normalize_brand_keywords(existing_keywords)
+                    if not existing_keywords_normalized:
                         continue
-                    # Calculate keyword overlap ratio
-                    common = title_keywords & existing_keywords
+                    # Calculate keyword overlap ratio (using normalized brands)
+                    common = title_keywords_normalized & existing_keywords_normalized
                     if len(common) >= 2:
-                        # At least 2 significant keywords overlap — likely same topic
-                        overlap_ratio = len(common) / min(len(title_keywords), len(existing_keywords))
-                        if overlap_ratio >= 0.6:
+                        overlap_ratio = len(common) / min(len(title_keywords_normalized), len(existing_keywords_normalized))
+                        if overlap_ratio >= 0.55:
+                            return True
+                    # Also check overlap between raw keywords for better matching
+                    raw_common = title_keywords & existing_keywords
+                    if len(raw_common) >= 3:
+                        raw_overlap_ratio = len(raw_common) / min(len(title_keywords), len(existing_keywords)) if min(len(title_keywords), len(existing_keywords)) > 0 else 0
+                        if raw_overlap_ratio >= 0.5:
                             return True
 
-        # Check 4: Content hash match (if content provided)
+        # Check 5: Content hash match (if content provided)
         if content:
             content_hash = _make_content_hash(content)
             async with db.execute(
@@ -675,6 +711,100 @@ def _extract_title_keywords(title: str) -> set:
         if len(w) >= 3 and w not in _TITLE_STOPWORDS:
             significant.add(w)
     return significant
+
+
+# Car brand name normalization map for dedup
+_BRAND_NORMALIZE_MAP = {
+    # Russian → English
+    "бмв": "bmw", "бавария": "bmw", "байерише": "bmw",
+    "мерседес": "mercedes", "мерс": "mercedes",
+    "фольксваген": "volkswagen", "ваг": "vw", "фв": "vw",
+    "ауди": "audi",
+    "тойота": "toyota",
+    "ниссан": "nissan",
+    "хонда": "honda",
+    "мазда": "mazda",
+    "киа": "kia",
+    "хендай": "hyundai", "хёндэ": "hyundai", "хундай": "hyundai",
+    "форд": "ford",
+    "рено": "renault",
+    "пежо": "peugeot",
+    "шевроле": "chevrolet", "шеви": "chevy",
+    "кадиллак": "cadillac",
+    "лексус": "lexus",
+    "инфинити": "infiniti",
+    "порше": "porsche",
+    "вольво": "volvo",
+    "субару": "subaru",
+    "сузуки": "suzuki",
+    "митсубиси": "mitsubishi", "мицубиси": "mitsubishi",
+    "шкода": "skoda",
+    "сеат": "seat",
+    "фиат": "fiat",
+    "альфа": "alfa",
+    "ягуар": "jaguar",
+    "лендровер": "landrover", "лэндровер": "landrover",
+    "миникар": "mini",
+    "смарт": "smart",
+    "опель": "opel",
+    "ваз": "lada", "лава": "lada",
+    "уаз": "uaz",
+    "газ": "gaz",
+    "черри": "chery",
+    "хавал": "haval",
+    "джили": "geely",
+    "чанган": "changan",
+    "эксид": "exeed",
+    "танк": "tank",
+    "тесла": "tesla",
+    "байд": "byd",
+    "зикр": "zeekr",
+    "лисян": "lixiang", "ли": "li",
+    # English alternate spellings
+    "vw": "volkswagen", "chevy": "chevrolet",
+    "benz": "mercedes", "daimler": "mercedes",
+    "beemer": "bmw", "bimmer": "bmw",
+}
+
+
+def _normalize_brand_keywords(keywords: set) -> set:
+    """Normalize car brand names in keyword set for better dedup matching.
+    
+    Maps alternate brand spellings to a canonical form so that
+    'BMW X5 новый двигатель' and 'БМВ Х5 получила мотор' are detected as duplicates.
+    """
+    normalized = set()
+    for kw in keywords:
+        kw_lower = kw.lower()
+        if kw_lower in _BRAND_NORMALIZE_MAP:
+            normalized.add(_BRAND_NORMALIZE_MAP[kw_lower])
+        else:
+            normalized.add(kw)
+    return normalized
+
+
+def _make_url_fingerprint(url: str) -> str:
+    """Create a fingerprint of a URL for deduplication.
+    
+    Strips protocol, www prefix, trailing slashes, and query parameters
+    so that https://www.example.com/article/123 and http://example.com/article/123/
+    are treated as the same URL.
+    """
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(url.strip())
+        # Use path only (ignore protocol, www, query, fragment)
+        path = parsed.path.rstrip('/')
+        domain = parsed.netloc.lower()
+        # Remove www prefix
+        if domain.startswith('www.'):
+            domain = domain[4:]
+        fingerprint_str = f"{domain}{path}"
+        if not fingerprint_str or len(fingerprint_str) < 5:
+            return ""
+        return hashlib.sha256(fingerprint_str.encode('utf-8')).hexdigest()
+    except Exception:
+        return ""
 
 
 def _make_title_hash(title: str) -> str:

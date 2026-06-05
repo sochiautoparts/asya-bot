@@ -26,7 +26,7 @@ from aiogram.types import InlineKeyboardButton
 
 from bot.config import config, persona
 from bot.database import (
-    add_channel_post, get_today_post_count, get_unposted_news,
+    add_channel_post, get_today_post_count, get_hourly_post_count, get_unposted_news,
     mark_news_posted, add_partner_post, get_today_partner_post_count,
     is_duplicate_post, add_post_fingerprint, cleanup_old_fingerprints,
 )
@@ -637,6 +637,12 @@ class ChannelManager:
         today_count = await get_today_post_count()
         if today_count >= config.CHANNEL_MAX_POSTS_PER_DAY:
             logger.info("Daily post limit reached")
+            return False
+
+        # Check hourly limit — max 2 posts per hour
+        hourly_count = await get_hourly_post_count()
+        if hourly_count >= config.CHANNEL_MAX_POSTS_PER_HOUR:
+            logger.info(f"Hourly post limit reached ({hourly_count}/{config.CHANNEL_MAX_POSTS_PER_HOUR})")
             return False
 
         # Check minimum interval

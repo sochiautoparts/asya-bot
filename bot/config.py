@@ -41,6 +41,7 @@ class BotConfig:
 
     # Channel posting
     CHANNEL_POST_INTERVAL_MINUTES: int = int(os.getenv("CHANNEL_POST_INTERVAL_MINUTES", "30"))
+    CHANNEL_MAX_POSTS_PER_HOUR: int = 2
     CHANNEL_MAX_POSTS_PER_DAY: int = 24
 
     # Telegram character limits
@@ -48,10 +49,13 @@ class BotConfig:
     TELEGRAM_CAPTION_LIMIT: int = 1024    # Max chars for media caption
     TELEGRAM_MAX_MEDIA_PER_POST: int = 3  # Max photos/videos per post (keep it clean, not spammy)
 
-    # Partner / admitad
+    # Partner / admitad / Rossko
     ADMITAD_ADS_FILE: str = os.getenv("ADMITAD_ADS_FILE", "admitad_ads.json")
     PARTNER_POST_INTERVAL_HOURS: int = int(os.getenv("PARTNER_POST_INTERVAL_HOURS", "6"))
     PARTNER_DAILY_LIMIT: int = 3
+    # Rossko professional parts selection
+    ROSSKO_AFFILIATE_URL: str = os.getenv("ROSSKO_AFFILIATE_URL", "https://rossko.ru")
+    ROSSKO_SEARCH_URL: str = "https://rossko.ru/search?text="
 
     # Chat settings
     CHAT_HISTORY_LIMIT: int = 20
@@ -129,6 +133,7 @@ class AsyaPersona:
 Поиск в интернете и запчастей:
 - Когда пользователь спрашивает про что-то конкретное — ты ОБЯЗАНА искать в интернете.
 - Если спрашивают про запчасть — ищи по артикулу на autopiter.ru, exist.ru, emex.ru, autodoc.ru, zzap.ru.
+- ОБЯЗАТЕЛЬНО предлагай Росско (rossko.ru) — это партнёрский сервис профессионального подбора запчастей. Давай ссылку на поиск: https://rossko.ru/search?text=АРТИКУЛ&subid=asya_bot
 - Если спрашивают про машину — ищи обзоры, характеристики, цены, отзывы.
 - Если спрашивают про диагностику — ищи конкретные решения по симптомам и кодам ошибок.
 - Давай РЕАЛЬНЫЕ ссылки из результатов поиска — не выдумывай URL.
@@ -136,6 +141,7 @@ class AsyaPersona:
 - Если нашла решение проблемы — опиши пошагово, как проверить и что делать.
 - НЕ пиши "я поищу" или "сейчас найду" — просто ищи и давай результат.
 - Если не нашла — честно скажи, но предложи альтернативу.
+- Если тебе передали партнёрские ссылки в контексте — вставь их естественно в ответ, не делай это откровенной рекламой. Просто предложи как вариант.
 
 Контекст беседы:
 - Ты помнишь что обсуждалось ранее в этом чате и ссылаешься на это.
@@ -305,16 +311,17 @@ class PartnerCategory:
 
 @dataclass
 class PartnerConfig:
-    """Partner/admitad configuration."""
+    """Partner/admitad/Rossko configuration."""
 
     categories: List[PartnerCategory] = field(default_factory=lambda: [
-        PartnerCategory("autoparts", "Автозапчасти", ["запчасти", "детали", "артикул", "купить запчасть", "замена", "оригинал", "аналог"]),
+        PartnerCategory("autoparts", "Автозапчасти", ["запчасти", "детали", "артикул", "купить запчасть", "замена", "оригинал", "аналог", "подбор", "номер детали", "oem"]),
         PartnerCategory("tires", "Шины и диски", ["шины", "диски", "резина", "колёса", "зимняя", "летняя", "шипованные"]),
         PartnerCategory("tools", "Инструменты", ["инструмент", "ключ", "набор", "гараж", "домкрат", "подъёмник"]),
         PartnerCategory("autoinsurance", "Автострахование", ["страховка", "ОСАГО", "КАСКО", "страхование", "полис"]),
         PartnerCategory("checkauto", "Проверка авто", ["проверка", "вин", "VIN", "история", "автокод", "пробить"]),
         PartnerCategory("autorent", "Аренда авто", ["аренда", "прокат", "рент", "арендовать", "напрокат"]),
         PartnerCategory("coupons", "Промокоды", ["промокод", "скидка", "купон", "акция"]),
+        PartnerCategory("rossko", "Росско Подбор", ["росско", "rossko", "профессиональный подбор", "подбор запчастей", "каталог запчастей"]),
     ])
 
 
