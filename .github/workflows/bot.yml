@@ -1,4 +1,4 @@
-name: Asya Bot SMART ROUTING v3
+name: Asya Bot DUAL-KEY SMART ROUTING v4
 
 on:
   schedule:
@@ -19,6 +19,7 @@ env:
   CHANNEL_ID: "-1001479468835"
   CHANNEL_USERNAME: ${{ secrets.CHANNEL_USERNAME }}
   POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
+  POLLINATIONS_API_KEY_2: ${{ secrets.POLLINATIONS_API_KEY_2 }}
   GH_PAT_TOKEN: ${{ secrets.GH_PAT_TOKEN }}
   GH_REPO: sochiautoparts/asya-bot
   ADMITAD_ADS_FILE: data/admitad_ads.json
@@ -133,12 +134,12 @@ jobs:
 
       - name: Run Asya Bot with auto-restart
         run: |
-          echo "=== Starting Asya Bot v3.0 SMART ROUTING ==="
+          echo "=== Starting Asya Bot v4.0 DUAL-KEY SMART ROUTING ==="
           echo "CHAT (user conversations): LOCAL-FIRST → Local → Cloud → Fallback (saves balance)"
           echo "FUNCTION (posts, VIN, diagnostics, parts): CLOUD-FIRST → Cloud → Local → Fallback (better quality)"
           echo "COMMENT (comments in groups): LOCAL-ONLY → Local → Static fallback (no cloud waste)"
           echo "VISION: Pollinations vision for photos"
-          echo "STRATEGY: Chat→Local-first, Function→Cloud-first, Comment→Local-only"
+          echo "STRATEGY: Chat→Local-first, Function→Cloud-first, Comment→Local-only, Dual-Key→KEY1+KEY2"
           echo ""
           echo "Config: strategy=SMART_ROUTING, n_ctx=4096, max_tokens=300(local)/2048(cloud), history=4(local)"
 

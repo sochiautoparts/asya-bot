@@ -6,13 +6,15 @@ Serves the web app HTML and provides API endpoints for:
 - Car diagnostics
 - Spare part search
 
-Runs alongside the main bot (aiogram) using aiohttp.
+Runs alongside the main bot (aiogram) using httpx + asyncio.
+No aiohttp dependency!
 """
 
 import logging
 import json
 import os
-from aiohttp import web
+import asyncio
+from typing import Optional
 
 from ai.router import ai_router
 from bot.config import config
@@ -23,144 +25,234 @@ logger = logging.getLogger("asya.miniapp")
 MINIAPP_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
-async def handle_index(request: web.Request) -> web.Response:
-    """Serve the Mini App HTML page."""
-    html_path = os.path.join(MINIAPP_DIR, "index.html")
-    return web.FileResponse(html_path)
+class MiniAppServer:
+    """Simple HTTP server using asyncio + manual HTTP parsing.
+    Replaces aiohttp — no external web framework needed.
+    The Mini App is primarily served via GitHub Pages anyway.
+    """
 
+    def __init__(self, host: str = "0.0.0.0", port: int = 8080):
+        self.host = host
+        self.port = port
+        self._server: Optional[asyncio.AbstractServer] = None
 
-async def handle_chat(request: web.Request) -> web.Response:
-    """API: Chat with Asya."""
-    try:
-        data = await request.json()
-        message = data.get("message", "").strip()
-        user_id = data.get("user_id", 0)
-
-        if not message:
-            return web.json_response({"text": "Пустое сообщение!"}, status=400)
-
-        response = await ai_router.chat(
-            user_id=user_id,
-            message=message,
-            use_cache=True,
-            save_history=True,
+    async def start(self):
+        """Start the HTTP server."""
+        self._server = await asyncio.start_server(
+            self._handle_request, self.host, self.port
         )
+        logger.info(f"Mini App server started on {self.host}:{self.port}")
 
-        if response.error or not response.text:
-            return web.json_response({"text": "Не удалось получить ответ. Попробуйте ещё раз."}, status=500)
+    async def stop(self):
+        """Stop the HTTP server."""
+        if self._server:
+            self._server.close()
+            await self._server.wait_closed()
 
-        return web.json_response({"text": response.text})
+    async def _handle_request(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        """Handle incoming HTTP request."""
+        try:
+            # Read request line and headers
+            request_line = await reader.readline()
+            if not request_line:
+                writer.close()
+                return
 
-    except Exception as e:
-        logger.error(f"MiniApp chat error: {e}")
-        return web.json_response({"text": f"Ошибка: {e}"}, status=500)
+            request_str = request_line.decode("utf-8", errors="ignore").strip()
+            headers = {}
+            body = b""
 
+            # Read headers
+            while True:
+                line = await reader.readline()
+                if not line or line == b"\r\n":
+                    break
+                line_str = line.decode("utf-8", errors="ignore").strip()
+                if ":" in line_str:
+                    key, val = line_str.split(":", 1)
+                    headers[key.strip().lower()] = val.strip()
 
-async def handle_vin(request: web.Request) -> web.Response:
-    """API: Decode VIN code."""
-    try:
-        data = await request.json()
-        vin = data.get("vin", "").strip().upper()
-        user_id = data.get("user_id", 0)
+            # Read body if Content-Length present
+            content_length = int(headers.get("content-length", 0))
+            if content_length > 0:
+                body = await reader.readexactly(content_length)
 
-        if not vin:
-            return web.json_response({"text": "Укажите VIN-код!"}, status=400)
+            # Parse request
+            parts = request_str.split(" ")
+            method = parts[0] if len(parts) > 0 else "GET"
+            path = parts[1] if len(parts) > 1 else "/"
 
-        response = await ai_router.decode_vin(
-            user_id=user_id,
-            vin_code=vin,
-        )
+            # Route request
+            if method == "GET" and path in ("/", "/app"):
+                await self._serve_html(writer)
+            elif method == "GET" and path == "/api/health":
+                await self._send_json(writer, 200, {"status": "ok", "bot": "asya", "version": "2.0"})
+            elif method == "POST" and path == "/api/chat":
+                await self._handle_chat(writer, body)
+            elif method == "POST" and path == "/api/vin":
+                await self._handle_vin(writer, body)
+            elif method == "POST" and path == "/api/diagnostic":
+                await self._handle_diagnostic(writer, body)
+            elif method == "POST" and path == "/api/parts":
+                await self._handle_parts(writer, body)
+            else:
+                await self._send_json(writer, 404, {"error": "Not found"})
 
-        if response.error or not response.text:
-            return web.json_response({"text": "Не удалось расшифровать VIN. Попробуйте ещё раз."}, status=500)
+        except Exception as e:
+            logger.error(f"MiniApp request error: {e}")
+            try:
+                await self._send_json(writer, 500, {"error": str(e)})
+            except Exception:
+                pass
+        finally:
+            try:
+                writer.close()
+            except Exception:
+                pass
 
-        return web.json_response({"text": response.text})
+    async def _serve_html(self, writer: asyncio.StreamWriter):
+        """Serve the Mini App HTML page."""
+        html_path = os.path.join(MINIAPP_DIR, "index.html")
+        try:
+            with open(html_path, "r", encoding="utf-8") as f:
+                html = f.read()
+            await self._send_response(writer, 200, html, content_type="text/html; charset=utf-8")
+        except FileNotFoundError:
+            await self._send_json(writer, 404, {"error": "Mini App HTML not found"})
 
-    except Exception as e:
-        logger.error(f"MiniApp VIN error: {e}")
-        return web.json_response({"text": f"Ошибка: {e}"}, status=500)
+    async def _handle_chat(self, writer: asyncio.StreamWriter, body: bytes):
+        """API: Chat with Asya."""
+        try:
+            data = json.loads(body)
+            message = data.get("message", "").strip()
+            user_id = data.get("user_id", 0)
 
+            if not message:
+                await self._send_json(writer, 400, {"text": "Пустое сообщение!"})
+                return
 
-async def handle_diagnostic(request: web.Request) -> web.Response:
-    """API: Car diagnostics."""
-    try:
-        data = await request.json()
-        symptoms = data.get("symptoms", "").strip()
-        user_id = data.get("user_id", 0)
+            response = await ai_router.chat(
+                user_id=user_id,
+                message=message,
+                use_cache=True,
+                save_history=True,
+            )
 
-        if not symptoms:
-            return web.json_response({"text": "Опишите симптомы!"}, status=400)
+            if response.error or not response.text:
+                await self._send_json(writer, 500, {"text": "Не удалось получить ответ. Попробуйте ещё раз."})
+                return
 
-        response = await ai_router.diagnose_car(
-            user_id=user_id,
-            symptoms=symptoms,
-        )
+            await self._send_json(writer, 200, {"text": response.text})
 
-        if response.error or not response.text:
-            return web.json_response({"text": "Не удалось диагностировать. Попробуйте ещё раз."}, status=500)
+        except Exception as e:
+            logger.error(f"MiniApp chat error: {e}")
+            await self._send_json(writer, 500, {"text": f"Ошибка: {e}"})
 
-        return web.json_response({"text": response.text})
+    async def _handle_vin(self, writer: asyncio.StreamWriter, body: bytes):
+        """API: Decode VIN code."""
+        try:
+            data = json.loads(body)
+            vin = data.get("vin", "").strip().upper()
+            user_id = data.get("user_id", 0)
 
-    except Exception as e:
-        logger.error(f"MiniApp diagnostic error: {e}")
-        return web.json_response({"text": f"Ошибка: {e}"}, status=500)
+            if not vin:
+                await self._send_json(writer, 400, {"text": "Укажите VIN-код!"})
+                return
 
+            response = await ai_router.decode_vin(
+                user_id=user_id,
+                vin_code=vin,
+            )
 
-async def handle_parts(request: web.Request) -> web.Response:
-    """API: Spare part search."""
-    try:
-        data = await request.json()
-        article = data.get("article", "").strip()
-        user_id = data.get("user_id", 0)
+            if response.error or not response.text:
+                await self._send_json(writer, 500, {"text": "Не удалось расшифровать VIN. Попробуйте ещё раз."})
+                return
 
-        if not article:
-            return web.json_response({"text": "Укажите артикул запчасти!"}, status=400)
+            await self._send_json(writer, 200, {"text": response.text})
 
-        response = await ai_router.find_spare_part(
-            user_id=user_id,
-            article=article,
-        )
+        except Exception as e:
+            logger.error(f"MiniApp VIN error: {e}")
+            await self._send_json(writer, 500, {"text": f"Ошибка: {e}"})
 
-        if response.error or not response.text:
-            return web.json_response({"text": "Не удалось найти запчасть. Попробуйте ещё раз."}, status=500)
+    async def _handle_diagnostic(self, writer: asyncio.StreamWriter, body: bytes):
+        """API: Car diagnostics."""
+        try:
+            data = json.loads(body)
+            symptoms = data.get("symptoms", "").strip()
+            user_id = data.get("user_id", 0)
 
-        return web.json_response({"text": response.text})
+            if not symptoms:
+                await self._send_json(writer, 400, {"text": "Опишите симптомы!"})
+                return
 
-    except Exception as e:
-        logger.error(f"MiniApp parts error: {e}")
-        return web.json_response({"text": f"Ошибка: {e}"}, status=500)
+            response = await ai_router.diagnose_car(
+                user_id=user_id,
+                symptoms=symptoms,
+            )
 
+            if response.error or not response.text:
+                await self._send_json(writer, 500, {"text": "Не удалось диагностировать. Попробуйте ещё раз."})
+                return
 
-async def handle_health(request: web.Request) -> web.Response:
-    """Health check endpoint."""
-    return web.json_response({"status": "ok", "bot": "asya", "version": "1.0"})
+            await self._send_json(writer, 200, {"text": response.text})
 
+        except Exception as e:
+            logger.error(f"MiniApp diagnostic error: {e}")
+            await self._send_json(writer, 500, {"text": f"Ошибка: {e}"})
 
-def create_miniapp_app() -> web.Application:
-    """Create the aiohttp application for the Mini App server."""
-    app = web.Application()
+    async def _handle_parts(self, writer: asyncio.StreamWriter, body: bytes):
+        """API: Spare part search."""
+        try:
+            data = json.loads(body)
+            article = data.get("article", "").strip()
+            user_id = data.get("user_id", 0)
 
-    # Static routes
-    app.router.add_get("/", handle_index)
-    app.router.add_get("/app", handle_index)
+            if not article:
+                await self._send_json(writer, 400, {"text": "Укажите артикул запчасти!"})
+                return
 
-    # API routes
-    app.router.add_post("/api/chat", handle_chat)
-    app.router.add_post("/api/vin", handle_vin)
-    app.router.add_post("/api/diagnostic", handle_diagnostic)
-    app.router.add_post("/api/parts", handle_parts)
-    app.router.add_get("/api/health", handle_health)
+            response = await ai_router.find_spare_part(
+                user_id=user_id,
+                article=article,
+            )
 
-    logger.info("Mini App server routes configured")
-    return app
+            if response.error or not response.text:
+                await self._send_json(writer, 500, {"text": "Не удалось найти запчасть. Попробуйте ещё раз."})
+                return
+
+            await self._send_json(writer, 200, {"text": response.text})
+
+        except Exception as e:
+            logger.error(f"MiniApp parts error: {e}")
+            await self._send_json(writer, 500, {"text": f"Ошибка: {e}"})
+
+    async def _send_json(self, writer: asyncio.StreamWriter, status: int, data: dict):
+        """Send a JSON response."""
+        body = json.dumps(data, ensure_ascii=False)
+        await self._send_response(writer, status, body, content_type="application/json; charset=utf-8")
+
+    async def _send_response(self, writer: asyncio.StreamWriter, status: int, body: str,
+                              content_type: str = "text/plain; charset=utf-8"):
+        """Send an HTTP response."""
+        status_messages = {200: "OK", 400: "Bad Request", 404: "Not Found", 500: "Internal Server Error"}
+        status_msg = status_messages.get(status, "OK")
+        body_bytes = body.encode("utf-8")
+
+        response = (
+            f"HTTP/1.1 {status} {status_msg}\r\n"
+            f"Content-Type: {content_type}\r\n"
+            f"Content-Length: {len(body_bytes)}\r\n"
+            f"Access-Control-Allow-Origin: *\r\n"
+            f"Connection: close\r\n"
+            f"\r\n"
+        ).encode("utf-8") + body_bytes
+
+        writer.write(response)
+        await writer.drain()
 
 
 async def start_miniapp_server(host: str = "0.0.0.0", port: int = 8080):
-    """Start the Mini App web server."""
-    app = create_miniapp_app()
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, host, port)
-    await site.start()
-    logger.info(f"Mini App server started on {host}:{port}")
-    return runner
+    """Start the Mini App web server (replaces aiohttp — no external dependency!)."""
+    server = MiniAppServer(host, port)
+    await server.start()
+    return server

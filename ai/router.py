@@ -1,13 +1,14 @@
 """
-AI Router v3.0 — SMART ROUTING with route_type.
-Qwen3-4B primary for simple chat, Pollinations for complex tasks + vision.
-Saves cloud balance — balance refreshes every hour!
+AI Router v4.0 — SMART ROUTING with DUAL-KEY FAILOVER.
+Qwen3-4B primary for simple chat, Pollinations (dual-key) for complex tasks + vision.
 
-Route strategy (v3.0):
-  CHAT route_type (user chats) → LOCAL-FIRST: Local → Cloud → Fallback
-  FUNCTION route_type (posts, VIN, diagnostics, parts) → CLOUD-FIRST: Cloud → Local → Fallback
+Route strategy (v4.0):
+  CHAT route_type (user chats) → LOCAL-FIRST: Local → Cloud (KEY1→KEY2) → Fallback
+  FUNCTION route_type (posts, VIN, diagnostics, parts) → CLOUD-FIRST: Cloud (KEY1→KEY2) → Local → Fallback
   COMMENT route_type (comments in other groups) → LOCAL-ONLY: Local → Static fallback
-  VISION tasks (photos) → Pollinations vision only
+  VISION tasks (photos) → Pollinations vision only (KEY1→KEY2)
+
+  If Pollinations is down or both keys depleted → ALL routes fall back to local model
 """
 
 import hashlib
@@ -22,7 +23,7 @@ from ai.providers.base import BaseAIProvider, AIResponse
 from ai.providers.pollinations_provider import (
     PollinationsProvider, POLLINATIONS_MODELS,
     CHAT_MODELS, REASONING_MODELS, VISION_MODELS,
-    CONTENT_MODELS, SEARCH_MODELS, IMAGE_MODELS,
+    CONTENT_MODELS, SEARCH_MODELS, IMAGE_MODELS, FALLBACK_MODELS,
 )
 from bot.config import config, persona
 from bot.database import get_ai_cached, set_ai_cached, get_chat_history, add_chat_message
@@ -218,9 +219,10 @@ class AIRouter:
         model_name = self._local._model_name if self._local and self._local._loaded else "none"
 
         logger.info(
-            f"AI Router v3.0 SMART ROUTING initialized: "
+            f"AI Router v4.0 DUAL-KEY SMART ROUTING initialized: "
             f"local={local_status} (chat=LOCAL-FIRST, model={model_name}, n_ctx={max(config.MODEL_N_CTX, 4096)}), "
-            f"pollinations={pollinations_status} (function=CLOUD-FIRST, comment=LOCAL-ONLY, vision=cloud)"
+            f"pollinations={pollinations_status} (function=CLOUD-FIRST, comment=LOCAL-ONLY, vision=cloud, "
+            f"dual-key=KEY1+KEY2, {len(POLLINATIONS_MODELS)} models)"
         )
 
     async def close(self) -> None:
@@ -547,10 +549,14 @@ class AIRouter:
     async def _try_pollinations(self, user_id: int, message: str, history: list,
                                  sys_prompt: str, temperature: float, max_tokens: int,
                                  model: str) -> AIResponse:
-        """Try Pollinations with smart model selection and fallback."""
+        """Try Pollinations with smart model selection and dual-key fallback.
+
+        The provider handles KEY1 → KEY2 failover internally.
+        Here we handle model-level fallback (try different models if one fails).
+        """
         messages = self._primary.format_messages(sys_prompt, history, message)
 
-        # Try primary model
+        # Try primary model (provider will try KEY1 → KEY2 internally)
         response = await self._primary.chat(
             messages=messages,
             model=model,
@@ -558,25 +564,26 @@ class AIRouter:
             max_tokens=max_tokens,
         )
 
-        # If primary failed, try fallback models with SMART switching
+        # If primary failed, try fallback models
         if response.error:
-            is_auth_error = any(code in (response.error_message or "")
-                               for code in ["401", "402", "unavailable", "cooldown"])
+            is_key_error = any(code in (response.error_message or "")
+                              for code in ["All API keys depleted", "401", "402", "unavailable", "cooldown"])
 
-            if is_auth_error:
-                # Auth/balance errors — try free-tier fallbacks
-                from ai.providers.pollinations_provider import PRIORITY_FREE_MODELS
-                fallback_models = [m for m in PRIORITY_FREE_MODELS
-                                   if m != model and not self._primary._is_model_in_cooldown(m)][:2]
+            if is_key_error:
+                # Both keys depleted — try a few different models with broader selection
+                # Different models may have different balance pools
+                fallback_models = [m for m in FALLBACK_MODELS
+                                   if m != model and not self._primary._is_model_in_cooldown(m)][:3]
                 if fallback_models:
-                    logger.info(f"Auth error, trying {len(fallback_models)} priority free fallbacks")
+                    logger.info(f"Key error, trying {len(fallback_models)} fallback models")
             else:
-                # Other errors (timeout, server error) — try broader fallback but limit to 3 attempts
+                # Other errors (timeout, server error) — try a few fallback models
                 fallback_models = [
-                    "mistral-small", "deepseek-v4", "llama-3.3", "nova-fast",
-                    "gemma", "qwen3-coder", "step-3.5-flash",
+                    m for m in ["mistral-small", "deepseek-v4", "llama-3.3", "nova-fast",
+                                "gemma", "qwen3-coder", "step-3.5-flash", "nova-micro"]
+                    if m != model and not self._primary._is_model_in_cooldown(m)
                 ][:3]
-                logger.info(f"Non-auth error, trying fallbacks: {fallback_models}")
+                logger.info(f"Non-key error, trying fallbacks: {fallback_models}")
 
             for fallback_model in fallback_models:
                 if fallback_model == model:
