@@ -37,7 +37,7 @@ import httpx
 
 from bot.config import config, persona
 from ai.router import ai_router
-from bot.web_search import web_search, search_news
+from bot.web_search import web_search, search_news, search_google_news_rss
 
 logger = logging.getLogger("asya.content_engine")
 
@@ -330,10 +330,36 @@ def _score_interest(title: str, summary: str = "") -> float:
     return max(0.1, min(1.0, score))
 
 
+def _score_freshness(published_time: float) -> float:
+    """Score how fresh a news item is. Newer = higher score.
+    
+    Returns a bonus/penalty to add to the interest score:
+    - Very fresh (<3h): +0.3
+    - Fresh (<12h): +0.2
+    - Recent (<24h): +0.1
+    - Day old (<48h): +0.0
+    - Old (>48h): -0.2 (penalty to deprioritize stale news)
+    - Unknown time: +0.3 (assume fresh from web search)
+    """
+    if not published_time:
+        return 0.3  # Unknown time = assume fresh from web search
+    age_hours = (time.time() - published_time) / 3600
+    if age_hours < 3:
+        return 0.3  # Very fresh
+    elif age_hours < 12:
+        return 0.2
+    elif age_hours < 24:
+        return 0.1
+    elif age_hours < 48:
+        return 0.0
+    else:
+        return -0.2  # Old news penalty
+
+
 # ── Web Search Content — supplement RSS with search results ───────────────────
 
 _SEARCH_QUERIES_ROTATION = [
-    # ── Russian-language queries (broad coverage) ──
+    # ── Russian-language queries — TODAY-focused (broad coverage) ──
     "автомобильные новости сегодня",
     "новые автомобили {year} премьера",
     "автоновости Россия",
@@ -341,6 +367,11 @@ _SEARCH_QUERIES_ROTATION = [
     "автомобильные новости сегодня {year}",
     "автопром России новости",
     "новинки авто {year} дебют",
+    # ── TODAY-specific queries to prioritize fresh content ──
+    "автомобильные новости сегодня {month} {year}",
+    "автоновости сегодня свежие",
+    "новые авто {month} {year} анонс",
+    "автомобильные новости {month} {year}",
     # ── English-language queries (international coverage) ──
     "automotive news today",
     "new car launches {year}",
@@ -351,6 +382,7 @@ _SEARCH_QUERIES_ROTATION = [
     "auto show reveals {year}",
     "automotive industry news today",
     "electric vehicle updates {year}",
+    "auto news today {month} {year}",
     # ── Brand-specific queries (rotated) ──
     "LADA ВАЗ новости {year}",
     "Tesla news latest",
@@ -366,7 +398,12 @@ _MAX_RECENT_QUERIES = 5
 def _get_search_query() -> str:
     """Get a search query avoiding recent repetition."""
     global _recent_query_indices
-    year = datetime.now(_MOSCOW_TZ).year
+    now = datetime.now(_MOSCOW_TZ)
+    year = now.year
+    month_ru = ["января", "февраля", "марта", "апреля", "мая", "июня",
+               "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+    month_en = ["January", "February", "March", "April", "May", "June",
+               "July", "August", "September", "October", "November", "December"]
     
     # Pick a query index not recently used
     available = [i for i in range(len(_SEARCH_QUERIES_ROTATION)) if i not in _recent_query_indices]
@@ -381,18 +418,125 @@ def _get_search_query() -> str:
         _recent_query_indices = _recent_query_indices[-_MAX_RECENT_QUERIES:]
     
     query = _SEARCH_QUERIES_ROTATION[idx]
-    return query.format(year=year)
+    return query.format(year=year, month=month_en[now.month - 1])
+
+
+def _extract_published_time_from_snippet(snippet: str) -> float:
+    """Try to extract actual publication time from search result snippet.
+    
+    Looks for patterns like "2 hours ago", "yesterday", "3 days ago",
+    dates like "Mar 5, 2026", etc. Returns a Unix timestamp or 0 if unknown.
+    """
+    if not snippet:
+        return 0
+    
+    snippet_lower = snippet.lower()
+    now = datetime.now(_MOSCOW_TZ)
+    
+    # ── Freshness penalty patterns — detect stale content ──
+    # These return timestamps far in the past so the item gets deprioritized
+    stale_patterns = [
+        (r'(\d+)\s+week', 7 * 24),      # "2 weeks ago"
+        (r'(\d+)\s+месяц', 30 * 24),    # "3 месяца назад"
+        (r'вчера', 24),                   # "yesterday"
+        (r'прошлый\s+недел', 7 * 24),    # "на прошлой неделе"
+        (r'прошлый\s+месяц', 30 * 24),   # "в прошлом месяце"
+        (r'прошлогод', 365 * 24),         # "прошлогодний"
+    ]
+    for pattern, hours_per_unit in stale_patterns:
+        match = re.search(pattern, snippet_lower)
+        if match:
+            try:
+                count = int(match.group(1)) if match.lastindex else 1
+            except (ValueError, IndexError):
+                count = 1
+            hours_ago = count * hours_per_unit
+            return now.timestamp() - (hours_ago * 3600)
+    
+    # ── Relative time patterns — try to compute actual time ──
+    rel_patterns = [
+        (r'(\d+)\s+hours?\s+ago', 1),      # "2 hours ago"
+        (r'(\d+)\s+минут', 1/60),           # "30 минут назад"
+        (r'(\d+)\s+час', 1),                # "2 часа назад"
+        (r'(\d+)\s+дн[еяь]', 24),           # "2 дня назад"
+        (r'(\d+)\s+days?\s+ago', 24),       # "3 days ago"
+        (r'сегодня|today', 0),               # "today"
+    ]
+    for pattern, hours_per_unit in rel_patterns:
+        match = re.search(pattern, snippet_lower)
+        if match:
+            try:
+                count = int(match.group(1)) if match.lastindex else 1
+            except (ValueError, IndexError):
+                count = 1
+            hours_ago = count * hours_per_unit
+            return now.timestamp() - (hours_ago * 3600)
+    
+    return 0  # Unknown — let _score_freshness handle it
 
 
 async def search_auto_news() -> List[Dict]:
     """Search the web for fresh automotive news using MULTIPLE queries for broad coverage.
     
-    Uses 3 different queries per call (rotated from 20+ pool) to maximize coverage.
-    Returns list of news items with: title, url, summary, source, category, lang, image_urls
+    PRIMARY source: Google News RSS (most reliable for fresh content).
+    SECONDARY source: web_search for broader coverage.
+    Returns list of news items with: title, url, summary, source, category, lang, image_urls, published_time
     """
     items = []
     seen_urls = set()
+    now = datetime.now(_MOSCOW_TZ)
+    month_ru = ["января", "февраля", "марта", "апреля", "мая", "июня",
+               "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+    month_en = ["January", "February", "March", "April", "May", "June",
+               "July", "August", "September", "October", "November", "December"]
     
+    # ── PRIMARY SOURCE: Google News RSS FIRST ──
+    # Google News RSS is the most reliable source for fresh/today's content.
+    # Use more specific "today" queries with actual dates.
+    gnews_queries = [
+        f"автомобильные новости {now.day} {month_ru[now.month - 1]} {now.year}",
+        f"автоновости сегодня {now.day} {month_ru[now.month - 1]}",
+        f"auto news today {now.day} {month_en[now.month - 1]} {now.year}",
+        f"автомобильные новости Россия сегодня {now.year}",
+        # F1/motorsport queries (check if it's a race weekend — Fri-Sun)
+        f"Формула 1 новости сегодня {now.day} {month_ru[now.month - 1]}" if now.weekday() >= 4 else f"Формула 1 новости {now.year}",
+        f"F1 news today {month_en[now.month - 1]} {now.year}" if now.weekday() >= 4 else f"F1 news {now.year}",
+    ]
+    # Remove duplicates (e.g. same weekday-based query)
+    gnews_queries = list(dict.fromkeys(gnews_queries))
+    
+    for gq in gnews_queries:
+        try:
+            gnews_results = await search_google_news_rss(gq, max_results=8)
+            for result in gnews_results:
+                title = result.title or ""
+                url = result.url or ""
+                snippet = result.snippet or ""
+                if not title or not url:
+                    continue
+                if url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                is_russian = any('\u0400' <= c <= '\u04FF' for c in title)
+                # Try to extract actual published time from snippet
+                published_time = _extract_published_time_from_snippet(snippet)
+                if not published_time:
+                    published_time = time.time()  # Assume fresh from Google News
+                items.append({
+                    "source": "google_news",
+                    "title": title.strip(),
+                    "url": url.strip(),
+                    "summary": snippet.strip()[:500],
+                    "published": published_time,
+                    "published_time": published_time,
+                    "category": "auto",
+                    "lang": "ru" if is_russian else "en",
+                    "image_urls": [],
+                })
+        except Exception as e:
+            logger.error(f"Google News RSS search failed (query: {gq}): {e}")
+    
+    # ── SECONDARY SOURCE: Web search for broader coverage ──
     # Use 3 different queries per call for broader coverage
     queries = [_get_search_query() for _ in range(3)]
     # Deduplicate queries (in case same one picked twice)
@@ -401,7 +545,8 @@ async def search_auto_news() -> List[Dict]:
     for query in queries:
         logger.info(f"Searching web for auto news: {query}")
         try:
-            results = await search_news(query, max_results=8)
+            # Use web_search directly — the query already specifies what to search for
+            results = await web_search(query, max_results=8)
             for result in results:
                 title = result.title or ""
                 url = result.url or ""
@@ -418,12 +563,20 @@ async def search_auto_news() -> List[Dict]:
                 # Detect language from title content
                 is_russian = any('\u0400' <= c <= '\u04FF' for c in title)
                 
+                # Try to extract actual publication date from snippet
+                published_time = _extract_published_time_from_snippet(snippet)
+                if not published_time:
+                    # Unknown time — don't assume fresh; use a moderate age penalty
+                    # so that Google News items (with known fresh timestamps) rank higher
+                    published_time = now.timestamp() - (6 * 3600)  # Assume 6h old
+                
                 items.append({
                     "source": result.source or "web_search",
                     "title": title.strip(),
                     "url": url.strip(),
                     "summary": snippet.strip()[:500],
-                    "published": time.time(),
+                    "published": published_time,
+                    "published_time": published_time,
                     "category": "auto",
                     "lang": "ru" if is_russian else "en",
                     "image_urls": [],  # Will be filled by image pipeline
@@ -431,7 +584,7 @@ async def search_auto_news() -> List[Dict]:
         except Exception as e:
             logger.error(f"Web search for auto news failed (query: {query}): {e}")
     
-    logger.info(f"Web search found {len(items)} auto news items across {len(queries)} queries")
+    logger.info(f"Search found {len(items)} auto news items (Google News + web search)")
     return items
 
 
@@ -444,23 +597,29 @@ async def search_russian_auto_news() -> List[Dict]:
     - Sochi/Krasnodar region auto news
     - Russian car market updates
     
+    Uses web_search directly to avoid dilution from appended keywords.
     Returns list of news items.
     """
     items = []
     seen_urls = set()
+    
+    now = datetime.now(_MOSCOW_TZ)
+    year = now.year
+    month_ru = ["января", "февраля", "марта", "апреля", "мая", "июня",
+               "июля", "августа", "сентября", "октября", "ноября", "декабря"]
     
     russian_queries = [
         "АвтоВАЗ LADA новости сегодня",
         "УАЗ ГАЗ КамАЗ новости {year}",
         "автоновости Сочи Краснодар",
         "автомобильный рынок Россия {year}",
-        "sochiautoparts.ru новости авто",
         "Российский автопром новости",
         "LADA Веста Гранта Нива новости",
         "Соллерс автомобили новости",
+        # Fresh-today Russian queries
+        f"автоновости Россия сегодня {now.day} {month_ru[now.month - 1]} {year}",
     ]
     
-    year = datetime.now(_MOSCOW_TZ).year
     # Pick 2 queries per call to not overload search
     selected = random.sample(russian_queries, min(2, len(russian_queries)))
     
@@ -468,7 +627,8 @@ async def search_russian_auto_news() -> List[Dict]:
         query = query_template.format(year=year)
         logger.info(f"Searching Russian auto news: {query}")
         try:
-            results = await search_news(query, max_results=5)
+            # Use web_search directly — query already specifies what to search
+            results = await web_search(query, max_results=5)
             for result in results:
                 title = result.title or ""
                 url = result.url or ""
@@ -481,18 +641,54 @@ async def search_russian_auto_news() -> List[Dict]:
                     continue
                 seen_urls.add(url)
                 
+                # Try to extract actual publication date from snippet
+                published_time = _extract_published_time_from_snippet(snippet)
+                if not published_time:
+                    published_time = now.timestamp() - (6 * 3600)  # Assume 6h old
+
                 items.append({
                     "source": result.source or "web_search_ru",
                     "title": title.strip(),
                     "url": url.strip(),
                     "summary": snippet.strip()[:500],
-                    "published": time.time(),
+                    "published": published_time,
+                    "published_time": published_time,
                     "category": "auto",
                     "lang": "ru",
                     "image_urls": [],
                 })
         except Exception as e:
             logger.error(f"Russian auto news search failed (query: {query}): {e}")
+    
+    # Also try Google News RSS for Russian news
+    try:
+        gnews_query = f"автомобильные новости Россия сегодня {year}"
+        gnews_results = await search_google_news_rss(gnews_query, max_results=5)
+        for result in gnews_results:
+            title = result.title or ""
+            url = result.url or ""
+            snippet = result.snippet or ""
+            if not title or not url:
+                continue
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+            published_time = _extract_published_time_from_snippet(snippet)
+            if not published_time:
+                published_time = time.time()  # Assume fresh from Google News
+            items.append({
+                "source": "google_news_ru",
+                "title": title.strip(),
+                "url": url.strip(),
+                "summary": snippet.strip()[:500],
+                "published": published_time,
+                "published_time": published_time,
+                "category": "auto",
+                "lang": "ru",
+                "image_urls": [],
+            })
+    except Exception as e:
+        logger.error(f"Google News RSS Russian search failed: {e}")
     
     logger.info(f"Russian auto news search found {len(items)} items")
     return items
@@ -509,15 +705,15 @@ async def search_news_images(query: str, max_count: int = 2) -> List[str]:
     try:
         # Search for images
         search_query = f"{query} car photo"
-        results = await web_search(search_query, num_results=5)
+        results = await web_search(search_query, max_results=5)
         for result in results:
-            url = result.get("url", "")
+            url = result.url or ""
             # Check if it looks like an image URL
             if any(ext in url.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp']):
                 if len(url) > 50:  # Skip tiny/tracking URLs
                     image_urls.append(url)
             # Also check snippet for image URLs
-            snippet = result.get("snippet", "")
+            snippet = result.snippet or ""
             img_match = re.search(r'https?://\S+\.(?:jpg|jpeg|png|webp)', snippet, re.IGNORECASE)
             if img_match:
                 image_urls.append(img_match.group(0))
@@ -632,6 +828,11 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
         
         # Score interest
         interest = _score_interest(title, summary)
+        
+        # Add freshness bonus — prefer TODAY's news over older items
+        published_time = item.get("published_time", 0) or item.get("published", 0)
+        freshness_bonus = _score_freshness(published_time)
+        interest += freshness_bonus
         
         scored_items.append({
             "item": item,
@@ -779,15 +980,18 @@ async def enrich_with_search_images(news_item: Dict) -> List[str]:
 def get_date_context() -> str:
     """Get current date/time context string for AI prompts.
     
-    Returns something like: 'Сейчас пятница, 6 июня 2026 года, время 14:30 МСК.'
+    Returns something like: 'СЕГОДНЯ: пятница, 6 июня 2026 года, время 14:30 МСК.'
+    The 'СЕГОДНЯ' prefix ensures the AI can't miss the current date.
     """
     now = datetime.now(_MOSCOW_TZ)
     days_ru = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
     months_ru = ["января", "февраля", "марта", "апреля", "мая", "июня",
                  "июля", "августа", "сентября", "октября", "ноября", "декабря"]
     return (
-        f"Сейчас {days_ru[now.weekday()]}, {now.day} {months_ru[now.month - 1]} "
-        f"{now.year} года, время {now.strftime('%H:%M')} МСК."
+        f"СЕГОДНЯ: {days_ru[now.weekday()]}, {now.day} {months_ru[now.month - 1]} "
+        f"{now.year} года, время {now.strftime('%H:%M')} МСК. "
+        f"Дата: {now.strftime('%d.%m.%Y')}. "
+        f"Пиши только о событиях СЕГОДНЯ или самых свежих новостях!"
     )
 
 

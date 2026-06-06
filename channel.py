@@ -13,6 +13,7 @@ import asyncio
 import tempfile
 import os
 import re
+import hashlib
 import httpx
 from typing import Optional, List, Dict, Tuple
 from datetime import datetime
@@ -258,6 +259,7 @@ def _validate_post_text(text: str) -> bool:
     duplicate_indicator_phrases = [
         "уже опубликован", "уже было", "уже публиковал", "уже писал об",
         "уже дважды", "уже трижды",  # "уже дважды был Алонсо"
+        "писал уже", "говорил уже", "упоминал уже",  # Additional patterns
         "не публиковать", "не публикуй", "не надо публиковать",
         "этот пост уже", "такой пост уже", "об этом уже",
         "дубликат", "это повтор",
@@ -357,6 +359,7 @@ class ChannelManager:
         self._post_model_index: int = 0  # For rotating content models
 
     # Content models rotation — each post uses a different model for variety
+    # NOTE: openai-fast removed — it always returns empty responses for content generation
     _CONTENT_MODELS_ROTATION = [
         "openai-large", "gpt-5.5", "mistral-4", "deepseek",
         "qwen-large", "deepseek-pro", "deepseek-v4", "minimax-m3",
@@ -412,8 +415,8 @@ class ChannelManager:
                     content = response.content
                     content_type = response.headers.get("content-type", "")
 
-                    # Validate: must be an image and at least 20KB (skip tiny icons/pixels/logos/thumbnails)
-                    if len(content) < 20000:
+                    # Validate: must be an image and at least 5KB (lowered from 20KB for news images)
+                    if len(content) < 5000:
                         logger.debug(f"Skipping small image ({len(content)} bytes): {url[:80]}")
                         continue
 
@@ -484,13 +487,13 @@ class ChannelManager:
         """Validate that image data represents a proper content photo, not a banner/ad/logo.
         
         Checks:
-        - Minimum size: 20KB (hard filter before this function)
-        - Minimum dimensions: 300x200px
+        - Minimum size: 5KB (hard filter before this function)
+        - Minimum dimensions: 200x150px
         - Maximum aspect ratio: 3:1 (skip wide banners) and 1:3 (skip tall skyscraper ads)
-        - Minimum pixel area: 100000px (skip small thumbnails even if file is big)
+        - Minimum pixel area: 50000px (skip small thumbnails even if file is big)
         """
-        # Hard minimum size — nothing under 20KB is a content image
-        if len(image_data) < 20000:
+        # Minimum size — nothing under 5KB is a content image
+        if len(image_data) < 5000:
             return False
 
         try:
@@ -501,7 +504,7 @@ class ChannelManager:
             width, height = img.size
 
             # Skip tiny images (icons, thumbnails)
-            if width < 300 or height < 200:
+            if width < 200 or height < 150:
                 return False
 
             # Skip extremely wide images (banners, ad strips)
@@ -512,19 +515,21 @@ class ChannelManager:
             if height / max(width, 1) > 3.0:
                 return False
 
-            # Skip very small area images (likely icons/buttons even if > 20KB)
-            if width * height < 100000:
+            # Skip very small area images (likely icons/buttons even if > 5KB)
+            if width * height < 50000:
                 return False
 
             return True
 
         except ImportError:
-            # PIL not available — REJECT image (safe default: don't post junk)
-            logger.warning("PIL not available, REJECTING image (can't validate dimensions)")
-            return False
+            # PIL not available — soft check: accept the image anyway for news posts
+            # (better to post a slightly unvalidated image than no image at all)
+            logger.warning("PIL not available, ACCEPTING image without dimension check (soft validation)")
+            return True
         except Exception:
-            # Can't read image — skip it
-            return False
+            # Can't read image — accept anyway (soft check)
+            logger.debug("Can't read image dimensions, accepting as-is (soft validation)")
+            return True
 
     async def _scrape_article_images(self, article_url: str, max_count: int = 2) -> List[bytes]:
         """Scrape images from a news article page as fallback.
@@ -690,6 +695,7 @@ class ChannelManager:
         
         Uses RELAXED validation for partner images — they're often smaller logos/banners
         (5KB+), which is fine for partner posts. News image validation is stricter.
+        Handles SVG images by converting them to PNG using cairosvg.
         """
         if not image_url:
             return None
@@ -701,8 +707,35 @@ class ChannelManager:
                 content = response.content
                 content_type = response.headers.get("content-type", "")
 
+                # ── Handle SVG images — convert to PNG for Telegram ──
+                is_svg = (
+                    "svg" in content_type.lower() or
+                    b'<svg' in content[:1000] or
+                    image_url.lower().endswith('.svg')
+                )
+                if is_svg:
+                    try:
+                        import cairosvg
+                        import io
+                        # Convert SVG → PNG at 512px width (good for Telegram)
+                        png_data = cairosvg.svg2png(bytestring=content, output_width=512)
+                        if png_data and len(png_data) > 1000:
+                            logger.info(f"Converted partner SVG → PNG ({len(png_data)} bytes): {image_url[:60]}")
+                            content = png_data
+                            content_type = "image/png"
+                        else:
+                            logger.debug(f"SVG conversion produced tiny output, skipping")
+                            return None
+                    except ImportError:
+                        logger.debug("cairosvg not available, cannot convert SVG partner image")
+                        return None
+                    except Exception as e:
+                        logger.debug(f"SVG → PNG conversion failed: {e}")
+                        return None
+
                 # Relaxed size check for partner images — logos can be 5KB+
-                if len(content) < 5000:
+                # (But after SVG→PNG conversion, image is larger)
+                if len(content) < 2000:
                     logger.debug(f"Skipping tiny partner image ({len(content)} bytes)")
                     return None
 
@@ -943,47 +976,110 @@ class ChannelManager:
             logger.error(f"Post validation failed, skipping")
             return False
 
+        # ── DEDUPLICATION LAYER 3.5: Post-generation content hash dedup ──
+        # Compare first 200 chars of cleaned post text against recent channel posts.
+        # This catches near-duplicates where AI rewrote the same topic differently.
+        post_hash = hashlib.sha256(post_text[:200].encode()).hexdigest()
+        cleaned_prefix = re.sub(r'[^a-zа-яё0-9]', '', post_text[:50].lower())
+        
+        # Check topic registry for the entity key
+        entity_key = _extract_entities(news_item.get("title", ""))
+        if _is_topic_covered(entity_key):
+            logger.warning(f"POST-GEN TOPIC DEDUP blocked: topic already in registry '{entity_key}' — {news_item.get('title', '')[:60]}")
+            if news_item.get("url"):
+                await mark_news_posted(news_item["url"])
+            return False
+        
+        # Check content hash against recent posts in DB
+        try:
+            if await is_duplicate_post(post_text[:100], content=post_text, hours=72):
+                logger.warning(f"POST-GEN CONTENT HASH DUPLICATE blocked: {news_item.get('title', '')[:60]}")
+                if news_item.get("url"):
+                    await mark_news_posted(news_item["url"])
+                _register_topic(entity_key, news_item.get("title", ""))
+                return False
+        except Exception:
+            pass  # Non-critical — don't block if DB check fails
+
         # Smart character limit enforcement — always preserve footer
         post_text = _enforce_char_limit(post_text, has_media)
 
-        # ── AI-Filter: Check with Настя before publishing ──
+        # ── Interbot: Submit news candidate to Настя for review ──
+        # Submit BEFORE AI generates content, so Настя can review while we generate.
+        # Then check for reviews after content is generated.
+        candidate_id = None
         try:
             candidate_id = await interbot_manager.submit_news_candidate(
                 title=news_item.get("title", ""),
                 summary=news_item.get("summary", "")[:300],
                 category=news_item.get("category", "auto"),
             )
-
-            # Wait briefly for review (max 10 seconds)
-            review_found = False
-            for _ in range(5):
-                await asyncio.sleep(2)
-                reviewed = await interbot_manager.get_reviewed_candidates()
-                for item in reviewed:
-                    if item["candidate"].get("id") == candidate_id:
-                        review = item["review"]
-                        verdict = review.get("verdict", "approved")
-                        if verdict == "rejected":
-                            logger.info(f"Настя REJECTED post: {news_item.get('title', '')[:50]}")
-                            await interbot_manager.mark_candidate_processed(candidate_id)
-                            return False
-                        elif verdict == "improved" and review.get("improved_text"):
-                            post_text = _clean_post_text(review["improved_text"])
-                            post_text = _ensure_footer(post_text)
-                            post_text = _enforce_char_limit(post_text, has_media)
-                            logger.info(f"Настя IMPROVED post: {news_item.get('title', '')[:50]}")
-                        else:
-                            logger.info(f"Настя APPROVED post: {news_item.get('title', '')[:50]}")
-                        await interbot_manager.mark_candidate_processed(candidate_id)
-                        review_found = True
-                        break
-                if review_found:
-                    break
-            else:
-                # No review from Настя — publish independently (fallback)
-                logger.info(f"No review from Настя, publishing independently")
         except Exception as e:
-            logger.warning(f"AI-Filter check failed, publishing without review: {e}")
+            logger.debug(f"Interbot candidate submission failed: {e}")
+
+        # Check for reviews from Настя on this or previous candidates
+        try:
+            reviewed = await interbot_manager.get_reviewed_candidates()
+            for item in reviewed:
+                cid = item["candidate"].get("id", "")
+                review = item["review"]
+                verdict = review.get("verdict", "approved")
+                if verdict == "rejected":
+                    logger.info(f"Настя REJECTED post: {item['candidate'].get('title', '')[:50]}")
+                    await interbot_manager.mark_candidate_processed(cid)
+                    return False
+                elif verdict == "improved" and review.get("improved_text"):
+                    improved_text = _clean_post_text(review["improved_text"])
+                    if _validate_post_text(improved_text):
+                        post_text = _ensure_footer(improved_text)
+                        post_text = _enforce_char_limit(post_text, has_media)
+                        logger.info(f"Настя IMPROVED post: {item['candidate'].get('title', '')[:50]}")
+                    await interbot_manager.mark_candidate_processed(cid)
+                else:
+                    logger.info(f"Настя APPROVED post: {item['candidate'].get('title', '')[:50]}")
+                    await interbot_manager.mark_candidate_processed(cid)
+        except Exception as e:
+            logger.debug(f"Interbot review check failed: {e}")
+
+        # If candidate was submitted but no review yet, wait briefly then proceed independently
+        if candidate_id:
+            try:
+                candidate_obj = None
+                for c in interbot_manager._own_state.get("pending_reviews", []):
+                    if c.get("id") == candidate_id and c.get("status") == "pending":
+                        candidate_obj = c
+                        break
+                if candidate_obj and not interbot_manager.should_publish_without_review(candidate_obj):
+                    # Wait briefly for review (max 10 seconds)
+                    await asyncio.sleep(10)
+                    # Check one more time
+                    reviewed2 = await interbot_manager.get_reviewed_candidates()
+                    for item in reviewed2:
+                        cid = item["candidate"].get("id", "")
+                        if cid == candidate_id:
+                            review = item["review"]
+                            verdict = review.get("verdict", "approved")
+                            if verdict == "rejected":
+                                logger.info(f"Настя REJECTED (late review): {news_item.get('title', '')[:50]}")
+                                await interbot_manager.mark_candidate_processed(cid)
+                                return False
+                            elif verdict == "improved" and review.get("improved_text"):
+                                improved_text = _clean_post_text(review["improved_text"])
+                                if _validate_post_text(improved_text):
+                                    post_text = _ensure_footer(improved_text)
+                                    post_text = _enforce_char_limit(post_text, has_media)
+                                logger.info(f"Настя IMPROVED (late review): {news_item.get('title', '')[:50]}")
+                            await interbot_manager.mark_candidate_processed(cid)
+                            break
+                logger.info(f"Proceeding with post (Настя review timeout or approved)")
+            except Exception as e:
+                logger.debug(f"Interbot late review check failed: {e}")
+
+        # Cleanup stale interbot candidates periodically
+        try:
+            await interbot_manager.cleanup_stale_candidates()
+        except Exception:
+            pass
 
         # Re-validate after potential modification by Настя
         if not _validate_post_text(post_text):
@@ -1019,6 +1115,12 @@ class ChannelManager:
                 return False
         except Exception as e:
             logger.warning(f"Post-content fingerprint check failed: {e}")
+
+        # ── Register topic in registry AFTER successful validation ──
+        # (not before AI generation — that was causing premature registration)
+        entity_key = _extract_entities(news_item.get("title", ""))
+        if entity_key:
+            _register_topic(entity_key, news_item.get("title", ""))
 
         # ── Record in in-memory dedup BEFORE publishing ──
         # This ensures the second post in the same cycle will see this one.
@@ -1317,12 +1419,15 @@ class ChannelManager:
             logger.info(f"Partner program '{program.name}' was already posted recently, skipping")
             return False
 
-        # Try to use partner image FIRST (before generating text, so we know has_media)
-        partner_image_url = program.image if hasattr(program, 'image') else None
+        # Try to use partner image from the PartnerProgram object directly
+        # (use program.image URL — don't search by category/name matching)
+        partner_image_url = program.image
         partner_image_data = None
         if partner_image_url:
             try:
                 partner_image_data = await self._download_partner_image(partner_image_url)
+                if partner_image_data:
+                    logger.info(f"Using partner image from program object: {partner_image_url[:60]}")
             except Exception as e:
                 logger.debug(f"Partner image download failed: {e}")
 

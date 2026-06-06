@@ -7,6 +7,7 @@ import httpx
 import re
 import json
 import time
+import asyncio
 import logging
 from typing import List, Dict, Optional
 from urllib.parse import quote_plus, urlencode
@@ -62,29 +63,42 @@ async def search_ddg_html(query: str, max_results: int = 5, region: str = "ru") 
             response = await client.get("https://html.duckduckgo.com/html/", params=params, headers=DDG_HEADERS)
             if response.status_code != 200:
                 logger.warning(f"DDG HTML returned {response.status_code}")
-                # 202 = DDG rate limiting/blocking, try lite version as fallback
+                # 202 = DDG rate limiting/blocking, wait and retry, then try lite version
                 if response.status_code == 202:
+                    # Wait longer before retry — DDG rate limits need time to clear
+                    await asyncio.sleep(2.0)
                     try:
-                        lite_params = {"q": query, "kl": DDG_REGIONS.get(region, "ru-ru")}
-                        response = await client.get(
-                            "https://lite.duckduckgo.com/lite/",
-                            params=lite_params,
-                            headers=DDG_HEADERS,
-                        )
-                        if response.status_code != 200:
+                        response = await client.get("https://html.duckduckgo.com/html/", params=params, headers=DDG_HEADERS)
+                        if response.status_code == 200:
+                            # Got through on retry — parse normally below
+                            pass
+                        else:
+                            # Still blocked, try lite version as fallback
+                            try:
+                                await asyncio.sleep(1.0)
+                                lite_params = {"q": query, "kl": DDG_REGIONS.get(region, "ru-ru")}
+                                response = await client.get(
+                                    "https://lite.duckduckgo.com/lite/",
+                                    params=lite_params,
+                                    headers=DDG_HEADERS,
+                                )
+                                if response.status_code != 200:
+                                    return results
+                                # Parse lite version results (different HTML structure)
+                                urls = re.findall(r'<a[^>]+class="result-link"[^>]+href="([^"]+)"', response.text)
+                                titles = re.findall(r'<a[^>]+class="result-link"[^>]*>(.*?)</a>', response.text, re.DOTALL)
+                                snippets = re.findall(r'<td[^>]+class="result-snippet"[^>]*>(.*?)</td>', response.text, re.DOTALL)
+                                for i, url in enumerate(urls[:max_results]):
+                                    title = _clean_html(titles[i]) if i < len(titles) else ""
+                                    snippet = _clean_html(snippets[i]) if i < len(snippets) else ""
+                                    if url and title:
+                                        results.append(SearchResult(title=title, url=url, snippet=snippet, source="duckduckgo_lite"))
+                                return results
+                            except Exception as e2:
+                                logger.debug(f"DDG Lite search error: {e2}")
                             return results
-                        # Parse lite version results (different HTML structure)
-                        urls = re.findall(r'<a[^>]+class="result-link"[^>]+href="([^"]+)"', response.text)
-                        titles = re.findall(r'<a[^>]+class="result-link"[^>]*>(.*?)</a>', response.text, re.DOTALL)
-                        snippets = re.findall(r'<td[^>]+class="result-snippet"[^>]*>(.*?)</td>', response.text, re.DOTALL)
-                        for i, url in enumerate(urls[:max_results]):
-                            title = _clean_html(titles[i]) if i < len(titles) else ""
-                            snippet = _clean_html(snippets[i]) if i < len(snippets) else ""
-                            if url and title:
-                                results.append(SearchResult(title=title, url=url, snippet=snippet, source="duckduckgo_lite"))
-                        return results
                     except Exception as e2:
-                        logger.debug(f"DDG Lite search error: {e2}")
+                        logger.debug(f"DDG HTML retry error: {e2}")
                 return results
 
             html = response.text
@@ -207,6 +221,16 @@ SEARXNG_INSTANCES = [
     "https://search.rhscze.cf",
     "https://searxng.tordenskjold.one",
     "https://searxng.bravefence.com",
+    # More reliable alternatives added for resilience
+    "https://searxng.shreven.org",
+    "https://search.privacyredirect.com",
+    "https://searxng.perennialte.ch",
+    "https://search.0relay.com",
+    "https://searxng.au",
+    "https://searx.no-logs.com",
+    "https://search.cronobox.one",
+    "https://searx.datura.network",
+    "https://search.charleseroop.com",
 ]
 
 
@@ -423,7 +447,7 @@ async def search_parts_by_vin(vin: str, part_name: str = "", max_results: int = 
 async def web_search(query: str, max_results: int = None, region: str = "ru") -> List[SearchResult]:
     """
     Multi-engine web search with fallback chain:
-    SearXNG → DDG HTML → DDG Lite → Yandex → Google → DDG API
+    SearXNG → DDG HTML → DDG Lite → Yandex → Google → Google News RSS → DDG API
     
     SearXNG is tried first because DDG HTML frequently returns 202 (block) responses.
     Each engine is tried with a short timeout, and we move on quickly if it fails.
@@ -456,7 +480,14 @@ async def web_search(query: str, max_results: int = None, region: str = "ru") ->
     if len(results) >= 1:
         return results[:max_results]
 
-    # Strategy 5: DDG API (instant answer only)
+    # Strategy 5: Google News RSS (reliable for news queries)
+    gnews_results = await search_google_news_rss(query, max_results=max_results)
+    if gnews_results:
+        results.extend(gnews_results)
+    if len(results) >= 1:
+        return results[:max_results]
+
+    # Strategy 6: DDG API (instant answer only)
     ddg_api = await search_ddg_api(query, region=region)
     if ddg_api:
         results.append(ddg_api)
@@ -464,17 +495,52 @@ async def web_search(query: str, max_results: int = None, region: str = "ru") ->
     return results[:max_results]
 
 
+async def search_google_news_rss(query: str, max_results: int = 5) -> List[SearchResult]:
+    """Search Google News RSS feed.
+
+    Uses Google News RSS endpoint which is reliable and doesn't require API keys.
+    Returns SearchResults with title, url, snippet, and source='google_news'.
+    """
+    import feedparser
+    results = []
+    try:
+        url = f"https://news.google.com/rss/search?q={quote_plus(query)}&hl=ru&gl=RU&ceid=RU:ru"
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            response = await client.get(url)
+            if response.status_code == 200:
+                feed = feedparser.parse(response.text)
+                for entry in feed.entries[:max_results]:
+                    title = entry.get("title", "").strip()
+                    link = entry.get("link", "").strip()
+                    summary = entry.get("summary", "").strip()
+                    if title and link:
+                        clean_summary = re.sub(r'<[^>]+>', '', summary)[:500]
+                        results.append(SearchResult(
+                            title=title, url=link, snippet=clean_summary, source="google_news"
+                        ))
+    except Exception as e:
+        logger.debug(f"Google News RSS search failed: {e}")
+    return results
+
+
 async def search_news(query: str, max_results: int = 5) -> List[SearchResult]:
-    """Search for news articles — SearXNG news category first, then DDG fallback."""
-    news_query = f"{query} новости авто"
+    """Search for news articles — SearXNG news category first, then DDG, then Google News RSS fallback.
+    
+    The query is passed as-is — the caller already specifies what to search for.
+    No extra keywords are appended to avoid diluting results.
+    """
     # Try SearXNG with news category for better relevance
-    results = await search_searxng(news_query, max_results=max_results, language="ru", categories="news")
+    results = await search_searxng(query, max_results=max_results, language="ru", categories="news")
     if len(results) < 2:
         # Fallback to general search without news category
-        results += await search_searxng(news_query, max_results=max_results, language="ru")
+        results += await search_searxng(query, max_results=max_results, language="ru")
     if len(results) < 2:
-        ddg_results = await search_ddg_html(news_query, max_results=max_results)
+        ddg_results = await search_ddg_html(query, max_results=max_results)
         results.extend(ddg_results)
+    if len(results) < 2:
+        # Google News RSS as additional fallback
+        gnews_results = await search_google_news_rss(query, max_results=max_results)
+        results.extend(gnews_results)
     return results[:max_results]
 
 

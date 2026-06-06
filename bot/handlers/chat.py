@@ -609,30 +609,26 @@ async def handle_photo(message: Message):
                 detected_vin = _detect_vin(reply_text)
                 if detected_vin and len(detected_vin) == 17:
                     try:
-                        links = partner_manager.get_primary_parts_links()
+                        links = partner_manager.get_all_relevant_links(reply_text, max_programs=5)
                         if links:
                             reply_text += f"\n\nЗапчасти по VIN {detected_vin} можно подобрать здесь:\n"
                             reply_text += "Где купить:\n"
-                            link_emojis = ["🔧", "🔍", "🛒"]
-                            for i, link in enumerate(links):
-                                emoji = link_emojis[i] if i < len(link_emojis) else "🔗"
-                                reply_text += f"{emoji} {link['name']} — {link['url']}\n"
+                            for link in links:
+                                reply_text += f"🔧 {link['name']} — {link['url']}\n"
                     except Exception as e:
-                        logger.debug(f"Primary links from photo error: {e}")
+                        logger.debug(f"Partner links from photo error: {e}")
 
                 # Check if AI found part numbers — suggest partner links
                 detected_parts = extract_part_numbers(reply_text)
                 if detected_parts:
                     try:
-                        links = partner_manager.get_primary_parts_links()
+                        links = partner_manager.get_all_relevant_links(reply_text, max_programs=5)
                         if links:
                             reply_text += "\n\nГде купить:\n"
-                            link_emojis = ["🔧", "🔍", "🛒"]
-                            for i, link in enumerate(links):
-                                emoji = link_emojis[i] if i < len(link_emojis) else "🔗"
-                                reply_text += f"{emoji} {link['name']} — {link['url']}\n"
+                            for link in links:
+                                reply_text += f"🔧 {link['name']} — {link['url']}\n"
                     except Exception as e:
-                        logger.debug(f"Primary links from photo parts error: {e}")
+                        logger.debug(f"Partner links from photo parts error: {e}")
 
                 # Split if too long
                 if len(reply_text) <= config.TELEGRAM_TEXT_LIMIT:
@@ -790,14 +786,20 @@ async def _process_text_message(message: Message, text: str):
             vin_code=vin_or_body,
             extra_context="\n".join(all_context),
         )
-        # Collect VIN partner links for clean formatting
+        # Collect VIN partner links for clean formatting (cross-category)
         vin_partner_links = []
         try:
-            primary_links_data = partner_manager.get_primary_parts_links()
-            for pl in primary_links_data:
+            all_links_data = partner_manager.get_all_relevant_links(vin_or_body, max_programs=5)
+            for pl in all_links_data:
                 vin_partner_links.append((pl['name'], pl['url']))
         except Exception:
-            pass
+            # Fallback to primary parts links only
+            try:
+                primary_links_data = partner_manager.get_primary_parts_links()
+                for pl in primary_links_data:
+                    vin_partner_links.append((pl['name'], pl['url']))
+            except Exception:
+                pass
         await _send_response(message, response, status_msg, vin_partner_links)
         return
 
@@ -906,36 +908,38 @@ async def _process_text_message(message: Message, text: str):
             primary_links = partner_manager.format_primary_parts_links()
             if primary_links and primary_links not in extra_context_parts:
                 extra_context_parts.append(primary_links)
-            # Collect primary partner links for post-processing (clean formatting)
+            # Collect ALL relevant partner links for post-processing (clean formatting)
+            # Use get_all_relevant_links for cross-category coverage
             try:
-                primary_links_data = partner_manager.get_primary_parts_links()
-                for pl in primary_links_data:
+                all_links_data = partner_manager.get_all_relevant_links(text, max_programs=5)
+                for pl in all_links_data:
                     collected_partner_links.append((pl['name'], pl['url']))
             except Exception:
-                pass
+                # Fallback to primary parts links only
+                try:
+                    primary_links_data = partner_manager.get_primary_parts_links()
+                    for pl in primary_links_data:
+                        collected_partner_links.append((pl['name'], pl['url']))
+                except Exception:
+                    pass
         except Exception as e:
             logger.debug(f"Primary links for spare parts error: {e}")
 
-    # 7. Partner program context — additional partner links for non-parts topics
-    # (tires, insurance, tools, etc.) — primary parts links already added above
+    # 7. Partner program context — ALL relevant partner links for all topics
+    # Use get_all_relevant_links for cross-category coverage (not just autoparts).
+    # This ensures tires, insurance, tools, checkauto links are included when relevant.
     try:
-        # Only add category-based partner context for non-parts topics
-        text_lower = text.lower()
-        parts_keywords = ["запчаст", "деталь", "артикул", "купить запчас", "vin", "вин"]
-        is_only_parts = is_spare_part_query or is_part_query or is_vin_query
-        
-        if not is_only_parts:
-            partner_context = partner_manager.generate_partner_context(text)
-            if partner_context:
-                extra_context_parts.append(partner_context)
-        else:
-            # For parts queries, add OTHER partner links (tires, insurance, etc.) if relevant
-            other_keywords = ["шины", "диски", "резина", "страховка", "осаго", "каско",
-                             "инструмент", "проверк", "аренда"]
-            if any(kw in text_lower for kw in other_keywords):
-                partner_context = partner_manager.generate_partner_context(text)
-                if partner_context:
-                    extra_context_parts.append(partner_context)
+        partner_context = partner_manager.generate_partner_context(text)
+        if partner_context:
+            extra_context_parts.append(partner_context)
+        # Also collect cross-category partner links for clean formatting
+        if not is_spare_part_query:  # Already collected above for spare part queries
+            try:
+                all_relevant = partner_manager.get_all_relevant_links(text, max_programs=5)
+                for pl in all_relevant:
+                    collected_partner_links.append((pl['name'], pl['url']))
+            except Exception:
+                pass
     except Exception as e:
         logger.error(f"Partner context error: {e}")
 
@@ -1109,28 +1113,22 @@ def _format_partner_links_section(partner_links: list) -> str:
     """Format partner links as a clean, readable section with plain text URLs.
     
     Takes a list of (name, url) tuples and returns a nicely formatted
-    string with emoji + name + raw URL.
+    string with 🔧 prefix + name + raw URL.
     
     Result looks like:
     
     Где купить:
     🔧 Росско — https://ujhjj.com/g/...
-    🔍 Autopiter — https://rcpsj.com/g/...
-    🛒 AvtoALL — https://sgkaa.com/g/...
+    🔧 Autopiter — https://rcpsj.com/g/...
+    🔧 AvtoALL — https://sgkaa.com/g/...
     """
     if not partner_links:
         return ""
     
     lines = ["Где купить:"]
     for name, url in partner_links[:5]:
-        icon = _DEFAULT_SHOP_ICON
-        name_lower = name.lower()
-        for shop_key, shop_icon in _SHOP_ICONS.items():
-            if shop_key in name_lower:
-                icon = shop_icon
-                break
-        # Plain text format: emoji + name — URL (as user requested)
-        lines.append(f'{icon} {name} — {url}')
+        # Simple format: 🔧 Name — URL (consistent, no HTML, as user requested)
+        lines.append(f'🔧 {name} — {url}')
     
     return "\n".join(lines)
 

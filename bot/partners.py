@@ -600,6 +600,115 @@ class PartnerManager:
 
         return links
 
+    def get_all_relevant_links(self, text: str, max_programs: int = 5, region: str = DEFAULT_REGION) -> List[Dict[str, str]]:
+        """Get ALL relevant partner links across ALL categories for a given text.
+
+        Unlike get_primary_parts_links() which only returns autoparts, this method
+        detects ALL relevant categories (autoparts, tires, tools, insurance, checkauto, etc.)
+        and returns links from ALL matching categories.
+
+        For car-related queries, includes: autoparts + tires + tools + insurance + checkauto.
+        For general queries, includes relevant categories based on keywords.
+
+        Returns list of dicts with 'name', 'url', 'description' keys.
+        """
+        self.ensure_loaded()
+        links = []
+        seen_names = set()
+        text_lower = text.lower()
+
+        # Detect ALL relevant categories based on keywords
+        relevant_categories = set()
+
+        # Always include autoparts for car-related queries
+        auto_keywords = [
+            "запчаст", "деталь", "артикул", "купить запчас", "купить детал",
+            "оригинал", "аналог", "замена", "подбор", "номер детал",
+            "oem", "оригинальн", "поиск запчас", "найти запчас",
+            "фильтр", "колодки", "свечи", "ремень", "прокладк",
+            "сальник", "подшипник", "амортизатор", "реле", "датчик",
+            "масло", "антифриз", "тормозн", "где купить",
+            "росско", "rossko", "autopiter", "автопитер",
+            "vin", "вин", "машина", "авто", "мотор", "двигатель",
+            "ремонт", "поломк", "стучит", "диагност",
+            "avtoall", "exist", "emex", "autodoc",
+        ]
+        tire_keywords = [
+            "шины", "диски", "резина", "колёса", "зимняя", "летняя",
+            "шипованные", "шиповк", "покрышк", "euro-diski", "bs-tyres",
+            "сезонная смен", "переобув",
+        ]
+        tools_keywords = [
+            "инструмент", "ключ", "набор", "гараж", "домкрат",
+            "avtoall", "подъёмник", "станок",
+        ]
+        insurance_keywords = [
+            "страховка", "осаго", "каско", "страхование", "полис",
+            "petrolplus", "автострахов",
+        ]
+        checkauto_keywords = [
+            "проверка", "вин", "vin", "история", "автокод", "пробить",
+            "hyperauto", "проверить авто", "история автомобил",
+        ]
+        rent_keywords = [
+            "аренда", "прокат", "рент", "арендовать", "напрокат",
+            "discovercars", "localrent",
+        ]
+
+        if any(kw in text_lower for kw in auto_keywords):
+            relevant_categories.add("autoparts")
+        if any(kw in text_lower for kw in tire_keywords):
+            relevant_categories.add("tires")
+        if any(kw in text_lower for kw in tools_keywords):
+            relevant_categories.add("tools")
+        if any(kw in text_lower for kw in insurance_keywords):
+            relevant_categories.add("autoinsurance")
+        if any(kw in text_lower for kw in checkauto_keywords):
+            relevant_categories.add("checkauto")
+        if any(kw in text_lower for kw in rent_keywords):
+            relevant_categories.add("autorent")
+
+        # If no specific category detected, default to autoparts for car queries
+        if not relevant_categories:
+            # Check if it's a car-related query at all
+            car_kw = ["авто", "машина", "машин", "двигатель", "мотор", "car", "auto",
+                      "кузов", "ходов", "подвеск", "тормоз", "руль", "коробк"]
+            if any(kw in text_lower for kw in car_kw):
+                relevant_categories.add("autoparts")
+                # For car queries, also include these common cross-categories
+                relevant_categories.add("tires")
+                relevant_categories.add("tools")
+                relevant_categories.add("checkauto")
+
+        # Collect programs from all relevant categories
+        for cat in relevant_categories:
+            cat_programs = self.get_by_category(cat, region)
+            for p in cat_programs:
+                if p.name not in seen_names and p.goto_link:
+                    seen_names.add(p.name)
+                    desc = p._get_category_description()
+                    links.append({
+                        "name": p.name,
+                        "url": p.goto_link,
+                        "description": f"{p.category_name} — {desc}",
+                    })
+
+        # Always ensure primary autoparts links are included if autoparts is relevant
+        if "autoparts" in relevant_categories:
+            primary_sites = ["rossko.ru", "autopiter.ru", "avtoall.ru"]
+            for site in primary_sites:
+                prog = self.get_by_site(site)
+                if prog and prog.name not in seen_names and prog.goto_link:
+                    seen_names.add(prog.name)
+                    desc = prog._get_category_description()
+                    links.append({
+                        "name": prog.name,
+                        "url": prog.goto_link,
+                        "description": f"{prog.category_name} — {desc}",
+                    })
+
+        return links[:max_programs]
+
     def should_post_partner(self) -> bool:
         """Check if it's time to post a partner message to channel."""
         now = time.time()
