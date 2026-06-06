@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T06:33:29Z",
+  "last_updated": "2026-06-06T07:07:19Z",
   "pending_reviews": [
     {
       "id": "c_1780727093_499008",
@@ -11,7 +11,7 @@
       "summary": "Debuting in Malaysia is the 2026 Alpinestars Supertech R10 helmet, designed for the sports bike rider. Pricing is set at RM3,999 for the plain carbon and white Supertech R10, while opting for one of the [&#8230;] The post 2026 Alpinestars Supertech R10 helmet in Malaysia, priced at RM3,999 for solid",
       "category": "auto",
       "timestamp": 1780727093.791486,
-      "status": "pending"
+      "status": "timed_out"
     },
     {
       "id": "c_1780727609_e1f978",
@@ -21,6 +21,16 @@
       "summary": "The frame had to be lengthened by three feet to fit the two-stroke diesel engine measuring 1,136 cubic inches. The post John Deere Tractor With V16 Detroit Diesel Tugboat Engine Is a Sled-Pulling Machine appeared first on The Drive.",
       "category": "auto",
       "timestamp": 1780727609.2821798,
+      "status": "timed_out"
+    },
+    {
+      "id": "c_1780729639_29b6a3",
+      "from": "asya",
+      "type": "news_candidate",
+      "title": "Rolls-Royce Spectre Series II Gets More Power And Range, But You'll Really Care About The Redesigned Clock And Absurd Trim Options",
+      "summary": "The overall design hasn't changed much, but the new Spectre gets some of the wildest and most impressively intricate options you've ever seen on a car.",
+      "category": "auto",
+      "timestamp": 1780729639.8413289,
       "status": "pending"
     }
   ],
