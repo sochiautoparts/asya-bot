@@ -658,12 +658,22 @@ class AIRouter:
 
     @staticmethod
     def _clean_ai_response(text: str) -> str:
-        """Clean AI response artifacts (think tags, markdown, etc.)."""
+        """Clean AI response artifacts (think tags, markdown, structured output, etc.)."""
         if not text:
             return ""
 
-        # Strip think tags (Qwen3, reasoning models)
+        # Block structured YAML/MIDI/JSON output from text-to-music models
         import re
+        structured_patterns = [
+            r'^title:\s*.+?\n(duration|key|notation|pitch|velocity|tempo|bpm):',
+            r'^---\s*\n.*?(title|duration|notation|pitch|velocity):',
+            r'pitch,\s*time,\s*duration,\s*velocity',
+        ]
+        for pattern in structured_patterns:
+            if re.search(pattern, text, re.DOTALL | re.IGNORECASE):
+                return ""
+
+        # Strip think tags (Qwen3, reasoning models)
         text = re.sub(r'<think\b[^>]*>.*?</think\s*>', '', text, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r'<thinking\b[^>]*>.*?</thinking\s*>', '', text, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r'</?think[^>]*>', '', text, flags=re.IGNORECASE)

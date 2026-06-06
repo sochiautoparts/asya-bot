@@ -62,7 +62,7 @@ CHAT_MODELS = [
     "perplexity-fast",     # Sonar, 128K context — fast web search
     "perplexity",          # Sonar Pro, 200K context — web search
     "perplexity-deep",     # Sonar deep search — deep search
-    "midijourney",         # Pollinations native model
+    # "midijourney",       # REMOVED: text-to-music model, NOT for chat!
     "qwen-vision",         # Qwen Vision, 131K context, tools, text+image — vision specialist
     "kimi",                # Kimi K2.5, 262K context, tools, reasoning+vision
     "kimi-k2.6",           # Kimi K2.6, 262K context — latest reasoning
@@ -212,7 +212,7 @@ FALLBACK_MODELS = [
     "mistral", "step-flash", "polly", "mistral-large", "qwen-large",
     "gpt-5.4-mini", "deepseek-pro", "perplexity-deep",
     "perplexity-reasoning", "openai-reasoning", "nova-micro", "nova",
-    "llama", "perplexity-fast", "perplexity", "midijourney", "qwen-coder",
+    "llama", "perplexity-fast", "perplexity", "qwen-coder",
     "qwen-vision", "nova-2", "mistral-small", "mistral-small-3.2",
 ]
 

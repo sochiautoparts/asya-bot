@@ -874,9 +874,29 @@ async def _process_text_message(message: Message, text: str):
             search_query = text
             if brand:
                 search_query = f"{brand} {text}"
-            results = await web_search(search_query, max_results=3)
+            
+            # Rewrite vague queries into specific search terms
+            text_lower = text.lower().strip()
+            _SEARCH_QUERY_REWRITES = {
+                "какие новости": "автомобильные новости сегодня 2026",
+                "что нового": "автоновости сегодня 2026",
+                "новости": "автомобильные новости сегодня 2026",
+                "что случилось": "автомобильные новости сегодня",
+                "что происходит": "автомобильный рынок новости",
+                "какие новости сегодня": "автомобильные новости сегодня 2026",
+                "что нового в авт мире": "автомобильные новинки 2026",
+                "что нового на рынке": "авторынок новости 2026",
+            }
+            for vague, specific in _SEARCH_QUERY_REWRITES.items():
+                if vague in text_lower and len(text_lower) < len(vague) + 15:
+                    search_query = specific
+                    if brand:
+                        search_query = f"{brand} {specific}"
+                    break
+            
+            results = await web_search(search_query, max_results=5)
             if results:
-                extra_context_parts.append("Результаты поиска:\n" + format_search_results(results, max_items=3))
+                extra_context_parts.append("Результаты поиска:\n" + format_search_results(results, max_items=5))
         except Exception as e:
             logger.error(f"Web search error: {e}")
 
