@@ -34,7 +34,6 @@ from bot.database import (
 from ai.router import ai_router
 from bot.partners import partner_manager
 from bot.web_search import web_search, search_news, SearchResult
-from bot.interbot import interbot_manager
 from bot.content_engine import (
     get_best_news_item, enrich_with_search_images, get_date_context,
     _is_topic_covered, _extract_entities, _score_interest,
@@ -1003,83 +1002,6 @@ class ChannelManager:
 
         # Smart character limit enforcement — always preserve footer
         post_text = _enforce_char_limit(post_text, has_media)
-
-        # ── Interbot: Submit news candidate to Настя for review ──
-        # Submit BEFORE AI generates content, so Настя can review while we generate.
-        # Then check for reviews after content is generated.
-        candidate_id = None
-        try:
-            candidate_id = await interbot_manager.submit_news_candidate(
-                title=news_item.get("title", ""),
-                summary=news_item.get("summary", "")[:300],
-                category=news_item.get("category", "auto"),
-            )
-        except Exception as e:
-            logger.debug(f"Interbot candidate submission failed: {e}")
-
-        # Check for reviews from Настя on this or previous candidates
-        try:
-            reviewed = await interbot_manager.get_reviewed_candidates()
-            for item in reviewed:
-                cid = item["candidate"].get("id", "")
-                review = item["review"]
-                verdict = review.get("verdict", "approved")
-                if verdict == "rejected":
-                    logger.info(f"Настя REJECTED post: {item['candidate'].get('title', '')[:50]}")
-                    await interbot_manager.mark_candidate_processed(cid)
-                    return False
-                elif verdict == "improved" and review.get("improved_text"):
-                    improved_text = _clean_post_text(review["improved_text"])
-                    if _validate_post_text(improved_text):
-                        post_text = _ensure_footer(improved_text)
-                        post_text = _enforce_char_limit(post_text, has_media)
-                        logger.info(f"Настя IMPROVED post: {item['candidate'].get('title', '')[:50]}")
-                    await interbot_manager.mark_candidate_processed(cid)
-                else:
-                    logger.info(f"Настя APPROVED post: {item['candidate'].get('title', '')[:50]}")
-                    await interbot_manager.mark_candidate_processed(cid)
-        except Exception as e:
-            logger.debug(f"Interbot review check failed: {e}")
-
-        # If candidate was submitted but no review yet, wait briefly then proceed independently
-        if candidate_id:
-            try:
-                candidate_obj = None
-                for c in interbot_manager._own_state.get("pending_reviews", []):
-                    if c.get("id") == candidate_id and c.get("status") == "pending":
-                        candidate_obj = c
-                        break
-                if candidate_obj and not interbot_manager.should_publish_without_review(candidate_obj):
-                    # Wait briefly for review (max 10 seconds)
-                    await asyncio.sleep(10)
-                    # Check one more time
-                    reviewed2 = await interbot_manager.get_reviewed_candidates()
-                    for item in reviewed2:
-                        cid = item["candidate"].get("id", "")
-                        if cid == candidate_id:
-                            review = item["review"]
-                            verdict = review.get("verdict", "approved")
-                            if verdict == "rejected":
-                                logger.info(f"Настя REJECTED (late review): {news_item.get('title', '')[:50]}")
-                                await interbot_manager.mark_candidate_processed(cid)
-                                return False
-                            elif verdict == "improved" and review.get("improved_text"):
-                                improved_text = _clean_post_text(review["improved_text"])
-                                if _validate_post_text(improved_text):
-                                    post_text = _ensure_footer(improved_text)
-                                    post_text = _enforce_char_limit(post_text, has_media)
-                                logger.info(f"Настя IMPROVED (late review): {news_item.get('title', '')[:50]}")
-                            await interbot_manager.mark_candidate_processed(cid)
-                            break
-                logger.info(f"Proceeding with post (Настя review timeout or approved)")
-            except Exception as e:
-                logger.debug(f"Interbot late review check failed: {e}")
-
-        # Cleanup stale interbot candidates periodically
-        try:
-            await interbot_manager.cleanup_stale_candidates()
-        except Exception:
-            pass
 
         # Re-validate after potential modification by Настя
         if not _validate_post_text(post_text):
