@@ -605,16 +605,20 @@ async def handle_photo(message: Message):
                 reply_text = response.text
                 reply_text = _clean_markdown(reply_text)
 
+                # CRITICAL: Replace any plain partner URLs with affiliate goto_link
+                reply_text = _replace_plain_urls_with_affiliate(reply_text)
+
+                # Collect partner links for photo responses
+                photo_partner_links = []
+
                 # Check if AI found a VIN in the photo — suggest partner links for parts
                 detected_vin = _detect_vin(reply_text)
                 if detected_vin and len(detected_vin) == 17:
                     try:
                         links = partner_manager.get_all_relevant_links(reply_text, max_programs=5)
                         if links:
-                            reply_text += f"\n\nЗапчасти по VIN {detected_vin} можно подобрать здесь:\n"
-                            reply_text += "Где купить:\n"
                             for link in links:
-                                reply_text += f"🔧 {link['name']} — {link['url']}\n"
+                                photo_partner_links.append((link['name'], link['url']))
                     except Exception as e:
                         logger.debug(f"Partner links from photo error: {e}")
 
@@ -624,11 +628,18 @@ async def handle_photo(message: Message):
                     try:
                         links = partner_manager.get_all_relevant_links(reply_text, max_programs=5)
                         if links:
-                            reply_text += "\n\nГде купить:\n"
                             for link in links:
-                                reply_text += f"🔧 {link['name']} — {link['url']}\n"
+                                if (link['name'], link['url']) not in photo_partner_links:
+                                    photo_partner_links.append((link['name'], link['url']))
                     except Exception as e:
                         logger.debug(f"Partner links from photo parts error: {e}")
+
+                # Clean raw affiliate URLs from AI text (same as _send_response does)
+                if photo_partner_links:
+                    reply_text = _clean_raw_partner_urls(reply_text, photo_partner_links)
+                    partner_section = _format_partner_links_section(photo_partner_links)
+                    if partner_section:
+                        reply_text = reply_text.rstrip() + "\n\n" + partner_section
 
                 # Split if too long
                 if len(reply_text) <= config.TELEGRAM_TEXT_LIMIT:
@@ -1033,6 +1044,10 @@ async def _send_response(message: Message, response, status_msg=None, partner_li
     # Ensure Asya doesn't use markdown formatting in chat
     reply_text = _clean_markdown(reply_text)
 
+    # CRITICAL: Replace any plain partner URLs (rossko.ru, autopiter.ru, etc.)
+    # with affiliate goto_link equivalents from admitad_ads.json
+    reply_text = _replace_plain_urls_with_affiliate(reply_text)
+
     # Remove raw affiliate URLs that AI may have dumped into the response
     if partner_links:
         reply_text = _clean_raw_partner_urls(reply_text, partner_links)
@@ -1163,6 +1178,96 @@ def _clean_raw_partner_urls(text: str, partner_links: list) -> str:
     
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
+
+
+# Known partner domains that MUST use affiliate links, not plain URLs
+_PARTNER_DOMAINS_MAP = {
+    "rossko.ru": "Росско",
+    "autopiter.ru": "Autopiter",
+    "autopiter.kz": "Autopiter KZ",
+    "avtoall.ru": "AvtoALL",
+    "exist.ru": "Exist",
+    "emex.ru": "Emex",
+    "autodoc.ru": "Autodoc",
+    "zzap.ru": "Zzap",
+    "aliexpress.ru": "AliExpress",
+    "avtocod.ru": "Avtocod",
+    "petrolplus.ru": "PetrolPlus",
+    "bs-tyres.ru": "BS-Tyres",
+    "euro-diski.ru": "Euro-diski",
+    "koleso.ru": "Колесо",
+    "hyperauto.ru": "Hyperauto",
+    "mirdvornikov.ru": "МирДворников",
+    "globaldrive.ru": "Globaldrive",
+    "lukoil-shop.com": "Лукойл",
+}
+
+
+def _replace_plain_urls_with_affiliate(text: str) -> str:
+    """Replace any plain partner domain URLs with affiliate goto_link equivalents.
+    
+    When the AI generates responses containing plain URLs like rossko.ru or 
+    autopiter.ru instead of the affiliate tracking links from admitad_ads.json,
+    this function detects them and replaces with the proper goto_link.
+    
+    This handles cases where:
+    - AI ignores the system prompt and invents plain URLs
+    - AI uses domain names without the affiliate wrapper
+    - Photo handler bypasses the normal link injection pipeline
+    """
+    try:
+        partner_manager.ensure_loaded()
+    except Exception:
+        return text
+    
+    for domain, display_name in _PARTNER_DOMAINS_MAP.items():
+        prog = partner_manager.get_by_site(domain)
+        if not prog or not prog.goto_link:
+            continue
+        
+        affiliate_url = prog.goto_link
+        
+        # Pattern 1: Full URLs with paths — https://rossko.ru/search?text=abc
+        # Replace the entire URL with the affiliate link
+        pattern = rf'https?://{re.escape(domain)}[^\s<>)\]"\']*'
+        matches = re.findall(pattern, text)
+        for plain_url in matches:
+            # Try to extract search query and build affiliate link with search
+            search_query = ""
+            if "search" in plain_url or "querystr" in plain_url or "q=" in plain_url:
+                try:
+                    from urllib.parse import urlparse, parse_qs
+                    parsed = urlparse(plain_url)
+                    params = parse_qs(parsed.query)
+                    for key in ("text", "querystr", "q", "query", "SearchText", "keyword", "p"):
+                        if key in params:
+                            search_query = params[key][0]
+                            break
+                except Exception:
+                    pass
+            
+            if search_query:
+                replacement = prog.get_search_url(search_query)
+            else:
+                replacement = affiliate_url
+            
+            text = text.replace(plain_url, replacement)
+        
+        # Pattern 2: Bare domain mentions — rossko.ru or www.rossko.ru (not already part of a longer URL)
+        # Only replace if it's NOT already part of an affiliate URL (which would be much longer)
+        bare_pattern = rf'(?<![/\w.-])(?:www\.)?{re.escape(domain)}(?![/\w.-])'
+        bare_matches = re.findall(bare_pattern, text)
+        for bare_domain in bare_matches:
+            # Check this isn't already inside an affiliate URL
+            idx = text.find(bare_domain)
+            if idx > 0:
+                # Look back — if there's a tracking domain prefix, skip
+                before = text[max(0, idx-50):idx]
+                if any(tracking_domain in before for tracking_domain in ["ad.admitad.com", ".com/g/", "xmknb.com", "ujhjj.com", "rcpsj.com", "sgkaa.com"]):
+                    continue
+            text = text.replace(bare_domain, affiliate_url, 1)
+    
+    return text
 
 
 def _clean_markdown(text: str) -> str:
