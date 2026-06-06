@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T03:09:08Z",
+  "last_updated": "2026-06-06T03:42:56Z",
   "pending_reviews": [
     {
       "id": "c_1780715348_7964be",
@@ -11,6 +11,16 @@
       "summary": "Evacuating when a hurricane comes is bad enough, can you imagine evacuating the only island of habitability in an otherwise cold and infinite expanse?",
       "category": "auto",
       "timestamp": 1780715348.7327824,
+      "status": "timed_out"
+    },
+    {
+      "id": "c_1780717376_179db5",
+      "from": "asya",
+      "type": "news_candidate",
+      "title": "Australia may be falling out of love with 4x4 utes",
+      "summary": "After a decade of the Toyota HiLux and Ford Ranger topping sales charts, new data shows four-wheel drive ute demand is down 18 per cent this year.",
+      "category": "auto",
+      "timestamp": 1780717376.9444544,
       "status": "pending"
     }
   ],
