@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T11:31:20Z",
+  "last_updated": "2026-06-06T12:14:30Z",
   "pending_reviews": [
     {
       "id": "c_1780745008_6e9e86",
@@ -11,7 +11,7 @@
       "summary": "Ferrari Formula 1 team boss Fred Vasseur will not be present at the Monaco Grand Prix on Saturday due to ongoing medical checks.Track action for final practice is due to commence at 12:30pm in the principality ahead of qualifying at 4pm for which Vasseur will not be at the circuit.It means his usual",
       "category": "auto",
       "timestamp": 1780745008.853365,
-      "status": "pending"
+      "status": "timed_out"
     },
     {
       "id": "c_1780745480_511a03",
@@ -21,6 +21,16 @@
       "summary": "The overall design hasn't changed much, but the new Spectre gets some of the wildest and most impressively intricate options you've ever seen on a car.",
       "category": "auto",
       "timestamp": 1780745480.8819814,
+      "status": "timed_out"
+    },
+    {
+      "id": "c_1780748070_f86c59",
+      "from": "asya",
+      "type": "news_candidate",
+      "title": "Более 600 машин стоят в пробке перед Крымским мостом - Кубанские новости",
+      "summary": "Более 600 машин стоят в пробке перед Крымским мостом&nbsp;&nbsp;Кубанские новости",
+      "category": "auto",
+      "timestamp": 1780748070.9496174,
       "status": "pending"
     }
   ],
