@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T07:13:48Z",
+  "last_updated": "2026-06-06T07:15:07Z",
   "pending_reviews": [
     {
       "id": "c_1780729639_29b6a3",
@@ -11,6 +11,16 @@
       "summary": "The overall design hasn't changed much, but the new Spectre gets some of the wildest and most impressively intricate options you've ever seen on a car.",
       "category": "auto",
       "timestamp": 1780729639.8413289,
+      "status": "pending"
+    },
+    {
+      "id": "c_1780730107_1e2ca3",
+      "from": "asya",
+      "type": "news_candidate",
+      "title": "BMW 325i Wagon, Dodge Ramcharger, Police Tank: The Dopest Cars I Found For Sale Online",
+      "summary": "Well, whether you've had a rough week or not, I think you deserve a reward.",
+      "category": "auto",
+      "timestamp": 1780730107.3647835,
       "status": "pending"
     }
   ],
