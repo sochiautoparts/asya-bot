@@ -1,18 +1,8 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T05:44:33Z",
+  "last_updated": "2026-06-06T05:45:32Z",
   "pending_reviews": [
-    {
-      "id": "c_1780722230_867a75",
-      "from": "asya",
-      "type": "news_candidate",
-      "title": "Easy Daily Driver Maintenance Starts With Upgrading Your Floor Mats",
-      "summary": "Instead of waiting until your car's carpet is impossible to clean, protect it from the get-go with all-weather floor liners. The post Easy Daily Driver Maintenance Starts With Upgrading Your Floor Mats appeared first on The Drive.",
-      "category": "auto",
-      "timestamp": 1780722230.1576257,
-      "status": "timed_out"
-    },
     {
       "id": "c_1780724673_18bd0b",
       "from": "asya",
