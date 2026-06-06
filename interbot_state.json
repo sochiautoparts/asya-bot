@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T06:31:41Z",
+  "last_updated": "2026-06-06T06:33:29Z",
   "pending_reviews": [
     {
       "id": "c_1780727093_499008",
@@ -11,6 +11,16 @@
       "summary": "Debuting in Malaysia is the 2026 Alpinestars Supertech R10 helmet, designed for the sports bike rider. Pricing is set at RM3,999 for the plain carbon and white Supertech R10, while opting for one of the [&#8230;] The post 2026 Alpinestars Supertech R10 helmet in Malaysia, priced at RM3,999 for solid",
       "category": "auto",
       "timestamp": 1780727093.791486,
+      "status": "pending"
+    },
+    {
+      "id": "c_1780727609_e1f978",
+      "from": "asya",
+      "type": "news_candidate",
+      "title": "John Deere Tractor With V16 Detroit Diesel Tugboat Engine Is a Sled-Pulling Machine",
+      "summary": "The frame had to be lengthened by three feet to fit the two-stroke diesel engine measuring 1,136 cubic inches. The post John Deere Tractor With V16 Detroit Diesel Tugboat Engine Is a Sled-Pulling Machine appeared first on The Drive.",
+      "category": "auto",
+      "timestamp": 1780727609.2821798,
       "status": "pending"
     }
   ],
