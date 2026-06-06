@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T03:49:58Z",
+  "last_updated": "2026-06-06T04:23:47Z",
   "pending_reviews": [
     {
       "id": "c_1780717376_179db5",
@@ -11,7 +11,7 @@
       "summary": "After a decade of the Toyota HiLux and Ford Ranger topping sales charts, new data shows four-wheel drive ute demand is down 18 per cent this year.",
       "category": "auto",
       "timestamp": 1780717376.9444544,
-      "status": "pending"
+      "status": "timed_out"
     },
     {
       "id": "c_1780717798_9105bf",
@@ -21,6 +21,16 @@
       "summary": "According to Subaru, it isn't aware of any related crashes or injuries but it did receive three technical reports in the U.S.",
       "category": "auto",
       "timestamp": 1780717798.643553,
+      "status": "timed_out"
+    },
+    {
+      "id": "c_1780719827_f43fda",
+      "from": "asya",
+      "type": "news_candidate",
+      "title": "5 Used SUVs Under $20k That Probably Won't Break The Bank In Repairs",
+      "summary": "It's not easy to get any SUV, new or used, under $20,000. But there are a few options that manage to be reliable and relatively inexpensive.",
+      "category": "auto",
+      "timestamp": 1780719827.8786566,
       "status": "pending"
     }
   ],
