@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T05:09:26Z",
+  "last_updated": "2026-06-06T05:10:44Z",
   "pending_reviews": [
     {
       "id": "c_1780722230_867a75",
@@ -11,6 +11,16 @@
       "summary": "Instead of waiting until your car's carpet is impossible to clean, protect it from the get-go with all-weather floor liners. The post Easy Daily Driver Maintenance Starts With Upgrading Your Floor Mats appeared first on The Drive.",
       "category": "auto",
       "timestamp": 1780722230.1576257,
+      "status": "pending"
+    },
+    {
+      "id": "c_1780722644_f34785",
+      "from": "asya",
+      "type": "news_candidate",
+      "title": "F1 Monaco GP: Hamilton heads Ferrari 1-2 from Verstappen in FP2",
+      "summary": "Lewis Hamilton capped off a perfect Friday at the Monaco Grand Prix for Ferrari by leading another 1-2 in second practice, while Lando Norris suffered an early exit.The seven-time world champion set a 1m13.026s which was 0.111s quicker than team-mate Charles Leclerc, who led Hamilton in a 1-2 for Fe",
+      "category": "auto",
+      "timestamp": 1780722644.3254948,
       "status": "pending"
     }
   ],
