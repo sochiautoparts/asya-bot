@@ -1,18 +1,8 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T02:36:56Z",
+  "last_updated": "2026-06-06T02:38:57Z",
   "pending_reviews": [
-    {
-      "id": "c_1780712395_5f461d",
-      "from": "asya",
-      "type": "news_candidate",
-      "title": "2026 CarExpert Choice winner: Best Electrified Ute",
-      "summary": "The GWM Cannon Alpha PHEV offers a superb mix of genuine electric range, on-road comfort, and off-road capability.",
-      "category": "auto",
-      "timestamp": 1780712395.8254611,
-      "status": "timed_out"
-    },
     {
       "id": "c_1780712870_1f5cf5",
       "from": "asya",
@@ -21,7 +11,7 @@
       "summary": "Toyota is prepping a small monocoque ute in South America to take on established models from Fiat and Chevrolet.",
       "category": "auto",
       "timestamp": 1780712870.9234128,
-      "status": "pending"
+      "status": "timed_out"
     }
   ],
   "reviews": [],
