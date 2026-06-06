@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T10:29:47Z",
+  "last_updated": "2026-06-06T10:30:17Z",
   "pending_reviews": [
     {
       "id": "c_1780741459_891af9",
@@ -11,6 +11,16 @@
       "summary": "Trucks come in lots of varieties, from electric-powered pickups to diesel-gulping semis. The yard goat plays a crucial role in warehouses and cargo yards.",
       "category": "auto",
       "timestamp": 1780741459.252059,
+      "status": "pending"
+    },
+    {
+      "id": "c_1780741817_d3b228",
+      "from": "asya",
+      "type": "news_candidate",
+      "title": "Subaru Recalls 70,000 Foresters Because The Moonroofs Could Fly Off",
+      "summary": "According to Subaru, it isn't aware of any related crashes or injuries but it did receive three technical reports in the U.S.",
+      "category": "auto",
+      "timestamp": 1780741817.2748337,
       "status": "pending"
     }
   ],
