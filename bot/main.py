@@ -216,6 +216,14 @@ class BackgroundTasks:
                     removed = await cleanup_old_fingerprints(max_age_days=7)
                     if removed > 0:
                         logger.info(f"Cleaned up {removed} old post fingerprints")
+
+                # Auto-refresh partner data every 6 hours (every 12 cycles)
+                if cycle_count % 12 == 0:
+                    try:
+                        from bot.partners import partner_manager
+                        await partner_manager.maybe_refresh()
+                    except Exception as e:
+                        logger.debug(f"Partner data refresh skipped: {e}")
             except Exception as e:
                 logger.error(f"News fetcher error: {e}")
 
@@ -238,6 +246,8 @@ class BackgroundTasks:
         # Wait a bit after startup
         await asyncio.sleep(30)
 
+        consecutive_empty_cycles = 0  # Health check: track failed posting cycles
+
         while self._running:
             posts_this_cycle = 0
             for post_num in range(2):  # Try to post 2 different items per cycle
@@ -259,6 +269,18 @@ class BackgroundTasks:
             
             if posts_this_cycle > 0:
                 logger.info(f"Channel poster cycle complete: {posts_this_cycle} posts published")
+                consecutive_empty_cycles = 0  # Reset on success
+            else:
+                consecutive_empty_cycles += 1
+                # Health check: alert owner after 3 consecutive empty cycles (1.5h)
+                if consecutive_empty_cycles == 3 and self.bot:
+                    try:
+                        await self.bot.send_message(
+                            chat_id=config.OWNER_ID,
+                            text=f"⚠️ Ася: 3 цикла подряд без постов в канал. Возможна проблема с контентом или дедупликацией. Проверь логи."
+                        )
+                    except Exception:
+                        pass
 
             # Wait for next cycle — check every configured interval
             interval = config.CHANNEL_POST_INTERVAL_MINUTES * 60

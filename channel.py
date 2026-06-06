@@ -865,8 +865,10 @@ class ChannelManager:
                 return False
 
             # ── DEDUPLICATION LAYER 3: Channel scanner — check what's ACTUALLY in the channel ──
+            # NOTE: Scanner failure is NON-BLOCKING — if t.me is down/rate-limited,
+            # we still allow the post through rather than blocking ALL posts.
             try:
-                if await is_duplicate_in_channel(news_item["title"], threshold=0.45):
+                if await is_duplicate_in_channel(news_item["title"], threshold=0.60):
                     logger.warning(f"CHANNEL DUPLICATE blocked: {news_item['title'][:60]}")
                     if news_item.get("url"):
                         await mark_news_posted(news_item["url"])
@@ -875,10 +877,10 @@ class ChannelManager:
                     _register_topic(entity_key, news_item["title"])
                     return False
             except Exception as e:
-                # BUG FIX: Channel scanner failure must BLOCK the post, not allow it!
-                # If we can't verify the post is not a duplicate, we MUST NOT publish.
-                logger.error(f"Channel scanner check FAILED — BLOCKING post to prevent duplicate: {e}")
-                return False
+                # NON-BLOCKING: Scanner failure should NOT prevent posting!
+                # t.me often returns 403/429 or changes HTML structure.
+                # We have other dedup layers (DB fingerprints, topic registry, semantic).
+                logger.warning(f"Channel scanner check failed (NON-BLOCKING, allowing post): {e}")
 
         # Generate post content using AI
         source_text = ""
@@ -1012,8 +1014,9 @@ class ChannelManager:
         # Check the GENERATED post text against the channel scanner.
         # This catches cases where the AI wrote about the same topic despite
         # the channel context, even if the news title was different enough.
+        # NOTE: Post-gen channel scanner is NON-BLOCKING on failure.
         try:
-            if await is_duplicate_in_channel(post_text, threshold=0.40):
+            if await is_duplicate_in_channel(post_text, threshold=0.55):
                 logger.warning(f"POST-GENERATION DUPLICATE blocked (generated text matches channel): "
                                f"{news_item.get('title', '')[:60]}")
                 if news_item.get("url"):
@@ -1022,9 +1025,8 @@ class ChannelManager:
                 _register_topic(entity_key, news_item.get("title", ""))
                 return False
         except Exception as e:
-            # Scanner failure = BLOCK (conservative approach)
-            logger.error(f"Post-generation channel scanner FAILED — BLOCKING: {e}")
-            return False
+            # NON-BLOCKING: Scanner failure must not prevent posting!
+            logger.warning(f"Post-gen channel scanner failed (NON-BLOCKING, allowing post): {e}")
 
         # ── DEDUPLICATION LAYER 5: DB fingerprint check on generated text ──
         # Check if the actual generated post content matches a recently posted one.
