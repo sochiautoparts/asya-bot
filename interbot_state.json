@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T07:57:20Z",
+  "last_updated": "2026-06-06T08:24:04Z",
   "pending_reviews": [
     {
       "id": "c_1780732214_27efb2",
@@ -11,6 +11,16 @@
       "summary": "The two-time world champion is sick of hybrid F1 cars, and is making sure everyone knows about it. The post Fernando Alonso Is Angry: 2026 F1 Cars Are the &#8216;Worst Ever&#8217; and &#8216;Should Not Be Racing&#8217; appeared first on The Drive.",
       "category": "auto",
       "timestamp": 1780732214.9588132,
+      "status": "timed_out"
+    },
+    {
+      "id": "c_1780734244_31295d",
+      "from": "asya",
+      "type": "news_candidate",
+      "title": "Rolls-Royce Spectre Series II Gets More Power And Range, But You'll Really Care About The Redesigned Clock And Absurd Trim Options",
+      "summary": "The overall design hasn't changed much, but the new Spectre gets some of the wildest and most impressively intricate options you've ever seen on a car.",
+      "category": "auto",
+      "timestamp": 1780734244.382908,
       "status": "pending"
     }
   ],
