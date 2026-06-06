@@ -25,11 +25,12 @@ env/
 .env.local
 .env.production
 
-# Database
-*.db
-!asya_bot.db
+# Database (preserve asya_bot.db for persistence across workflow runs)
 *.sqlite3
 *.db-journal
+# Only ignore other .db files, NOT asya_bot.db which is the main database
+/*.db
+!asya_bot.db
 
 # Cache
 .cache/

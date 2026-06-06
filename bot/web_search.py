@@ -116,8 +116,12 @@ async def search_ddg_html(query: str, max_results: int = 5, region: str = "ru") 
                 if url and title:
                     results.append(SearchResult(title=title, url=url, snippet=snippet, source="duckduckgo"))
 
+    except httpx.TimeoutException:
+        logger.debug("DDG HTML search timed out")
     except Exception as e:
-        logger.error(f"DDG HTML search error: {e}")
+        # DDG frequently blocks requests from cloud IPs (GitHub Actions)
+        # Don't log as ERROR — this is expected and other engines handle it
+        logger.debug(f"DDG HTML search error: {e}")
 
     return results
 

@@ -1143,8 +1143,11 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
         f"title={best_item.get('title', '')[:60]}"
     )
     
-    # Register the topic
-    _register_topic(entity_key, best_item.get("title", ""))
+    # NOTE: Do NOT register topic here!
+    # Topic registration happens in channel.py AFTER the post is actually published.
+    # Registering here caused a bug: the topic was registered during selection,
+    # then _is_topic_covered() in channel.py blocked the post because it found
+    # the topic already in the registry — creating a dead loop where posts could never publish.
     
     return best_item
 
