@@ -1,28 +1,8 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T01:37:42Z",
+  "last_updated": "2026-06-06T01:40:56Z",
   "pending_reviews": [
-    {
-      "id": "c_1780707129_7c6a6a",
-      "from": "asya",
-      "type": "news_candidate",
-      "title": "Kia Tasman ‘Correction Kit’ revealed to fix ute’s controversial design",
-      "summary": "An Australian design studio has released renderings of a ‘Correction Kit’ as an antedote to the Kia Tasman’s controversial looks.",
-      "category": "auto",
-      "timestamp": 1780707129.3967586,
-      "status": "timed_out"
-    },
-    {
-      "id": "c_1780707625_b58f24",
-      "from": "asya",
-      "type": "news_candidate",
-      "title": "Australia may be falling out of love with 4x4 utes",
-      "summary": "After a decade of the Toyota HiLux and Ford Ranger topping sales charts, new data shows four-wheel drive ute demand is down 18 per cent this year.",
-      "category": "auto",
-      "timestamp": 1780707625.4386427,
-      "status": "timed_out"
-    },
     {
       "id": "c_1780709862_e0a9e1",
       "from": "asya",
