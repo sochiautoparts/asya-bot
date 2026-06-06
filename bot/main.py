@@ -297,7 +297,7 @@ async def main():
     logger.info("Database initialized")
 
     # Initialize AI router
-    await ai_router.init()
+    await ai_router.initialize()
     logger.info("AI Router initialized")
 
     # Load partner programs
