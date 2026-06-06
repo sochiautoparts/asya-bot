@@ -48,7 +48,7 @@ _MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 # Maps: entity_key → {first_seen, last_posted, post_count, titles}
 # Entity key = normalized brand + model + event (e.g., "bmw_m5_reveal")
 _topic_registry: Dict[str, Dict] = {}
-_REGISTRY_MAX_AGE_HOURS = 72  # Forget topics after 72 hours
+_REGISTRY_MAX_AGE_HOURS = 48  # Forget topics after 72 hours
 
 # Auto brands for entity extraction
 _AUTO_BRANDS = [
@@ -331,29 +331,33 @@ def _score_interest(title: str, summary: str = "") -> float:
 
 
 def _score_freshness(published_time: float) -> float:
-    """Score how fresh a news item is. Newer = higher score.
+    """Score how fresh a news item is. STRICT: rejects items >24h old.
     
     Returns a bonus/penalty to add to the interest score:
-    - Very fresh (<3h): +0.3
-    - Fresh (<12h): +0.2
-    - Recent (<24h): +0.1
-    - Day old (<48h): +0.0
-    - Old (>48h): -0.2 (penalty to deprioritize stale news)
-    - Unknown time: +0.3 (assume fresh from web search)
+    - Very fresh (<3h): +0.4
+    - Fresh (<6h): +0.3
+    - Recent (<12h): +0.2
+    - Today (<24h): +0.1
+    - Stale (24-48h): -0.5 (HEAVY penalty — yesterday\'s news!)
+    - Old (>48h): -1.0 (REJECT effectively)
+    - Unknown time from Google News: +0.3 (assume fresh)
+    - Unknown time from web search: 0.0 (neutral — don\'t assume fresh)
     """
     if not published_time:
-        return 0.3  # Unknown time = assume fresh from web search
+        return 0.3  # Unknown time from Google News = assume fresh
     age_hours = (time.time() - published_time) / 3600
     if age_hours < 3:
-        return 0.3  # Very fresh
+        return 0.4  # Very fresh — best score
+    elif age_hours < 6:
+        return 0.3
     elif age_hours < 12:
         return 0.2
     elif age_hours < 24:
         return 0.1
     elif age_hours < 48:
-        return 0.0
+        return -0.5  # Yesterday\'s news — HEAVY penalty
     else:
-        return -0.2  # Old news penalty
+        return -1.0  # Old news — REJECT effectively
 
 
 # ── Web Search Content — supplement RSS with search results ───────────────────
@@ -494,11 +498,18 @@ async def search_auto_news() -> List[Dict]:
     # Google News RSS is the most reliable source for fresh/today's content.
     # Use more specific "today" queries with actual dates.
     gnews_queries = [
+        # ── RU: today-specific with exact date ──
         f"автомобильные новости {now.day} {month_ru[now.month - 1]} {now.year}",
         f"автоновости сегодня {now.day} {month_ru[now.month - 1]}",
-        f"auto news today {now.day} {month_en[now.month - 1]} {now.year}",
         f"автомобильные новости Россия сегодня {now.year}",
-        # F1/motorsport queries (check if it's a race weekend — Fri-Sun)
+        f"новые автомобили премьера {now.year}",
+        f"автоновости сегодня свежие {now.day} {month_ru[now.month - 1]}",
+        # ── EN: today-specific with exact date ──
+        f"auto news today {now.day} {month_en[now.month - 1]} {now.year}",
+        f"automotive news latest {month_en[now.month - 1]} {now.year}",
+        f"new car launches {now.year} reveal",
+        f"electric vehicle news today {now.year}",
+        # ── F1/motorsport (race weekend Fri-Sun) ──
         f"Формула 1 новости сегодня {now.day} {month_ru[now.month - 1]}" if now.weekday() >= 4 else f"Формула 1 новости {now.year}",
         f"F1 news today {month_en[now.month - 1]} {now.year}" if now.weekday() >= 4 else f"F1 news {now.year}",
     ]
@@ -538,7 +549,7 @@ async def search_auto_news() -> List[Dict]:
     
     # ── SECONDARY SOURCE: Web search for broader coverage ──
     # Use 3 different queries per call for broader coverage
-    queries = [_get_search_query() for _ in range(3)]
+    queries = [_get_search_query() for _ in range(5)]
     # Deduplicate queries (in case same one picked twice)
     queries = list(dict.fromkeys(queries))
     
@@ -568,7 +579,7 @@ async def search_auto_news() -> List[Dict]:
                 if not published_time:
                     # Unknown time — don't assume fresh; use a moderate age penalty
                     # so that Google News items (with known fresh timestamps) rank higher
-                    published_time = now.timestamp() - (6 * 3600)  # Assume 6h old
+                    published_time = now.timestamp() - (3 * 3600)  # Assume 3h old (freshness-first)
                 
                 items.append({
                     "source": result.source or "web_search",
@@ -644,7 +655,7 @@ async def search_russian_auto_news() -> List[Dict]:
                 # Try to extract actual publication date from snippet
                 published_time = _extract_published_time_from_snippet(snippet)
                 if not published_time:
-                    published_time = now.timestamp() - (6 * 3600)  # Assume 6h old
+                    published_time = now.timestamp() - (3 * 3600)  # Assume 3h old (freshness-first)
 
                 items.append({
                     "source": result.source or "web_search_ru",
@@ -792,6 +803,10 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
     except Exception as e:
         logger.debug(f"Could not fetch channel posts for dedup: {e}")
     
+    # ── STRICT FRESHNESS GATE: reject items older than 24 hours ──
+    now_ts = time.time()
+    max_age_seconds = 24 * 3600  # 24 hours — ONLY today\'s news!
+    
     for item in all_items:
         title = item.get("title", "")
         summary = item.get("summary", "")
@@ -801,6 +816,14 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
         if title_lower in seen_titles:
             continue
         seen_titles.add(title_lower)
+        
+        # ── FRESHNESS GATE: skip items older than 24h ──
+        published_time = item.get("published_time", 0) or item.get("published", 0)
+        if published_time and published_time > 0:
+            age_hours = (now_ts - published_time) / 3600
+            if age_hours > 24:
+                logger.debug(f"FRESHNESS GATE: rejected stale item ({age_hours:.0f}h old): {title[:50]}")
+                continue
         
         # Extract entities for dedup
         entity_key = _extract_entities(title)
