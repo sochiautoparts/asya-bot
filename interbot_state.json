@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T07:15:07Z",
+  "last_updated": "2026-06-06T07:50:14Z",
   "pending_reviews": [
     {
       "id": "c_1780729639_29b6a3",
@@ -11,7 +11,7 @@
       "summary": "The overall design hasn't changed much, but the new Spectre gets some of the wildest and most impressively intricate options you've ever seen on a car.",
       "category": "auto",
       "timestamp": 1780729639.8413289,
-      "status": "pending"
+      "status": "timed_out"
     },
     {
       "id": "c_1780730107_1e2ca3",
@@ -21,6 +21,16 @@
       "summary": "Well, whether you've had a rough week or not, I think you deserve a reward.",
       "category": "auto",
       "timestamp": 1780730107.3647835,
+      "status": "timed_out"
+    },
+    {
+      "id": "c_1780732214_27efb2",
+      "from": "asya",
+      "type": "news_candidate",
+      "title": "Fernando Alonso Is Angry: 2026 F1 Cars Are the ‘Worst Ever’ and ‘Should Not Be Racing’",
+      "summary": "The two-time world champion is sick of hybrid F1 cars, and is making sure everyone knows about it. The post Fernando Alonso Is Angry: 2026 F1 Cars Are the &#8216;Worst Ever&#8217; and &#8216;Should Not Be Racing&#8217; appeared first on The Drive.",
+      "category": "auto",
+      "timestamp": 1780732214.9588132,
       "status": "pending"
     }
   ],
