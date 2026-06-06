@@ -1,19 +1,8 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T02:42:59Z",
-  "pending_reviews": [
-    {
-      "id": "c_1780712870_1f5cf5",
-      "from": "asya",
-      "type": "news_candidate",
-      "title": "Toyota Corolla Cross ute spied in Brazil",
-      "summary": "Toyota is prepping a small monocoque ute in South America to take on established models from Fiat and Chevrolet.",
-      "category": "auto",
-      "timestamp": 1780712870.9234128,
-      "status": "timed_out"
-    }
-  ],
+  "last_updated": "2026-06-06T02:45:00Z",
+  "pending_reviews": [],
   "reviews": [],
   "shared_chats": {},
   "messages": [],
