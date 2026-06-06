@@ -1,18 +1,8 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T00:10:47Z",
+  "last_updated": "2026-06-06T00:16:41Z",
   "pending_reviews": [
-    {
-      "id": "c_1780702125_4aa9bf",
-      "from": "asya",
-      "type": "news_candidate",
-      "title": "Suzuki Fronx Sport launched in Malaysia – B-segment SUV dressed up, at RM131k; base model fr RM119k",
-      "summary": "Suzuki Cars Malaysia has launched the Suzuki Fronx Sport alongside the Malaysian launch of the Suzuki Jimny Allgrip Plus and Jimny Rhino Plus. Based on the Fronx Hybrid that was launched in Malaysia last November, [&#8230;] The post Suzuki Fronx Sport launched in Malaysia – B-segment SUV dressed up,",
-      "category": "auto",
-      "timestamp": 1780702125.451213,
-      "status": "timed_out"
-    },
     {
       "id": "c_1780704647_e73df3",
       "from": "asya",
