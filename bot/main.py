@@ -27,7 +27,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import config
-from bot.database import init_db, cleanup_old_fingerprints
+from bot.database import init_db, cleanup_old_fingerprints, add_chat_message
 from bot.partners import partner_manager
 from ai.router import ai_router
 from news import run_news_cycle
@@ -183,6 +183,12 @@ class BackgroundTasks:
             greeting = random.choice(greetings)
             if config.OWNER_ID:
                 await self.bot.send_message(config.OWNER_ID, greeting)
+                # Save greeting to chat history so AI knows what it said
+                # when the user replies — prevents context loss
+                try:
+                    await add_chat_message(config.OWNER_ID, "assistant", greeting)
+                except Exception as e:
+                    logger.debug(f"Could not save greeting to chat history: {e}")
                 # Save cooldown timestamp
                 try:
                     with open("/tmp/asya_last_greeting", "w") as f:
