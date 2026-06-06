@@ -722,12 +722,7 @@ async def _process_text_message(message: Message, text: str):
             "Это сообщение от Насти — другого бота, который тоже в этом чате. "
             "Ты можешь отвечать ей и обсуждать темы."
         )
-        # Register as shared chat for interbot coordination
-        try:
-            from bot.interbot import interbot_manager
-            interbot_manager.register_shared_chat(message.chat.id, message.chat.title or "")
-        except Exception as e:
-            logger.debug(f"Interbot register error: {e}")
+        # Interbot removed — each bot works independently
 
     # 0.5. User car profile context — so Asya knows their cars
     try:

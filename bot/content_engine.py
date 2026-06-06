@@ -152,7 +152,21 @@ def _extract_entities(title: str) -> str:
             break
     
     parts = [p for p in [brand, person, team, model, event] if p]
-    return "_".join(parts) if parts else ""
+    entity_key = "_".join(parts) if parts else ""
+    
+    # ── PERSON-ONLY DEDUP KEY ──
+    # If a notable person is mentioned (e.g. "Alonso"), also register a person-only key
+    # This prevents posting 3 different stories about Alonso in the same day
+    if person and entity_key != person:
+        # Register person-only topic as well (e.g., "alonso" besides "alonso_criticism")
+        person_only_key = person
+        if _is_topic_covered(person_only_key) and not entity_key:
+            # Person was already posted about and we don't have a more specific key
+            # This helps prevent "Alonso 3x" duplicates
+            pass  # We still allow it if there's a more specific entity key
+        # We'll register person_only_key separately when posting
+    
+    return entity_key
 
 
 def _is_topic_covered(entity_key: str) -> bool:
@@ -178,7 +192,8 @@ def _is_topic_covered(entity_key: str) -> bool:
 def _register_topic(entity_key: str, title: str):
     """Register that a topic was posted about.
     
-    Also persists to DB so the registry survives restarts.
+    Also registers person-only dedup key to prevent "Alonso 3x" style duplicates.
+    Persists to DB so the registry survives restarts.
     """
     if not entity_key:
         return
@@ -195,6 +210,23 @@ def _register_topic(entity_key: str, title: str):
             "post_count": 1,
             "titles": [title],
         }
+    
+    # ── Also register person-only key for dedup ──
+    # Extract person from entity_key (e.g., "alonso_criticism" → "alonso")
+    for p in _NOTABLE_PEOPLE:
+        p_key = p.lower().replace(" ", "_")
+        if p_key in entity_key:
+            if p_key not in _topic_registry:
+                _topic_registry[p_key] = {
+                    "first_seen": now,
+                    "last_posted": now,
+                    "post_count": 1,
+                    "titles": [f"[person-dedup] {title}"],
+                }
+            else:
+                _topic_registry[p_key]["post_count"] += 1
+                _topic_registry[p_key]["last_posted"] = now
+            break
     
     # Persist to DB (async, fire-and-forget via background task)
     try:
@@ -479,11 +511,116 @@ def _extract_published_time_from_snippet(snippet: str) -> float:
     return 0  # Unknown — let _score_freshness handle it
 
 
+async def ai_discover_news() -> List[Dict]:
+    """Ask AI to discover today's top automotive news — PRIMARY source.
+    
+    This is the same approach as when a human asks an AI "find top 30-50 auto news today"
+    and gets great results. Uses Pollinations models with web access to find fresh stories.
+    
+    Returns list of news items with: title, summary, source, category, lang, published_time
+    URLs are found via subsequent web search for each topic.
+    """
+    items = []
+    now = datetime.now(_MOSCOW_TZ)
+    month_ru = ["января", "февраля", "марта", "апреля", "мая", "июня",
+               "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+    
+    date_str = f"{now.day} {month_ru[now.month - 1]} {now.year}"
+    
+    # Try multiple models — some have web access, some don't
+    _DISCOVERY_MODELS = ["openai-large", "gpt-5.5", "mistral-4", "deepseek", "qwen-large"]
+    
+    for model_name in _DISCOVERY_MODELS:
+        try:
+            response = await ai_router._primary.chat(
+                messages=[
+                    {"role": "system", "content": (
+                        f"Ты автоэксперт. Сегодня {date_str}. "
+                        f"Назови 15 самых важных и свежих автомобильных новостей СЕГОДНЯ. "
+                        f"Включи: новинки, премьеры, скандалы, отзывы, автоспорт (F1, WRC), "
+                        f"электромобили, китайский автопром, российский рынок (АвтоВАЗ, LADA). "
+                        f"Каждая новость — одна строка в формате: НОВОСТЬ | краткое описание (1-2 предложения) "
+                        f"Никаких нумерованных списков, маркеров или другого форматирования — просто строки с | "
+                        f"Пиши на русском языке. НИКАКОЙ политики и войны — только автомобили."
+                    )},
+                ],
+                model=model_name,
+                temperature=0.7,
+                max_tokens=1500,
+            )
+            
+            if response.error or not response.text or not response.text.strip():
+                continue
+            
+            text = response.text.strip()
+            logger.info(f"AI discovery ({model_name}): got {len(text)} chars")
+            
+            # Parse the response — each line should be "TITLE | description"
+            for line in text.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                # Remove numbering if present
+                line = re.sub(r'^\d+[\.\)]\s*', '', line)
+                line = re.sub(r'^[-•*]\s*', '', line)
+                if not line:
+                    continue
+                
+                parts = line.split("|", 1)
+                title = parts[0].strip()
+                summary = parts[1].strip() if len(parts) > 1 else ""
+                
+                if len(title) < 10:  # Skip very short lines
+                    continue
+                
+                # Skip if it looks like AI meta-commentary
+                if any(kw in title.lower() for kw in ["конечно", "вот список", "список новостей", "свежие новости"]):
+                    continue
+                
+                # Try to find a real URL for this news via quick search
+                url = ""
+                try:
+                    search_results = await web_search(title[:60], max_results=1)
+                    if search_results and search_results[0].url:
+                        url = search_results[0].url
+                        # Also grab better snippet if available
+                        if not summary and search_results[0].snippet:
+                            summary = search_results[0].snippet[:300]
+                except Exception:
+                    pass
+                
+                if not url:
+                    url = f"ai_discovered_{hashlib.md5(title.encode()).hexdigest()[:12]}"
+                
+                items.append({
+                    "source": f"ai_discovery_{model_name}",
+                    "title": title,
+                    "url": url,
+                    "summary": summary[:500],
+                    "published": time.time(),  # AI says it's today
+                    "published_time": time.time(),  # Assume fresh
+                    "category": "auto",
+                    "lang": "ru",
+                    "image_urls": [],
+                })
+            
+            if items:
+                logger.info(f"AI discovery ({model_name}): found {len(items)} news items")
+                break  # Got results from this model, no need to try others
+                
+        except Exception as e:
+            logger.debug(f"AI discovery failed with {model_name}: {e}")
+            continue
+    
+    return items
+
+
 async def search_auto_news() -> List[Dict]:
     """Search the web for fresh automotive news using MULTIPLE queries for broad coverage.
     
-    PRIMARY source: Google News RSS (most reliable for fresh content).
-    SECONDARY source: web_search for broader coverage.
+    PRIMARY source: AI Discovery (asks AI for today's top stories).
+    SECONDARY source: Google News RSS.
+    TERTIARY source: web_search for broader coverage.
     Returns list of news items with: title, url, summary, source, category, lang, image_urls, published_time
     """
     items = []
@@ -765,8 +902,18 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
     
     all_items = []
     
-    # ── PHASE 1: Web Search FIRST (primary source) ──
-    logger.info("Phase 1: Searching web for automotive news (PRIMARY)")
+    # ── PHASE 0: AI Discovery FIRST (primary source) ──
+    # Ask AI directly for today's top auto news — like any human would
+    logger.info("Phase 0: AI discovery for today's automotive news (PRIMARY)")
+    try:
+        ai_items = await ai_discover_news()
+        all_items.extend(ai_items)
+        logger.info(f"AI discovery provided {len(ai_items)} items")
+    except Exception as e:
+        logger.warning(f"AI discovery failed: {e}")
+    
+    # ── PHASE 1: Web Search (supplementary source) ──
+    logger.info("Phase 1: Searching web for automotive news (SUPPLEMENTARY)")
     try:
         web_items = await search_auto_news()
         all_items.extend(web_items)
@@ -831,6 +978,21 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
         # Check if topic is already covered (in-memory + DB registry)
         if _is_topic_covered(entity_key):
             logger.debug(f"Topic already covered: {entity_key} — {title[:50]}")
+            continue
+        
+        # ── Also check person-only dedup key (prevents "Alonso 3x") ──
+        person_blocked = False
+        for p in _NOTABLE_PEOPLE:
+            p_key = p.lower().replace(" ", "_")
+            if p_key in title.lower() and _is_topic_covered(p_key):
+                # Person was already posted about — only allow if entity_key is DIFFERENT
+                # (e.g., if we posted "alonso_criticism" before, block "alonso" but allow
+                # a completely different entity like "ferrari_reveal" even if Alonso is mentioned)
+                if not entity_key or entity_key == p_key or p_key in entity_key:
+                    logger.debug(f"Person dedup blocked: {p_key} — {title[:50]}")
+                    person_blocked = True
+                    break
+        if person_blocked:
             continue
         
         # Check if topic is already in the channel (channel scanner dedup)

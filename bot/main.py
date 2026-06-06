@@ -263,3 +263,90 @@ class BackgroundTasks:
                     break
                 await asyncio.sleep(1)
 
+
+# ── Main Entry Point ──────────────────────────────────────────────────────────
+
+async def main():
+    """Main entry point for Asya Bot."""
+    # Check bot token
+    if not config.BOT_TOKEN:
+        logger.critical("BOT_TOKEN not set! Exiting.")
+        sys.exit(1)
+
+    # Acquire singleton lock
+    lock = SingletonLock(config.LOCK_FILE)
+    if not lock.acquire():
+        logger.warning("Another instance is running, exiting.")
+        sys.exit(0)
+
+    # Create bot
+    bot = Bot(
+        token=config.BOT_TOKEN,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
+
+    # Delete webhook to ensure polling works
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        logger.info("Webhook deleted, polling mode ready")
+    except Exception as e:
+        logger.warning(f"Could not delete webhook: {e}")
+
+    # Initialize database
+    await init_db()
+    logger.info("Database initialized")
+
+    # Initialize AI router
+    await ai_router.init()
+    logger.info("AI Router initialized")
+
+    # Load partner programs
+    try:
+        partner_count = await partner_manager.load_admitad_async()
+        logger.info(f"Partner programs loaded: {partner_count}")
+    except Exception as e:
+        logger.warning(f"Could not load partner programs: {e}")
+
+    # Set bot on channel manager
+    channel_manager.set_bot(bot)
+
+    # Set up dispatcher
+    storage = MemoryStorage()
+    dp = Dispatcher(storage=storage)
+
+    # Include all handler routers
+    for router in get_all_routers():
+        dp.include_router(router)
+
+    # Start background tasks
+    bg_tasks = BackgroundTasks(bot)
+    dp.startup.register(lambda **kwargs: bg_tasks.start())
+    dp.shutdown.register(lambda **kwargs: bg_tasks.stop())
+
+    # Run polling
+    logger.info("=== Asya Bot Starting (Pollinations-Only v6) ===")
+    try:
+        await dp.start_polling(bot)
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+    finally:
+        await bg_tasks.stop()
+        lock.release()
+        try:
+            await bot.session.close()
+        except Exception:
+            pass
+        logger.info("=== Asya Bot Stopped ===")
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
+    except SystemExit as e:
+        code = e.code if isinstance(e.code, int) else 1
+        sys.exit(code)
+    except Exception as e:
+        logger.critical(f"Fatal error: {e}")
+        sys.exit(1)
