@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T11:10:24Z",
+  "last_updated": "2026-06-06T11:23:28Z",
   "pending_reviews": [
     {
       "id": "c_1780743847_95b072",
@@ -11,7 +11,7 @@
       "summary": "Jiro Yamada, whose elaborate technical cutaways expressed \"the rationality and beauty of machines at the same time,\" passed away at the age of 65. The post The World Has Lost a Master of Automotive Cutaway Illustrations appeared first on The Drive.",
       "category": "auto",
       "timestamp": 1780743847.591652,
-      "status": "pending"
+      "status": "timed_out"
     },
     {
       "id": "c_1780744224_d7db40",
@@ -21,6 +21,16 @@
       "summary": "Senior content editor Shane Wilkinson explains why getting to grips with China’s car brands is an exceptionally daunting task",
       "category": "auto",
       "timestamp": 1780744224.8226867,
+      "status": "timed_out"
+    },
+    {
+      "id": "c_1780745008_6e9e86",
+      "from": "asya",
+      "type": "news_candidate",
+      "title": "Vasseur to skip F1 Monaco GP Saturday due to medical checks",
+      "summary": "Ferrari Formula 1 team boss Fred Vasseur will not be present at the Monaco Grand Prix on Saturday due to ongoing medical checks.Track action for final practice is due to commence at 12:30pm in the principality ahead of qualifying at 4pm for which Vasseur will not be at the circuit.It means his usual",
+      "category": "auto",
+      "timestamp": 1780745008.853365,
       "status": "pending"
     }
   ],
