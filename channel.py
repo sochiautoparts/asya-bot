@@ -290,9 +290,18 @@ def _validate_post_text(text: str) -> bool:
         "навальн", "оппозиц", "протест", "митинг",
         "политик", "депутат", "законопроект", "выбор ",
     ]
+    # Block boring Russian auto brands — 50 years nothing interesting
+    blocked_auto_brands = [
+        "автоваз", "лада", "lada", "уаз", "uaz", "камаз", "kamaz",
+        "соллерс", "vesta", "granta", "niva", "искра", "iskra",
+    ]
     for keyword in blocked_keywords:
         if keyword in text_lower:
             logger.warning(f"Post BLOCKED (keyword '{keyword}'): {text[:80]}...")
+            return False
+    for keyword in blocked_auto_brands:
+        if keyword in text_lower:
+            logger.warning(f"Post BLOCKED (boring Russian auto brand '{keyword}'): {text[:80]}...")
             return False
 
     return True
@@ -478,6 +487,10 @@ class ChannelManager:
             "1x1", "spacer", "blank", "transparent", "dot.", "clear",
             "rss", "feed", "subscribe", "newsletter",
             "watermark", "overlay", "frame", "border",
+            # Thumbnail/small image patterns — these are NOT content photos
+            "thumb", "small", "preview", "mini", "tiny", "crop",
+            "resize", "scaled", "lowres", "low-res",
+            "gallery-thumb", "list-thumb", "card-thumb",
         ]
         for kw in junk_keywords:
             if kw in url_lower:
@@ -500,9 +513,9 @@ class ChannelManager:
         
         Checks:
         - Minimum size: 5KB (hard filter before this function)
-        - Minimum dimensions: 200x150px
+        - Minimum dimensions: 600x400px (raised from 200x150 to filter out thumbnails)
         - Maximum aspect ratio: 3:1 (skip wide banners) and 1:3 (skip tall skyscraper ads)
-        - Minimum pixel area: 50000px (skip small thumbnails even if file is big)
+        - Minimum pixel area: 240000px (600*400 — skip small thumbnails even if file is big)
         """
         # Minimum size — nothing under 5KB is a content image
         if len(image_data) < 5000:
@@ -515,8 +528,9 @@ class ChannelManager:
             img = Image.open(io.BytesIO(image_data))
             width, height = img.size
 
-            # Skip tiny images (icons, thumbnails)
-            if width < 200 or height < 150:
+            # Skip small images (icons, thumbnails, tiny previews)
+            # Raised from 200x150 to 600x400 — thumbnails are not content photos
+            if width < 600 or height < 400:
                 return False
 
             # Skip extremely wide images (banners, ad strips)
@@ -527,8 +541,9 @@ class ChannelManager:
             if height / max(width, 1) > 3.0:
                 return False
 
-            # Skip very small area images (likely icons/buttons even if > 5KB)
-            if width * height < 50000:
+            # Skip small area images (likely icons/buttons/thumbnails even if > 5KB)
+            # 240000 = 600*400 — raised from 50000 to properly filter thumbnails
+            if width * height < 240000:
                 return False
 
             return True

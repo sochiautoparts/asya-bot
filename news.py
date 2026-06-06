@@ -110,6 +110,11 @@ BLOCK_KEYWORDS_RU = [
     "белорусс", "нато", "nato",
     # Общие блокировки
     "ковид", "коронавирус", "пандем", "вакцин",
+    # Скучные российские автобренды — 50 лет ничего интересного
+    "автоваз", "лада ", "lada", "уаз", "uaz", "камаз", "kamaz",
+    "соллерс", "vesta", "granta", "niva", "искра ", "iskra",
+    # Скучные модели ВАЗ — нет смысла постить
+    "веста ", "гранта ", "нива ",
 ]
 
 BLOCK_KEYWORDS_EN = [
@@ -118,6 +123,9 @@ BLOCK_KEYWORDS_EN = [
     "nato expansion", "conflict zone", "battlefield", "casualt",
     "navalny", "opposition", "protest", "election",
     "covid", "coronavirus", "pandemic", "vaccin",
+    # Boring Russian domestic auto brands
+    "lada", "avtovaz", "uaz", "kamaz", "soldis",
+    "vesta", "granta", "niva", "iskra",
 ]
 
 

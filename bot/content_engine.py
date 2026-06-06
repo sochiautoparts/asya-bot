@@ -56,7 +56,7 @@ _AUTO_BRANDS = [
     "Mazda", "Subaru", "Hyundai", "Kia", "Ford", "Chevrolet", "GMC",
     "Porsche", "Lexus", "Volvo", "Tesla", "BYD", "Zeekr", "Li Auto",
     "NIO", "Chery", "Haval", "Geely", "Changan", "Exeed", "Tank",
-    "Lada", "ВАЗ", "Renault", "Peugeot", "Citroen", "Fiat", "Alfa Romeo",
+    "Renault", "Peugeot", "Citroen", "Fiat", "Alfa Romeo",
     "Jaguar", "Land Rover", "Mini", "Smart", "Suzuki", "Mitsubishi",
     "Infiniti", "Acura", "Genesis", "Rivian", "Lucid", "Polestar",
     "Maserati", "Ferrari", "Lamborghini", "Bentley", "Rolls-Royce",
@@ -304,6 +304,9 @@ _LOW_INTEREST_KEYWORDS = [
     "regulation", "регуляц", "standard", "стандарт",
     "supplier", "поставщик", "factory", "завод",
     "share", "акци", "stock", "investor",
+    # Boring Russian domestic auto brands — 50 years nothing interesting
+    "автоваз", "лада", "lada", "уаз", "uaz", "камаз", "kamaz",
+    "соллерс", "vesta", "granta", "niva", "искра", "iskra",
 ]
 
 
@@ -331,6 +334,14 @@ def _score_interest(title: str, summary: str = "") -> float:
             score -= 0.1
             break
     
+    # HEAVY penalty for boring Russian auto brands (in _LOW_INTEREST too, but need stronger effect)
+    _BORING_RUSSIAN_BRANDS = ["автоваз", "лада", "lada", "уаз", "uaz", "камаз", "kamaz",
+                              "соллерс", "vesta", "granta", "niva", "искра", "iskra"]
+    for kw in _BORING_RUSSIAN_BRANDS:
+        if kw.lower() in text:
+            score -= 0.4  # Heavy penalty — these topics are NEVER interesting
+            break
+    
     # Penalty for very long/technical titles
     if len(title) > 120:
         score -= 0.1
@@ -341,10 +352,11 @@ def _score_interest(title: str, summary: str = "") -> float:
             score += 0.05
             break
     
-    # Bonus for Russian-specific market topics
-    russian_market_kw = ["автоваз", "lada", "газ", "уаз", "камаз", "соллерс",
-                         "веста", "granta", "niva", "российск", "россия",
-                         "сочи", "краснодар"]
+    # REMOVED: Russian-specific market bonus for АвтоВАЗ/LADA/УАЗ/ГАЗ — boring brands
+    # These are now in _LOW_INTEREST_KEYWORDS with HEAVY penalty instead of bonus
+    # Only keep general Russian market + Chinese cars in Russia (actually interesting)
+    russian_market_kw = ["китайск", "byd", "chery", "haval", "zeekr", "geely",
+                         "российск", "россия", "сочи", "краснодар"]
     for kw in russian_market_kw:
         if kw in text:
             score += 0.08
@@ -545,7 +557,9 @@ async def ai_discover_news() -> List[Dict]:
                         f"Ты автоэксперт. Сегодня {date_str}. "
                         f"Назови 15 самых важных и свежих автомобильных новостей СЕГОДНЯ. "
                         f"Включи: новинки, премьеры, скандалы, отзывы, автоспорт (F1, WRC), "
-                        f"электромобили, китайский автопром, российский рынок. "
+                        f"электромобили, китайский автопром. "
+                        f"НЕ включай новости про АвтоВАЗ/LADA/УАЗ/ГАЗ/КамАЗ — это скучно. "
+                        f"Российский рынок только если про китайские авто в РФ. "
                         f"Каждая новость — одна строка в формате: НОВОСТЬ | краткое описание (1-2 предложения) "
                         f"Никаких нумерованных списков, маркеров или другого форматирования — просто строки с | "
                         f"Пиши на русском языке. НИКАКОЙ политики и войны — только автомобили."
@@ -1091,8 +1105,10 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
                                 "Ты редактор автоканала в Telegram. Тебе даны 5 кандидатов на публикацию "
                                 "с оценкой интереса (0-1). Выбери САМЫЙ интересный для широкой аудитории — "
                                 "то, что вызовет наибольший отклик, обсуждение и репосты. "
-                                "Учитывай: премьеры, скандалы, рекорды, прорывы, российский рынок — "
-                                "всегда приоритетнее сухих новостей. "
+                                "Учитывай: премьеры, скандалы, рекорды, прорывы — "
+                                "всегда приоритетнее сухых новостей. "
+                                "НЕ выбирай новости про АвтоВАЗ/LADA/УАЗ/ГАЗ/КамАЗ — скучно. "
+                                "Российский рынок интересен только если про китайские авто в РФ. "
                                 "Ответь ТОЛЬКО цифрой (1-5) — номер лучшего кандидата."
                             )},
                             {"role": "user", "content": f"Кандидаты:\n{candidates_text}"},
