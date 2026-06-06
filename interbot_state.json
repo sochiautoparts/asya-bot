@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T04:30:02Z",
+  "last_updated": "2026-06-06T04:31:20Z",
   "pending_reviews": [
     {
       "id": "c_1780719827_f43fda",
@@ -11,16 +11,6 @@
       "summary": "It's not easy to get any SUV, new or used, under $20,000. But there are a few options that manage to be reliable and relatively inexpensive.",
       "category": "auto",
       "timestamp": 1780719827.8786566,
-      "status": "pending"
-    },
-    {
-      "id": "c_1780720202_7278e4",
-      "from": "asya",
-      "type": "news_candidate",
-      "title": "The World Has Lost a Master of Automotive Cutaway Illustrations",
-      "summary": "Jiro Yamada, whose elaborate technical cutaways expressed \"the rationality and beauty of machines at the same time,\" passed away at the age of 65. The post The World Has Lost a Master of Automotive Cutaway Illustrations appeared first on The Drive.",
-      "category": "auto",
-      "timestamp": 1780720202.575198,
       "status": "pending"
     }
   ],
