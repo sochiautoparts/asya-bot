@@ -1,18 +1,8 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T02:27:50Z",
+  "last_updated": "2026-06-06T02:32:54Z",
   "pending_reviews": [
-    {
-      "id": "c_1780711895_489340",
-      "from": "asya",
-      "type": "news_candidate",
-      "title": "The World Has Lost a Master of Automotive Cutaway Illustrations",
-      "summary": "Jiro Yamada, whose elaborate technical cutaways expressed \"the rationality and beauty of machines at the same time,\" passed away at the age of 65. The post The World Has Lost a Master of Automotive Cutaway Illustrations appeared first on The Drive.",
-      "category": "auto",
-      "timestamp": 1780711895.1983516,
-      "status": "timed_out"
-    },
     {
       "id": "c_1780712395_5f461d",
       "from": "asya",
@@ -21,7 +11,7 @@
       "summary": "The GWM Cannon Alpha PHEV offers a superb mix of genuine electric range, on-road comfort, and off-road capability.",
       "category": "auto",
       "timestamp": 1780712395.8254611,
-      "status": "pending"
+      "status": "timed_out"
     },
     {
       "id": "c_1780712870_1f5cf5",
