@@ -1,28 +1,8 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T04:23:47Z",
+  "last_updated": "2026-06-06T04:27:18Z",
   "pending_reviews": [
-    {
-      "id": "c_1780717376_179db5",
-      "from": "asya",
-      "type": "news_candidate",
-      "title": "Australia may be falling out of love with 4x4 utes",
-      "summary": "After a decade of the Toyota HiLux and Ford Ranger topping sales charts, new data shows four-wheel drive ute demand is down 18 per cent this year.",
-      "category": "auto",
-      "timestamp": 1780717376.9444544,
-      "status": "timed_out"
-    },
-    {
-      "id": "c_1780717798_9105bf",
-      "from": "asya",
-      "type": "news_candidate",
-      "title": "Subaru Recalls 70,000 Foresters Because The Moonroofs Could Fly Off",
-      "summary": "According to Subaru, it isn't aware of any related crashes or injuries but it did receive three technical reports in the U.S.",
-      "category": "auto",
-      "timestamp": 1780717798.643553,
-      "status": "timed_out"
-    },
     {
       "id": "c_1780719827_f43fda",
       "from": "asya",
