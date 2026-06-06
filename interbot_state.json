@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T02:18:52Z",
+  "last_updated": "2026-06-06T02:19:55Z",
   "pending_reviews": [
     {
       "id": "c_1780711895_489340",
@@ -11,6 +11,16 @@
       "summary": "Jiro Yamada, whose elaborate technical cutaways expressed \"the rationality and beauty of machines at the same time,\" passed away at the age of 65. The post The World Has Lost a Master of Automotive Cutaway Illustrations appeared first on The Drive.",
       "category": "auto",
       "timestamp": 1780711895.1983516,
+      "status": "pending"
+    },
+    {
+      "id": "c_1780712395_5f461d",
+      "from": "asya",
+      "type": "news_candidate",
+      "title": "2026 CarExpert Choice winner: Best Electrified Ute",
+      "summary": "The GWM Cannon Alpha PHEV offers a superb mix of genuine electric range, on-road comfort, and off-road capability.",
+      "category": "auto",
+      "timestamp": 1780712395.8254611,
       "status": "pending"
     }
   ],
