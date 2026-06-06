@@ -1,8 +1,8 @@
 """
-AI Router v5.0 — POLLINATIONS-ONLY ROUTING with MODEL TIERING.
+AI Router v6.0 — POLLINATIONS-ONLY ROUTING with MODEL TIERING.
 All routes go through Pollinations cloud. No local model.
 
-Route strategy (v5.0):
+Route strategy (v6.0):
   CHAT route_type (user chats) → Pollinations (weighted model selection, fast for simple, quality for complex)
   FUNCTION route_type (posts, VIN, diagnostics, parts) → Pollinations (best quality: openai-large, gpt-5.5, deepseek)
   COMMENT route_type (comments in other groups) → Pollinations (fast/cheap: openai, mistral, nova-fast) → Static fallback
@@ -88,7 +88,7 @@ FUNCTION_MODELS = ["openai-large", "gpt-5.5", "deepseek"]
 class AIRouter:
     """Routes AI requests through Pollinations with model tiering.
 
-    v5.0 POLLINATIONS-ONLY strategy:
+    v6.0 POLLINATIONS-ONLY strategy:
     - Chat (user conversations) → Pollinations (weighted model selection)
     - Function (posts, VIN, diagnostics, parts) → Pollinations (best quality models)
     - Comment (comments in other groups) → Pollinations (fast/cheap models) → Static fallback
@@ -108,7 +108,7 @@ class AIRouter:
         self._primary = pollinations
 
         logger.info(
-            f"AI Router v5.0 POLLINATIONS-ONLY initialized: "
+            f"AI Router v6.0 POLLINATIONS-ONLY initialized: "
             f"pollinations=active "
             f"(chat=weighted, function=quality, comment=fast/cheap, vision=cloud, "
             f"{len(POLLINATIONS_MODELS)} models: "
@@ -153,7 +153,7 @@ class AIRouter:
         """
         Send a chat message through the AI router.
 
-        v5.0 POLLINATIONS-ONLY ROUTING via route_type:
+        v6.0 POLLINATIONS-ONLY ROUTING via route_type:
         - "chat" (default): Pollinations with weighted model selection (provider handles it)
         - "function": Pollinations with best quality models (openai-large, gpt-5.5, deepseek)
         - "comment": Pollinations with fast/cheap models (mistral, openai, nova-fast) → Static fallback

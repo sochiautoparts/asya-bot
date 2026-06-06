@@ -48,7 +48,7 @@ _MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 # Maps: entity_key → {first_seen, last_posted, post_count, titles}
 # Entity key = normalized brand + model + event (e.g., "bmw_m5_reveal")
 _topic_registry: Dict[str, Dict] = {}
-_REGISTRY_MAX_AGE_HOURS = 48  # Forget topics after 72 hours
+_REGISTRY_MAX_AGE_HOURS = 48  # Forget topics after 48 hours — faster topic cycling
 
 # Auto brands for entity extraction
 _AUTO_BRANDS = [
@@ -185,7 +185,7 @@ def _is_topic_covered(entity_key: str) -> bool:
         del _topic_registry[entity_key]
         return False
     
-    # Topic was posted in last 72h — it's covered
+    # Topic was posted in last 48h — it's covered
     return True
 
 
@@ -408,22 +408,30 @@ _SEARCH_QUERIES_ROTATION = [
     "автоновости сегодня свежие",
     "новые авто {month} {year} анонс",
     "автомобильные новости {month} {year}",
+    "автоновости сегодня свежие {month} {year}",
+    "автомобильные события сегодня {day} {month} {year}",
+    "новости автопрома сегодня {year}",
     # ── English-language queries (international coverage) ──
     "automotive news today",
-    "new car launches {year}",
+    "new car launches {year} reveal",
     "electric vehicle news",
     "car industry updates",
     "new car models {year} reveal",
     "car recalls and safety {year}",
     "auto show reveals {year}",
     "automotive industry news today",
+    "electric vehicle news today {year}",
     "electric vehicle updates {year}",
     "auto news today {month} {year}",
+    "new car launches {year} reveal today",
+    "car industry breaking news today",
     # ── Brand-specific queries (rotated) ──
     "LADA ВАЗ новости {year}",
     "Tesla news latest",
     "BMW Mercedes news latest",
     "BYD Chinese cars news",
+    "автоновости сегодня свежие {year}",
+    "F1 Formula 1 новости сегодня",
 ]
 
 # Track recently used query indices to avoid repetition
@@ -454,7 +462,7 @@ def _get_search_query() -> str:
         _recent_query_indices = _recent_query_indices[-_MAX_RECENT_QUERIES:]
     
     query = _SEARCH_QUERIES_ROTATION[idx]
-    return query.format(year=year, month=month_en[now.month - 1])
+    return query.format(year=year, month=month_en[now.month - 1], day=now.day)
 
 
 def _extract_published_time_from_snippet(snippet: str) -> float:
@@ -635,17 +643,21 @@ async def search_auto_news() -> List[Dict]:
     # Google News RSS is the most reliable source for fresh/today's content.
     # Use more specific "today" queries with actual dates.
     gnews_queries = [
-        # ── RU: today-specific with exact date ──
+        # ── RU: today-specific with exact date (10+ queries) ──
         f"автомобильные новости {now.day} {month_ru[now.month - 1]} {now.year}",
         f"автоновости сегодня {now.day} {month_ru[now.month - 1]}",
         f"автомобильные новости Россия сегодня {now.year}",
         f"новые автомобили премьера {now.year}",
         f"автоновости сегодня свежие {now.day} {month_ru[now.month - 1]}",
+        f"автоновости сегодня свежие {now.year}",
+        f"автомобильные события сегодня {now.day} {month_ru[now.month - 1]}",
+        f"новости автопрома {now.day} {month_ru[now.month - 1]} {now.year}",
         # ── EN: today-specific with exact date ──
         f"auto news today {now.day} {month_en[now.month - 1]} {now.year}",
         f"automotive news latest {month_en[now.month - 1]} {now.year}",
         f"new car launches {now.year} reveal",
         f"electric vehicle news today {now.year}",
+        f"car industry breaking news today",
         # ── F1/motorsport (race weekend Fri-Sun) ──
         f"Формула 1 новости сегодня {now.day} {month_ru[now.month - 1]}" if now.weekday() >= 4 else f"Формула 1 новости {now.year}",
         f"F1 news today {month_en[now.month - 1]} {now.year}" if now.weekday() >= 4 else f"F1 news {now.year}",

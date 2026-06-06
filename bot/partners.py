@@ -243,6 +243,9 @@ class PartnerManager:
         # Fallback to local cache
         return self._load_from_local()
 
+    # Alias for backward compatibility
+    load_admitad_async = load_async
+
     async def _load_from_remote(self) -> int:
         """Download admitad_ads.json from GitHub."""
         try:

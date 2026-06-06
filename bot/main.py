@@ -28,7 +28,6 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import config
 from bot.database import init_db, cleanup_old_fingerprints
-from bot.handlers import get_all_routers
 from bot.partners import partner_manager
 from ai.router import ai_router
 from news import run_news_cycle

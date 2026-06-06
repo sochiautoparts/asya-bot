@@ -896,7 +896,7 @@ async def load_topic_registry() -> Dict:
     Only loads topics that are NOT expired (within 72h of last_posted).
     This is called at startup to restore the registry after restart.
     """
-    max_age = 72 * 3600  # 72 hours
+    max_age = 48 * 3600  # 48 hours — faster topic cycling
     cutoff = time.time() - max_age
     registry = {}
     try:
@@ -948,7 +948,7 @@ async def save_topic_to_registry(entity_key: str, first_seen: float, last_posted
         logging.getLogger("asya.database").debug(f"Could not save topic to registry: {e}")
 
 
-async def cleanup_topic_registry(max_age_hours: int = 72) -> int:
+async def cleanup_topic_registry(max_age_hours: int = 48) -> int:
     """Remove expired topics from the DB registry. Returns count of removed rows."""
     cutoff = time.time() - (max_age_hours * 3600)
     try:
