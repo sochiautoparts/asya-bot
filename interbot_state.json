@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T04:31:20Z",
+  "last_updated": "2026-06-06T05:03:50Z",
   "pending_reviews": [
     {
       "id": "c_1780719827_f43fda",
@@ -11,6 +11,16 @@
       "summary": "It's not easy to get any SUV, new or used, under $20,000. But there are a few options that manage to be reliable and relatively inexpensive.",
       "category": "auto",
       "timestamp": 1780719827.8786566,
+      "status": "timed_out"
+    },
+    {
+      "id": "c_1780722230_867a75",
+      "from": "asya",
+      "type": "news_candidate",
+      "title": "Easy Daily Driver Maintenance Starts With Upgrading Your Floor Mats",
+      "summary": "Instead of waiting until your car's carpet is impossible to clean, protect it from the get-go with all-weather floor liners. The post Easy Daily Driver Maintenance Starts With Upgrading Your Floor Mats appeared first on The Drive.",
+      "category": "auto",
+      "timestamp": 1780722230.1576257,
       "status": "pending"
     }
   ],
