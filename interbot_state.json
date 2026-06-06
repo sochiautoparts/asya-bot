@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T01:44:58Z",
+  "last_updated": "2026-06-06T02:11:35Z",
   "pending_reviews": [
     {
       "id": "c_1780709862_e0a9e1",
@@ -11,6 +11,16 @@
       "summary": "Responses to the Hummer X included \"Who is this for,\" \"I think its silly,\" \"That car looks it was ai generated in 2022,\"and perhaps most succinctly, \"oh i f*cking hate this.\"",
       "category": "auto",
       "timestamp": 1780709862.8436801,
+      "status": "timed_out"
+    },
+    {
+      "id": "c_1780711895_489340",
+      "from": "asya",
+      "type": "news_candidate",
+      "title": "The World Has Lost a Master of Automotive Cutaway Illustrations",
+      "summary": "Jiro Yamada, whose elaborate technical cutaways expressed \"the rationality and beauty of machines at the same time,\" passed away at the age of 65. The post The World Has Lost a Master of Automotive Cutaway Illustrations appeared first on The Drive.",
+      "category": "auto",
+      "timestamp": 1780711895.1983516,
       "status": "pending"
     }
   ],
