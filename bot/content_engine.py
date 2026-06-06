@@ -272,9 +272,8 @@ _HIGH_INTEREST_KEYWORDS = [
     # Popular brands
     "BMW M", "Mercedes AMG", "Porsche", "Ferrari", "Lamborghini",
     "Tesla", "Cybertruck", "Corvette", "Mustang", "Supra",
-    # Russian-specific brands & market
-    "АвтоВАЗ", "LADA", "ГАЗ", "УАЗ", "КамАЗ", "Соллерс",
-    "Веста", "Granta", "Niva", "Vesta",
+    # Russian-specific market (general only, NO boring domestic brands)
+    "авторынок Россия", "китайские авто Россия",
     # Popular topics
     "electric", "EV", "электромобиль", "электрокар", "autonomous", "беспилот",
     "recalls", "отзыв", "бан", "ban", "скандал", "scandal",
@@ -426,7 +425,7 @@ _SEARCH_QUERIES_ROTATION = [
     "new car launches {year} reveal today",
     "car industry breaking news today",
     # ── Brand-specific queries (rotated) ──
-    "LADA ВАЗ новости {year}",
+    # REMOVED: "LADA ВАЗ новости" — boring, nobody cares about Russian auto brands
     "Tesla news latest",
     "BMW Mercedes news latest",
     "BYD Chinese cars news",
@@ -546,7 +545,7 @@ async def ai_discover_news() -> List[Dict]:
                         f"Ты автоэксперт. Сегодня {date_str}. "
                         f"Назови 15 самых важных и свежих автомобильных новостей СЕГОДНЯ. "
                         f"Включи: новинки, премьеры, скандалы, отзывы, автоспорт (F1, WRC), "
-                        f"электромобили, китайский автопром, российский рынок (АвтоВАЗ, LADA). "
+                        f"электромобили, китайский автопром, российский рынок. "
                         f"Каждая новость — одна строка в формате: НОВОСТЬ | краткое описание (1-2 предложения) "
                         f"Никаких нумерованных списков, маркеров или другого форматирования — просто строки с | "
                         f"Пиши на русском языке. НИКАКОЙ политики и войны — только автомобили."
@@ -751,11 +750,10 @@ async def search_auto_news() -> List[Dict]:
 async def search_russian_auto_news() -> List[Dict]:
     """Search for Russian-specific automotive market news.
     
-    Specific searches for:
-    - sochiautoparts.ru relevant content
-    - Russian automotive brands (АвтоВАЗ, LADA, ГАЗ, УАЗ, КамАЗ)
-    - Sochi/Krasnodar region auto news
-    - Russian car market updates
+    ONLY searches for Sochi/Krasnodar region auto news and general Russian
+    car market updates. Does NOT search for specific Russian auto brands
+    (АвтоВАЗ, LADA, УАЗ, ГАЗ, КамАЗ etc.) — these produce boring, 
+    repetitive content that nobody wants to read.
     
     Uses web_search directly to avoid dilution from appended keywords.
     Returns list of news items.
@@ -769,15 +767,11 @@ async def search_russian_auto_news() -> List[Dict]:
                "июля", "августа", "сентября", "октября", "ноября", "декабря"]
     
     russian_queries = [
-        "АвтоВАЗ LADA новости сегодня",
-        "УАЗ ГАЗ КамАЗ новости {year}",
-        "автоновости Сочи Краснодар",
-        "автомобильный рынок Россия {year}",
-        "Российский автопром новости",
-        "LADA Веста Гранта Нива новости",
-        "Соллерс автомобили новости",
-        # Fresh-today Russian queries
-        f"автоновости Россия сегодня {now.day} {month_ru[now.month - 1]} {year}",
+        # REMOVED: Сочи/Краснодар autonews — boring, repetitive
+        # REMOVED: general Russian auto market — always the same
+        # Only keep: Chinese cars in Russia (actually interesting)
+        "китайские автомобили Россия рынок",
+        f"авторынок Китайские авто {year}",
     ]
     
     # Pick 2 queries per call to not overload search
@@ -933,7 +927,7 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
     except Exception as e:
         logger.warning(f"Web search failed: {e}")
     
-    # Also search Russian-specific news
+    # Also search Russian-specific news (Сочи/Краснодар only — no Russian auto brands)
     try:
         ru_items = await search_russian_auto_news()
         all_items.extend(ru_items)

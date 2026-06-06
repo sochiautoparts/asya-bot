@@ -245,11 +245,14 @@ class BackgroundTasks:
         """
         # Wait a bit after startup
         await asyncio.sleep(30)
+        
+        logger.info("Channel poster started — will try to post every cycle")
 
         consecutive_empty_cycles = 0  # Health check: track failed posting cycles
 
         while self._running:
             posts_this_cycle = 0
+            logger.info(f"Channel poster: starting new cycle (consecutive_empty={consecutive_empty_cycles})")
             for post_num in range(2):  # Try to post 2 different items per cycle
                 try:
                     posted = await channel_manager.run_scheduled_post()
@@ -264,8 +267,10 @@ class BackgroundTasks:
                                 if not self._running:
                                     break
                                 await asyncio.sleep(1)
+                    else:
+                        logger.info(f"Channel poster: post {post_num + 1}/2 returned False (no content available or blocked by dedup)")
                 except Exception as e:
-                    logger.error(f"Channel poster error (post {post_num + 1}): {e}")
+                    logger.error(f"Channel poster error (post {post_num + 1}): {e}", exc_info=True)
             
             if posts_this_cycle > 0:
                 logger.info(f"Channel poster cycle complete: {posts_this_cycle} posts published")

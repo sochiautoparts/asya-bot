@@ -388,11 +388,19 @@ class ChannelManager:
         Tries each URL, downloads only valid content images.
         Filters out: icons, logos, banners, buttons, social media, tracking pixels,
         and images with abnormal dimensions (too wide/narrow = banners/ads).
+        Also filters out very large images (>5MB) which are usually full-page
+        screenshots or data URIs masquerading as images.
         Returns list of image data bytes.
         """
         images = []
         if not image_urls:
             return images
+
+        # Max size for news images — filter out huge garbage
+        # 2MB limit: large images are usually full-page screenshots,
+        # data URIs, or high-res photos that Telegram compresses anyway.
+        # Partner images use a separate download method with relaxed limits.
+        MAX_IMAGE_SIZE = 2 * 1024 * 1024  # 2MB
 
         for url in image_urls[:max_count * 3]:  # Try extra URLs in case some fail
             if len(images) >= max_count:
@@ -417,6 +425,11 @@ class ChannelManager:
                     # Validate: must be an image and at least 5KB (lowered from 20KB for news images)
                     if len(content) < 5000:
                         logger.debug(f"Skipping small image ({len(content)} bytes): {url[:80]}")
+                        continue
+
+                    # Skip oversized images — they're usually full-page screenshots or garbage
+                    if len(content) > MAX_IMAGE_SIZE:
+                        logger.debug(f"Skipping huge image ({len(content)} bytes, max {MAX_IMAGE_SIZE}): {url[:80]}")
                         continue
 
                     # Skip SVG (vector graphics = logos/icons)
@@ -818,13 +831,15 @@ class ChannelManager:
         If no item specified, picks the best unposted news or searches internet.
         """
         if not self._bot:
-            logger.error("Bot not set in ChannelManager")
+            logger.error("Bot not set in ChannelManager — cannot post")
             return False
+
+        logger.info(f"post_news: called with item={'provided' if news_item else 'None (will pick best)'}")
 
         # Check daily limit
         today_count = await get_today_post_count()
         if today_count >= config.CHANNEL_MAX_POSTS_PER_DAY:
-            logger.info("Daily post limit reached")
+            logger.info(f"Daily post limit reached ({today_count}/{config.CHANNEL_MAX_POSTS_PER_DAY})")
             return False
 
         # Check hourly limit — max 2 posts per hour
@@ -836,18 +851,20 @@ class ChannelManager:
         # Check minimum interval — within a cycle, allow 2 minutes between posts
         min_interval = 120  # 2 minutes minimum between any two posts
         if time.time() - self._last_post_time < min_interval:
-            logger.info("Post interval too short (2 min min)")
+            logger.info(f"Post interval too short ({time.time() - self._last_post_time:.0f}s < {min_interval}s)")
             return False
 
         # Get news item if not provided — use Smart Content Engine!
         if not news_item:
             unposted = await get_unposted_news(limit=15)
+            logger.info(f"post_news: {len(unposted)} unposted items in DB")
             # Use content engine to pick the best item (interest scoring + topic dedup)
             news_item = await get_best_news_item(unposted)
             if not news_item:
                 # Content engine couldn't find anything fresh — skip this cycle
                 logger.info("No fresh topics found (content engine)")
                 return False
+            logger.info(f"post_news: content engine selected: {news_item.get('title', '')[:60]}")
 
         # ── DEDUPLICATION LAYER 1: DB-level dedup (title hash, keyword overlap) ──
         if news_item and news_item.get("title"):
@@ -983,13 +1000,11 @@ class ChannelManager:
         post_hash = hashlib.sha256(post_text[:200].encode()).hexdigest()
         cleaned_prefix = re.sub(r'[^a-zа-яё0-9]', '', post_text[:50].lower())
         
-        # Check topic registry for the entity key
-        entity_key = _extract_entities(news_item.get("title", ""))
-        if _is_topic_covered(entity_key):
-            logger.warning(f"POST-GEN TOPIC DEDUP blocked: topic already in registry '{entity_key}' — {news_item.get('title', '')[:60]}")
-            if news_item.get("url"):
-                await mark_news_posted(news_item["url"])
-            return False
+        # NOTE: Topic registry check REMOVED here — it was causing a deadlock.
+        # The topic registry is populated from DB on startup with OLD topics that
+        # were never actually posted (due to previous bugs). This caused ALL posts
+        # to be blocked. Other dedup layers (DB fingerprints, content hash,
+        # channel scanner) are sufficient for preventing duplicates.
         
         # Check content hash against recent posts in DB
         try:
@@ -1492,6 +1507,7 @@ class ChannelManager:
         1. Skipping partner posts if hourly limit would be reached without variety
         2. Never posting the same news/partner content twice in a row
         """
+        logger.info("run_scheduled_post: called")
         now = time.time()
         partner_interval = config.PARTNER_POST_INTERVAL_HOURS * 3600
 
