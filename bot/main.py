@@ -33,7 +33,6 @@ from bot.partners import partner_manager
 from ai.router import ai_router
 from news import run_news_cycle
 from channel import channel_manager
-from miniapp.server import start_miniapp_server
 
 # ── Logging setup ──────────────────────────────────────────────────────────────
 
@@ -302,7 +301,7 @@ async def main():
 
     # Load partner programs
     try:
-        partner_count = await partner_manager.load_admitad_async()
+        partner_count = await partner_manager.load_async()
         logger.info(f"Partner programs loaded: {partner_count}")
     except Exception as e:
         logger.warning(f"Could not load partner programs: {e}")
@@ -314,14 +313,33 @@ async def main():
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
 
-    # Include all handler routers
-    for router in get_all_routers():
-        dp.include_router(router)
+    # Include all handler routers — include EACH sub-router individually
+    # to avoid "Router object is not iterable" error in some aiogram versions
+    try:
+        from bot.handlers.chat import chat_router
+        from bot.handlers.admin import admin_router
+        from bot.handlers.inline import inline_router
+        dp.include_router(chat_router)
+        dp.include_router(admin_router)
+        dp.include_router(inline_router)
+        logger.info("Handler routers included successfully")
+    except Exception as e:
+        logger.critical(f"Failed to include handler routers: {e}")
+        raise
 
     # Start background tasks
     bg_tasks = BackgroundTasks(bot)
-    dp.startup.register(lambda **kwargs: bg_tasks.start())
-    dp.shutdown.register(lambda **kwargs: bg_tasks.stop())
+
+    async def on_startup():
+        """Startup callback — start background tasks."""
+        await bg_tasks.start()
+
+    async def on_shutdown():
+        """Shutdown callback — stop background tasks."""
+        await bg_tasks.stop()
+
+    dp.startup.register(on_startup)
+    dp.shutdown.register(on_shutdown)
 
     # Run polling
     logger.info("=== Asya Bot Starting (Pollinations-Only v6) ===")

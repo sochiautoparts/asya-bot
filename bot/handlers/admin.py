@@ -242,7 +242,7 @@ async def cmd_send_partner_post(message: Message):
         await add_partner_post(
             program_id=program.id,
             program_name=program.name,
-            category=", ".join(program.categories) if program.categories else "general",
+            category=program.category if program.category else "general",
             affiliate_url=program.goto_link,
             post_content=post_text,
             message_id=sent.message_id,

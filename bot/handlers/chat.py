@@ -710,19 +710,7 @@ async def _process_text_message(message: Message, text: str):
     if user_context:
         extra_context_parts.append(user_context)
 
-    # 0.1. Inter-bot chat detection — check if message is from Настя (the other bot)
-    NASTYA_BOT_USERNAME = "asnastya_bot"
-    if (
-        message.chat.type in ("group", "supergroup")
-        and message.from_user
-        and message.from_user.username
-        and message.from_user.username.lower() == NASTYA_BOT_USERNAME
-    ):
-        extra_context_parts.append(
-            "Это сообщение от Насти — другого бота, который тоже в этом чате. "
-            "Ты можешь отвечать ей и обсуждать темы."
-        )
-        # Interbot removed — each bot works independently
+    # Interbot removed — each bot works independently
 
     # 0.5. User car profile context — so Asya knows their cars
     try:
