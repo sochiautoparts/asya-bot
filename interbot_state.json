@@ -1,7 +1,7 @@
 {
   "bot": "asya",
   "version": "1.0",
-  "last_updated": "2026-06-06T01:00:25Z",
+  "last_updated": "2026-06-06T01:37:42Z",
   "pending_reviews": [
     {
       "id": "c_1780707129_7c6a6a",
@@ -11,7 +11,7 @@
       "summary": "An Australian design studio has released renderings of a ‘Correction Kit’ as an antedote to the Kia Tasman’s controversial looks.",
       "category": "auto",
       "timestamp": 1780707129.3967586,
-      "status": "pending"
+      "status": "timed_out"
     },
     {
       "id": "c_1780707625_b58f24",
@@ -21,6 +21,16 @@
       "summary": "After a decade of the Toyota HiLux and Ford Ranger topping sales charts, new data shows four-wheel drive ute demand is down 18 per cent this year.",
       "category": "auto",
       "timestamp": 1780707625.4386427,
+      "status": "timed_out"
+    },
+    {
+      "id": "c_1780709862_e0a9e1",
+      "from": "asya",
+      "type": "news_candidate",
+      "title": "GMC Made The Hummer X For Me And My Climbing Polycule, And We Don't Want It",
+      "summary": "Responses to the Hummer X included \"Who is this for,\" \"I think its silly,\" \"That car looks it was ai generated in 2022,\"and perhaps most succinctly, \"oh i f*cking hate this.\"",
+      "category": "auto",
+      "timestamp": 1780709862.8436801,
       "status": "pending"
     }
   ],
