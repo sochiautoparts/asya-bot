@@ -272,8 +272,7 @@ _HIGH_INTEREST_KEYWORDS = [
     # Popular brands
     "BMW M", "Mercedes AMG", "Porsche", "Ferrari", "Lamborghini",
     "Tesla", "Cybertruck", "Corvette", "Mustang", "Supra",
-    # Russian-specific market (general only, NO boring domestic brands)
-    "авторынок Россия", "китайские авто Россия",
+
     # Popular topics
     "electric", "EV", "электромобиль", "электрокар", "autonomous", "беспилот",
     "recalls", "отзыв", "бан", "ban", "скандал", "scandal",
@@ -284,6 +283,19 @@ _HIGH_INTEREST_KEYWORDS = [
     # Engagement hooks
     "лучший", "худший", "самый", "worst", "best", "топ",
     "секрет", "secret", "тайн", "hidden",
+    # Motorsport & racing
+    "F1", "Formula 1", "Формула 1", "WRC", "rally", "ралли",
+    "Le Mans", "NASCAR", "IndyCar", "MotoGP", "Dakar", "Дакар",
+    "grand prix", "гонк", "автоспорт", "motorsport", "racing",
+    # Chinese auto expansion
+    "BYD", "Zeekr", "Li Auto", "NIO", "Xpeng", "Chery", "Haval",
+    "китайск", "Chinese cars", "китайские авто",
+    # Technology & innovation
+    "автопилот", "self-driving", "водород", "hydrogen", "solid-state",
+    "твердотельн", "автомат", "робот", "софт", "over-the-air", "OTA",
+    # Lifestyle & culture
+    "тюнинг", "tuning", "рестайлинг", "facelift", "classic car",
+    "винтаж", "ретро", "коллекцион",
 ]
 
 _MEDIUM_INTEREST_KEYWORDS = [
@@ -296,17 +308,31 @@ _MEDIUM_INTEREST_KEYWORDS = [
     "двигатель", "engine", "turbo", "турбо",
     "автосалон", "auto show", "мотор-шоу", "motor show",
     "продаж", "sales", "рынок", "market",
-    "китайск", "Chinese", "BYD", "Zeekr", "Haval", "Chery",
+    # Service & maintenance
+    "обслуживан", "maintenance", "замена", "replacement",
+    "масло", "oil", "фильтр", "filter", "тормозн", "brake",
+    "диагност", "diagnostic", "VIN", "запчаст",
+    # Comparisons & ratings
+    "сравнен", "comparison", "рейтинг", "rating", "топ", "top",
+    "плюс", "минус", "pros", "cons", "преимуществ",
+    # Market & industry
+    "экспорт", "export", "импорт", "import", "производств",
+    "завод", "factory", "investment", "инвестиц",
+    "продажи", "sales figures", "дилер", "dealer",
+    # Lifestyle
+    "путешеств", "road trip", "дорог", "маршрут",
+    "безопасност", "safety", "страхов",
 ]
 
 _LOW_INTEREST_KEYWORDS = [
     "report", "отчет", "statistics", "статистик",
     "regulation", "регуляц", "standard", "стандарт",
-    "supplier", "поставщик", "factory", "завод",
+    "supplier", "поставщик",
     "share", "акци", "stock", "investor",
-    # Boring Russian domestic auto brands — 50 years nothing interesting
-    "автоваз", "лада", "lada", "уаз", "uaz", "камаз", "kamaz",
-    "соллерс", "vesta", "granta", "niva", "искра", "iskra",
+    # Russian domestic auto brands — penalize, not promote
+    "АвтоВАЗ", "LADA", "ГАЗ", "УАЗ", "КамАЗ", "Соллерс",
+    "Веста", "Granta", "Niva", "Vesta", "ВАЗ",
+    "Икслайн", "Xcode", "Аурус", "Aurus",
 ]
 
 
@@ -347,16 +373,17 @@ def _score_interest(title: str, summary: str = "") -> float:
         score -= 0.1
     
     # Bonus for brand names (people search by brand)
+    # BUT: exclude Russian domestic brands — they get penalized in _LOW_INTEREST
+    _russian_brands = {"lada", "ваз", "газ", "уаз", "камаз", "соллерс", "niva", "vesta", "granta", "aurus", "аурус"}
     for brand in _AUTO_BRANDS:
         if brand.lower() in text:
-            score += 0.05
+            if brand.lower() not in _russian_brands:
+                score += 0.05
             break
     
-    # REMOVED: Russian-specific market bonus for АвтоВАЗ/LADA/УАЗ/ГАЗ — boring brands
-    # These are now in _LOW_INTEREST_KEYWORDS with HEAVY penalty instead of bonus
-    # Only keep general Russian market + Chinese cars in Russia (actually interesting)
-    russian_market_kw = ["китайск", "byd", "chery", "haval", "zeekr", "geely",
-                         "российск", "россия", "сочи", "краснодар"]
+    # Bonus for Russian market topics (but NOT domestic Russian car brands)
+    russian_market_kw = ["российск", "россия", "сочи", "краснодар",
+                         "импортозамещ", "параллельн импорт", "parallel import"]
     for kw in russian_market_kw:
         if kw in text:
             score += 0.08
@@ -406,23 +433,34 @@ def _score_freshness(published_time: float) -> float:
 # ── Web Search Content — supplement RSS with search results ───────────────────
 
 _SEARCH_QUERIES_ROTATION = [
-    # ── Russian-language queries — TODAY-focused (broad coverage) ──
+    # ── Russian-language queries: general auto news ──
     "автомобильные новости сегодня",
     "новые автомобили {year} премьера",
     "автоновости Россия",
     "новые модели авто {year}",
     "автомобильные новости сегодня {year}",
-    "автопром России новости",
     "новинки авто {year} дебют",
-    # ── TODAY-specific queries to prioritize fresh content ──
-    "автомобильные новости сегодня {month} {year}",
-    "автоновости сегодня свежие",
-    "новые авто {month} {year} анонс",
-    "автомобильные новости {month} {year}",
-    "автоновости сегодня свежие {month} {year}",
-    "автомобильные события сегодня {day} {month} {year}",
-    "новости автопрома сегодня {year}",
-    # ── English-language queries (international coverage) ──
+    # ── Russian-language queries: motorsport ──
+    "Формула 1 новости сегодня",
+    "автоспорт новости {year}",
+    "ралли Дакар WRC новости",
+    # ── Russian-language queries: EV & technology ──
+    "электромобили новости {year}",
+    "электрокар заряжай новости",
+    "автопилот беспилотник авто новости",
+    # ── Russian-language queries: market & prices ──
+    "автомобильный рынок Россия {year} цены",
+    "китайские автомобили Россия {year}",
+    "параллельный импорт авто новости",
+    # ── Russian-language queries: service & DIY ──
+    "обслуживание авто советы {year}",
+    "ремонт автомобилей советы экспертов",
+    "подбор запчастей VIN диагностика",
+    # ── Russian-language queries: lifestyle & culture ──
+    "тюнинг автомобилей новости",
+    "винтажные авто ретро автомобили",
+    "автопутешествия маршруты {year}",
+    # ── English-language queries: general auto news ──
     "automotive news today",
     "new car launches {year} reveal",
     "electric vehicle news",
@@ -433,21 +471,43 @@ _SEARCH_QUERIES_ROTATION = [
     "automotive industry news today",
     "electric vehicle news today {year}",
     "electric vehicle updates {year}",
-    "auto news today {month} {year}",
-    "new car launches {year} reveal today",
-    "car industry breaking news today",
+    # ── English-language queries: motorsport ──
+    "F1 Formula 1 news {year}",
+    "WRC rally racing news",
+    "Le Mans endurance racing news",
+    "NASCAR IndyCar racing updates",
+    # ── English-language queries: technology ──
+    "autonomous self-driving car news",
+    "hydrogen fuel cell vehicle news",
+    "solid state battery EV news {year}",
+    "car software OTA update news",
+    # ── English-language queries: reviews & comparisons ──
+    "car comparison test review {year}",
+    "best cars {year} awards ranking",
+    "SUV crossover comparison {year}",
+    "sedan review test drive {year}",
+    # ── English-language queries: market & industry ──
+    "Chinese cars global expansion {year}",
+    "car sales market report {year}",
+    "auto industry merger acquisition",
     # ── Brand-specific queries (rotated) ──
-    # REMOVED: "LADA ВАЗ новости" — boring, nobody cares about Russian auto brands
     "Tesla news latest",
-    "BMW Mercedes news latest",
+    "BMW Mercedes Audi news latest",
     "BYD Chinese cars news",
-    "автоновости сегодня свежие {year}",
-    "F1 Formula 1 новости сегодня",
+    "Porsche Ferrari supercar news",
+    "Toyota Honda news latest",
+    "Hyundai Kia news latest",
+    # ── Niche queries for diversity ──
+    "classic car auction news",
+    "motorcycle news latest {year}",
+    "car design concept news {year}",
+    "luxury car news {year}",
+    "pickup truck news {year}",
 ]
 
 # Track recently used query indices to avoid repetition
 _recent_query_indices: list = []
-_MAX_RECENT_QUERIES = 5
+_MAX_RECENT_QUERIES = 10  # Track more queries to avoid repetition with larger pool
 
 
 def _get_search_query() -> str:
@@ -652,65 +712,7 @@ async def search_auto_news() -> List[Dict]:
     month_en = ["January", "February", "March", "April", "May", "June",
                "July", "August", "September", "October", "November", "December"]
     
-    # ── PRIMARY SOURCE: Google News RSS FIRST ──
-    # Google News RSS is the most reliable source for fresh/today's content.
-    # Use more specific "today" queries with actual dates.
-    gnews_queries = [
-        # ── RU: today-specific with exact date (10+ queries) ──
-        f"автомобильные новости {now.day} {month_ru[now.month - 1]} {now.year}",
-        f"автоновости сегодня {now.day} {month_ru[now.month - 1]}",
-        f"автомобильные новости Россия сегодня {now.year}",
-        f"новые автомобили премьера {now.year}",
-        f"автоновости сегодня свежие {now.day} {month_ru[now.month - 1]}",
-        f"автоновости сегодня свежие {now.year}",
-        f"автомобильные события сегодня {now.day} {month_ru[now.month - 1]}",
-        f"новости автопрома {now.day} {month_ru[now.month - 1]} {now.year}",
-        # ── EN: today-specific with exact date ──
-        f"auto news today {now.day} {month_en[now.month - 1]} {now.year}",
-        f"automotive news latest {month_en[now.month - 1]} {now.year}",
-        f"new car launches {now.year} reveal",
-        f"electric vehicle news today {now.year}",
-        f"car industry breaking news today",
-        # ── F1/motorsport (race weekend Fri-Sun) ──
-        f"Формула 1 новости сегодня {now.day} {month_ru[now.month - 1]}" if now.weekday() >= 4 else f"Формула 1 новости {now.year}",
-        f"F1 news today {month_en[now.month - 1]} {now.year}" if now.weekday() >= 4 else f"F1 news {now.year}",
-    ]
-    # Remove duplicates (e.g. same weekday-based query)
-    gnews_queries = list(dict.fromkeys(gnews_queries))
-    
-    for gq in gnews_queries:
-        try:
-            gnews_results = await search_google_news_rss(gq, max_results=8)
-            for result in gnews_results:
-                title = result.title or ""
-                url = result.url or ""
-                snippet = result.snippet or ""
-                if not title or not url:
-                    continue
-                if url in seen_urls:
-                    continue
-                seen_urls.add(url)
-                is_russian = any('\u0400' <= c <= '\u04FF' for c in title)
-                # Try to extract actual published time from snippet
-                published_time = _extract_published_time_from_snippet(snippet)
-                if not published_time:
-                    published_time = time.time()  # Assume fresh from Google News
-                items.append({
-                    "source": "google_news",
-                    "title": title.strip(),
-                    "url": url.strip(),
-                    "summary": snippet.strip()[:500],
-                    "published": published_time,
-                    "published_time": published_time,
-                    "category": "auto",
-                    "lang": "ru" if is_russian else "en",
-                    "image_urls": [],
-                })
-        except Exception as e:
-            logger.error(f"Google News RSS search failed (query: {gq}): {e}")
-    
-    # ── SECONDARY SOURCE: Web search for broader coverage ──
-    # Use 3 different queries per call for broader coverage
+    # Use 5 different queries per call for broader coverage
     queries = [_get_search_query() for _ in range(5)]
     # Deduplicate queries (in case same one picked twice)
     queries = list(dict.fromkeys(queries))
@@ -762,15 +764,17 @@ async def search_auto_news() -> List[Dict]:
 
 
 async def search_russian_auto_news() -> List[Dict]:
-    """Search for Russian-specific automotive market news.
+    """Search for Russia-relevant automotive market news.
     
-    ONLY searches for Sochi/Krasnodar region auto news and general Russian
-    car market updates. Does NOT search for specific Russian auto brands
-    (АвтоВАЗ, LADA, УАЗ, ГАЗ, КамАЗ etc.) — these produce boring, 
-    repetitive content that nobody wants to read.
+    Focuses on:
+    - Chinese auto brands in Russia (BYD, Chery, Haval, Geely etc.)
+    - Russian car market updates & prices
+    - Sochi/Krasnodar region auto news
+    - Service & maintenance content
+    - Import & parallel import news
     
-    Uses web_search directly to avoid dilution from appended keywords.
-    Returns list of news items.
+    NOTE: Russian domestic brands (LADA/ВАЗ, ГАЗ, УАЗ, КамАЗ) are EXCLUDED
+    from search queries — they are penalized in scoring instead.
     """
     items = []
     seen_urls = set()
@@ -781,11 +785,14 @@ async def search_russian_auto_news() -> List[Dict]:
                "июля", "августа", "сентября", "октября", "ноября", "декабря"]
     
     russian_queries = [
-        # REMOVED: Сочи/Краснодар autonews — boring, repetitive
-        # REMOVED: general Russian auto market — always the same
-        # Only keep: Chinese cars in Russia (actually interesting)
-        "китайские автомобили Россия рынок",
-        f"авторынок Китайские авто {year}",
+        "китайские автомобили Россия {year} новости",
+        "BYD Chery Haval Geely Россия новости",
+        "автомобильный рынок Россия {year} цены",
+        "автоновости Сочи Краснодар",
+        "параллельный импорт авто новости {year}",
+        "электромобили Россия {year} зарядные станции",
+        "обслуживание авто советы экспертов",
+        "автострахование ОСАГО КАСКО новости",
     ]
     
     # Pick 2 queries per call to not overload search
@@ -867,24 +874,36 @@ async def search_russian_auto_news() -> List[Dict]:
 async def search_news_images(query: str, max_count: int = 5) -> List[str]:
     """Search the web for images related to a news topic.
     
+    Uses specific search queries to find high-quality automotive images.
     Returns list of image URLs.
     """
     image_urls = []
     try:
-        # Search for images
-        search_query = f"{query} car photo"
-        results = await web_search(search_query, max_results=10)
-        for result in results:
-            url = result.url or ""
-            # Check if it looks like an image URL
-            if any(ext in url.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp']):
-                if len(url) > 50:  # Skip tiny/tracking URLs
-                    image_urls.append(url)
-            # Also check snippet for image URLs
-            snippet = result.snippet or ""
-            img_match = re.search(r'https?://\S+\.(?:jpg|jpeg|png|webp)', snippet, re.IGNORECASE)
-            if img_match:
-                image_urls.append(img_match.group(0))
+        # Search with multiple queries for better coverage
+        search_queries = [
+            f"{query} photo",
+            f"{query} car image",
+        ]
+        
+        for sq in search_queries:
+            results = await web_search(sq, num_results=8)
+            for result in results:
+                url = result.get("url", "")
+                # Check if it looks like an image URL
+                if any(ext in url.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp']):
+                    if len(url) > 50:  # Skip tiny/tracking URLs
+                        if url not in image_urls:
+                            image_urls.append(url)
+                # Also check snippet for image URLs
+                snippet = result.get("snippet", "")
+                img_match = re.search(r'https?://\S+\.(?:jpg|jpeg|png|webp)', snippet, re.IGNORECASE)
+                if img_match:
+                    found_url = img_match.group(0)
+                    if found_url not in image_urls:
+                        image_urls.append(found_url)
+            
+            if len(image_urls) >= max_count:
+                break
         
     except Exception as e:
         logger.debug(f"Image search failed for '{query}': {e}")
@@ -1167,15 +1186,16 @@ async def enrich_with_search_images(news_item: Dict) -> List[str]:
     
     This is an additional image source beyond RSS and article scraping.
     Searches for the car brand/model mentioned in the title.
+    Tries to find high-quality, relevant images.
     """
     title = news_item.get("title", "")
     
     # Extract a search-friendly query from the title
     # Remove common filler words
-    query = re.sub(r'\b(the|a|an|in|on|at|to|for|of|with|and|or|but)\b', '', title, flags=re.IGNORECASE)
+    query = re.sub(r'\b(the|a|an|in|on|at|to|for|of|with|and|or|but|это|для|при|как|что|уже|ещё)\b', '', title, flags=re.IGNORECASE)
     query = re.sub(r'\s+', ' ', query).strip()
-    # Keep first 60 chars for search
-    query = query[:60]
+    # Keep first 80 chars for search — longer queries find better results
+    query = query[:80]
     
     try:
         image_urls = await search_news_images(query, max_count=5)

@@ -48,7 +48,7 @@ class BotConfig:
     # Telegram character limits
     TELEGRAM_TEXT_LIMIT: int = 4096       # Max chars for text-only message
     TELEGRAM_CAPTION_LIMIT: int = 1024    # Max chars for media caption
-    TELEGRAM_MAX_MEDIA_PER_POST: int = 3  # Max photos/videos per post (keep it clean, not spammy)
+    TELEGRAM_MAX_MEDIA_PER_POST: int = 10  # Max photos/videos per post (Telegram limit is 10)
 
     # Partner / admitad / Rossko
     ADMITAD_ADS_FILE: str = os.getenv("ADMITAD_ADS_FILE", "admitad_ads.json")
@@ -259,8 +259,9 @@ class AsyaPersona:
         "- НИКОГДА не превышай лимит! Если текст длинный — сократи его, а не обрезай подпись\n"
         "- Подпись в конце ОБЯЗАТЕЛЬНА — никогда её не обрезай\n\n"
         "МЕДИА В ПОСТАХ:\n"
-        "- Используй до 10 фото в посте — чем больше реальных фото, тем лучше\n"
-        "- Если новость про новую модель — максимально фото: экстерьер, интерьер, детали\n"
+        "- Используй 2-10 фото в посте — чем больше качественных фото, тем лучше\n"
+        "- Если новость про новую модель — 3-5 фото (экстерьер, интерьер, детали)\n"
+        "- Если автоспорт — 3-5 фото (гонка, болид, подиум)\n"
         "- Текст (подпись) пишется только один — к первому медиа в группе\n"
         "- Остальные медиа прикрепляются без подписи\n\n"
         "РЕАЛЬНЫЕ ФОТО ИЗ НОВОСТЕЙ:\n"
@@ -270,10 +271,13 @@ class AsyaPersona:
         "- Если реальных фото нет — генерируются иллюстрации, и это тоже нормально\n"
         "- Иногда для важных новостей реальные фото критически важны\n\n"
         "УМНЫЕ ХЕШТЕГИ:\n"
-        "- Добавляй 2-5 релевантных хештегов КОНТЕКСТУ новости ПОСЛЕ #sochiautoparts\n"
+        "- Добавляй 3-6 релевантных хештегов КОНТЕКСТУ новости ПОСЛЕ #sochiautoparts\n"
         "- Примеры: #новостиавто #автопром #электромобили #новинки2026 #F1 #автоспорт\n"
         "- Если новость про конкретную марку — добавь хештег марки: #BMW #Toyota #BYD\n"
-        "- НИКОГДА не используй хештег #LADA — этот бренд не интересен нашей аудитории\n"
+        "- Для автоспорта: #F1 #WRC #автоспорт #гонки #ралли\n"
+        "- Для EV: #электромобили #EV #зарядка #батарея #зелёныйтранспорт\n"
+        "- Для рынка: #авторынок #ценынавто #китайскиеавто #импорт\n"
+        "- Для обслуживания: #автосервис #запчасти #диагностика #ТО\n"
         "- Хештеги помогают привлечь подписчиков через поиск Telegram\n\n"
         "НЕ используй markdown-ссылки [текст](url) — используй обычный текст и прямые URL. "
         "Пиши обычным текстом без форматирования."
@@ -353,6 +357,11 @@ class NewsConfig:
     """All news sources for Asya bot — auto-focused."""
 
     sources: List[NewsSource] = field(default_factory=lambda: [
+        # ── Russian-language RSS sources ──
+        # Major Russian auto portals
+        NewsSource("Авто.ру Новости", "https://auto.ru/news/rss/", "ru", "auto"),
+        NewsSource("Дром.ру Новости", "https://www.drom.ru/info/rss/", "ru", "auto"),
+        NewsSource("АвтоВести ( vesti.ru)", "https://www.vesti.ru/rss/auto.rss", "ru", "auto"),
         # ── Working RSS sources (verified June 2026) ──
         # International auto industry
         NewsSource("OICA", "https://oica.net/feed/", "en", "auto"),
@@ -372,6 +381,15 @@ class NewsConfig:
         NewsSource("EVO", "https://www.evo.co.uk/rss", "en", "auto"),
         NewsSource("CarMagazine", "https://www.carmagazine.co.uk/rss/", "en", "auto"),
         NewsSource("AutoCarIndia", "https://www.autocarindia.com/rss", "en", "auto"),
+        # Additional international sources for diversity
+        NewsSource("CarScoops", "https://www.carscoops.com/feed/", "en", "auto"),
+        NewsSource("Motor1", "https://www.motor1.com/rss/", "en", "auto"),
+        NewsSource("TopGear", "https://www.topgear.com/rss", "en", "auto"),
+        NewsSource("Autoblog", "https://www.autoblog.com/rss.xml", "en", "auto"),
+        # Motorsport
+        NewsSource("F1 Official", "https://www.formula1.com/content/fom-website/en/latest/rss.xml", "en", "auto"),
+        NewsSource("Motorsport.com", "https://www.motorsport.com/rss/all/news/", "en", "auto"),
+        NewsSource("BBC Sport F1", "https://feeds.bbci.co.uk/sport/formula1/rss.xml", "en", "auto"),
     ])
 
 
