@@ -69,6 +69,15 @@ AUTO_KEYWORDS_RU = [
     "Porsche", "Lexus", "Volvo", "Subaru", "Suzuki", "Mitsubishi",
     "Chery", "Haval", "Geely", "Changan", "Exeed", "Tank",
     "Tesla", "BYD", "Zeekr", "Li Auto", "NIO",
+    # ── Расширенные автомобильные ключевые слова ──
+    "эвакуац", "дтп", "авари", "дорожн", "перекрыт", "затор", "пробк",
+    "автозаправ", "азс ", "заправк", "бензоколонк",
+    "шиномонтаж", "автомойк", "автохим",
+    "перебои поставк", "дефицит запчас",
+    "логистик", "грузоперевозк", "автоперевозк",
+    "растаможк", "таможен оформл", "параллельн импорт",
+    "эвакуатор", "техпомощ", "техосмотр",
+    "автокредит", "автострахов", "каско", "осаго",
 ]
 
 AUTO_KEYWORDS_EN = [
@@ -83,6 +92,17 @@ AUTO_KEYWORDS_EN = [
     "EV", "BEV", "PHEV", "ICE", "autonomous", "self-driving",
     "sedan", "SUV", "crossover", "hatchback", "coupe", "convertible",
     "horsepower", "torque", "MPG", "range",
+    # ── Extended automotive keywords ──
+    "evacuation", "tow truck", "roadside assistance",
+    "gas station", "fuel station", "refueling",
+    "tire service", "car wash", "auto chemical",
+    "supply chain", "parts shortage", "logistics",
+    "customs clearance", "parallel import",
+    "car loan", "auto insurance",
+    "traffic", "road accident", "collision",
+    "road closure", "congestion", "jam",
+    "car fire", "vehicle fire", "car burned",
+    "auto transport", "car carrier", "vehicle shipping",
 ]
 
 AUTO_KEYWORDS_DE = [
@@ -105,7 +125,7 @@ BLOCK_KEYWORDS_RU = [
     # Война / СВО
     "сво ", "специальная военная", "вооруженн", "военные действ",
     "мобилизац", "призывник", "окоп", "обстрел", "ракетн удар",
-    "взрыв", "террор", "б ое", "погибл", "ранен", "жертв",
+    "террор", "б ое",
     "украин", "крымск", "донбас", "луганск", "донецк", "херсонск", "запорожск",
     "белорусс", "нато", "nato",
     # Общие блокировки
@@ -113,6 +133,55 @@ BLOCK_KEYWORDS_RU = [
     # Российские автобренды — не интересны аудитории
     "автоваз", "lada веста", "lada granta", "lada niva", "уаз патриот",
     "камаз новости", "газель новости", "соллерс новости",
+    # ── РАСШИРЕННЫЙ БЛОК: неавтомобильные темы ──
+    # Автомобильная новость = ПРЯМАЯ связь с автотранспортом:
+    #   сгоревшие машины, перебои запчастей, рынок шин, логистика запчастей,
+    #   автосервис, эвакуация, ДТП с участием транспорта, дорожные происшествия
+    # ВСЁ ОСТАЛЬНОЕ — БЛОКИРУЕТСЯ:
+    "пожар на рынке", "пожар на базаре", "пожар в тц", "пожар в магазине",
+    "пожар в торгов", "пожар на складе", "загорелся рынок",
+    "возгорание на рынке", "возгорание в тц", "возгорание в торгов",
+    "пожар в торговом", "пожар в бизнес", "пожар в офис",
+    "пожар уничтожил", "пожар повредил", "пожар охватил",
+    "горящий рынок", "горящий тц", "горящий торговый",
+    "торговый центр пожар", "торговый центр загорел",
+    "рынок загорел", "рынок сгорел", "базар сгорел",
+    "убийств", "преступлен", "криминал", "грабёж", "грабеж", "разбой",
+    "насилие", "домашнее насили", "изнасилован", "педофил",
+    "кража", "воровств", "мошенничеств", "коррупци",
+    "наркотик", "наркобизнес", "драгдилер",
+    "пожар в квартире", "пожар в доме", "пожар в здании",
+    "пожар в жилом", "пожар в многоквартирн",
+    "обрушение здания", "обрушение крыши", "прорыв трубы",
+    "наводнен", "затоплен", "подтоплен", "паводок",
+    "землетрясен", "цунами", "ураган", "торнадо",
+    "температура воздуха", "погода в", "прогноз погоды",
+    "медицин", "больниц", "врач", "лечени", "операция пациент",
+    "образован", "школьник", "учитель", "экзамен", "егэ", "огэ",
+    "спорт ", "футбол", "хоккей", "олимпи", "чемпионат мир",
+    "культур", "театр", "кино ", "фильм", "сериал",
+    "ресторан", "кафе ", "рецепт ", "готовить",
+    "недвижимост", "квартир цена", "ипотек",
+    "криптовалю", "биткоин", "ethereum", "биржа ",
+    "квартирный вопрос", "жкх", "коммуналк",
+    "пожар на промышл", "взрыв на заводе", "взрыв газа",
+    "авиакатастроф", "крушение самолёт", "крушение самолет",
+    "железнодорожн", "поезд ", "метро ",
+    "утонул", "купаться", "пляж ", "море ",
+    "пожар в авто", "сгорел гараж",
+    # Дополнительные неавтомобильные темы
+    "пожар в павильон", "пожар в ларьк", "пожар в киоск",
+    "рынок пожар", "базар пожар", "торговый пожар",
+    "сгорел рынок", "сгорел магазин", "сгорел склад",
+    "торговый центр загор", "молл загорел", "молл пожар",
+    "шопинг ", "распродаж", "скидк", "акция магаз",
+    "звезд", "шоу-биз", "скандал звезд", "инстаграм",
+    "свадьб", "развод звезд", "беременност",
+    "диет", "фитнес", "похуден",
+    "курорт", "отдых", "туризм ", "виз ",
+    "банкрот", "компания обанкрот", "компания закрыл",
+    "увольнен", "сокращен", "забастовк",
+    "эпидеми", "вирус", "заражен",
 ]
 
 BLOCK_KEYWORDS_EN = [
@@ -124,6 +193,27 @@ BLOCK_KEYWORDS_EN = [
     # Boring Russian domestic auto brands
     "lada", "avtovaz", "uaz", "kamaz", "soldis",
     "vesta", "granta", "niva", "iskra",
+    # ── Extended NON-AUTOMOTIVE hard block ──
+    "market fire", "mall fire", "building fire", "warehouse fire",
+    "shopping center fire", "store fire", "shop fire",
+    "market burned", "mall burned", "store burned",
+    "murder", "crime", "robbery", "assault", "violent",
+    "drug", "narcotic", "theft", "fraud", "corruption",
+    "apartment fire", "house fire", "roof collapse", "pipe burst",
+    "flood", "earthquake", "tsunami", "hurricane", "tornado",
+    "weather forecast", "temperature ",
+    "hospital", "doctor", "surgery", "patient",
+    "school", "teacher", "exam",
+    "football", "soccer", "hockey", "olympic", "championship",
+    "movie", "film", "theater", "series",
+    "restaurant", "recipe", "cooking",
+    "real estate", "apartment price", "mortgage",
+    "cryptocurrency", "bitcoin", "ethereum", "stock exchange",
+    "plane crash", "airline crash", "train crash",
+    "drowned", "beach", "swimming",
+    "celebrity", "scandal", "gossip",
+    "diet", "fitness", "weight loss",
+    "epidemic", "virus", "infection",
 ]
 
 
@@ -334,8 +424,8 @@ async def fetch_all_news() -> int:
                 if is_blocked_topic(item, source.lang):
                     continue
 
-                # Filter for auto relevance (skip general news that aren't auto-related)
-                if source.category == "general" and not is_auto_relevant(item, source.lang):
+                # Filter for auto relevance (ALL sources checked — even "auto" feeds can carry non-auto items)
+                if not is_auto_relevant(item, source.lang):
                     continue
 
                 # Filter out news with titles similar to recently posted items

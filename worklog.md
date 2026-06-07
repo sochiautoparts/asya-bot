@@ -136,3 +136,44 @@ Stage Summary:
 - DDG 202: FIXED - DDG Lite fallback, SearXNG priority
 - RSS 404/403: FIXED - updated URLs, added backup sources
 - GitHub Actions: RESTARTED successfully
+
+---
+Task ID: 7
+Agent: Main
+Task: Major content pipeline overhaul — diversity, images, translation, Russian brand filtering
+
+Work Log:
+- Expanded search query pool from 20 to 50+ queries covering: motorsport (F1, WRC, Le Mans, NASCAR, MotoGP, Dakar), EV technology (hydrogen, solid-state batteries, autonomous, OTA), car reviews & comparisons, market & industry, service & maintenance, DIY, diagnostics, lifestyle (tuning, classic cars, road trips), brand-specific queries
+- Increased queries per cycle from 3 to 5 for broader coverage
+- Added Russian-language queries for motorsport, EV, market, service, lifestyle
+- Added Russian RSS sources: auto.ru, drom.ru, vesti.ru
+- Added motorsport RSS: F1 Official, Motorsport.com, BBC Sport F1
+- Added international RSS: CarScoops, Motor1, TopGear, Autoblog
+- Increased max images per post from 3 to 10 (Telegram limit)
+- New 4-tier image strategy: RSS → article scrape → web search → AI generation
+- Article scraping now ALWAYS runs (not just when RSS fails)
+- Web search image enrichment integrated into _get_post_images()
+- Search images increased from 2 to 5 per source
+- RSS image limit raised from 2 to 5, article scrape from 2 to 5
+- search_news_images() now tries 2 query variants for better coverage
+- Improved unique-ization prompt: full rewrite with structure changes
+- Fixed typo: 'зарубогного' → 'зарубежного'
+- Enhanced translation prompt: adds Russian context, currency conversion, market comparisons
+- Added instruction to vary post structure (question/fact/emotion openings)
+- Expanded hashtag categories: motorsport, EV, market, service hashtags (3-6 per post)
+- Removed Russian brands from _HIGH_INTEREST_KEYWORDS (were getting +0.15)
+- Added Russian brands to _LOW_INTEREST_KEYWORDS (now get -0.10)
+- Excluded Russian brands from brand bonus (+0.05) in _score_interest()
+- Removed Russian brands from russian_market_kw bonus (+0.08)
+- Replaced LADA/ВАЗ/УАЗ/ГАЗ/КамАЗ search queries with Chinese cars in Russia
+- Added Russian brand patterns to BLOCK_KEYWORDS_RU in news.py
+- Resolved git merge conflicts from remote changes
+- Pushed as commit e5c5801, triggered GitHub Actions
+
+Stage Summary:
+- Search coverage expanded from ~20 to 50+ queries across 8 topic categories
+- RSS sources expanded from 13 to 23 (added Russian + motorsport + international)
+- Image limits raised from 3 to 10 per post with 4-tier sourcing strategy
+- Translation and unique-ization prompts significantly improved
+- Russian domestic auto brands now penalized (-0.10) instead of boosted (+0.23)
+- All changes pushed and deployed

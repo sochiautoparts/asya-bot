@@ -236,6 +236,7 @@ def _validate_post_text(text: str) -> bool:
     - SSE/API artifacts
     - AI meta-comments about duplicates ("already posted", "do not publish")
     - Blocked topics (politics, war, Putin, etc.)
+    - Auto-relevance (must contain automotive keywords)
     - Provider ad artifacts
     - Raw JSON
     - Duplicate indicators that leaked through cleaning
@@ -330,6 +331,50 @@ def _validate_post_text(text: str) -> bool:
         if keyword in text_lower:
             logger.warning(f"Post BLOCKED (boring Russian auto brand '{keyword}'): {text[:80]}...")
             return False
+
+    # ── AUTO-RELEVANCE CHECK — if post has NO auto keywords, BLOCK it ──
+    # This is the FINAL GATE: even if all other checks pass, a post about
+    # a market fire or celebrity gossip must NEVER reach the channel.
+    _auto_required_keywords = [
+        # Russian auto keywords
+        "авто", "автомобиль", "машина", "мотор", "двигатель", "кузов", "салон",
+        "транспорт", "запчас", "ремонт", "сервис", "шин", "колес", "топлив",
+        "бензин", "дизел", "электромобиль", "гибрид", "новинка", "модель",
+        "бренд", "марка", "продаж", "рынок", "автосалон", "дилер",
+        "тест-драйв", "обзор", "концепт", "прототип", "рестайлинг",
+        "коробка", "привод", "подвес", "тормоз", "рулев", "пробег",
+        "гонк", "ралли", "формул", "F1", "WRC", "Дакар", "автоспорт",
+        "эвакуац", "дтп", "авари", "дорожн", "затор", "пробк",
+        "азс", "заправк", "шиномонтаж", "автомойк",
+        "эвакуатор", "техпомощ", "техосмотр",
+        "логистик", "грузоперевозк", "автоперевозк",
+        "автокредит", "автострахов", "каско", "осаго",
+        "VIN", "ОСАГО", "КАСКО",
+        # Car brand names
+        "BMW", "Mercedes", "Audi", "Volkswagen", "Toyota", "Honda", "Nissan",
+        "Mazda", "Subaru", "Hyundai", "Kia", "Ford", "Chevrolet",
+        "Porsche", "Lexus", "Volvo", "Tesla", "BYD", "Zeekr", "Li Auto",
+        "NIO", "Chery", "Haval", "Geely", "Changan", "Exeed", "Tank",
+        "Renault", "Peugeot", "Skoda", "Mitsubishi", "Suzuki",
+        "Jaguar", "Land Rover", "Mini", "Jeep", "Infiniti", "Genesis",
+        "Rivian", "Lucid", "Polestar", "Maserati", "Ferrari", "Lamborghini",
+        # Russian brand aliases
+        "БМВ", "МЕРСЕДЕС", "ФОЛЬКСВАГЕН", "ТОЙОТА", "ХЁНДАЙ", "КИА",
+        "ПОРШЕ", "ШКОДА", "ДЖИЛИ", "ЧЕРИ", "ХАВАЛ", "ТЕСЛА",
+        # English auto keywords
+        "car", "auto", "automobile", "vehicle", "motor", "engine", "drive",
+        "SUV", "sedan", "coupe", "crossover", "hatchback", "pickup",
+        "EV", "BEV", "PHEV", "ICE", "autonomous", "self-driving",
+        "horsepower", "torque", "MPG", "range",
+        "racing", "rally", "formula", "Dakar", "motorsport",
+        "tire", "wheel", "fuel", "electric", "hybrid",
+        "recall", "redesign", "launch", "debut",
+        "dealership", "showroom",
+    ]
+    has_auto_keyword = any(kw.lower() in text_lower for kw in _auto_required_keywords)
+    if not has_auto_keyword:
+        logger.warning(f"Post BLOCKED (no auto-relevant keywords): {text[:120]}...")
+        return False
 
     return True
 

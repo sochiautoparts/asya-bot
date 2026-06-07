@@ -503,6 +503,42 @@ _SEARCH_QUERIES_ROTATION = [
     "car design concept news {year}",
     "luxury car news {year}",
     "pickup truck news {year}",
+    # ── Russian-language queries: accidents & incidents ──
+    "авария ДТП новости сегодня",
+    "дорожные происшествия {year}",
+    # ── Russian-language queries: auto industry & market ──
+    "автомобильная промышленность новости",
+    "производство автомобилей новости {year}",
+    "авторынок аналитика {year}",
+    # ── Russian-language queries: car culture & lifestyle ──
+    "автомобильные рекорды {year}",
+    "винтажные автомобили аукцион",
+    "редкие автомобили коллекцион",
+    "автопутешествия маршруты {year}",
+    # ── Russian-language queries: service & parts ──
+    "рынок запчастей Россия {year}",
+    "рынок шин новости {year}",
+    "автосервис тенденции {year}",
+    "эвакуация транспорт новости",
+    # ── English-language queries: accidents & incidents ──
+    "car accident crash news today",
+    "road incident vehicle news",
+    # ── English-language queries: car culture ──
+    "car auction record sale {year}",
+    "rare classic car news",
+    "automotive world records {year}",
+    "car culture lifestyle news",
+    # ── English-language queries: industry & market ──
+    "auto parts market news {year}",
+    "tire market news {year}",
+    "car service industry trends {year}",
+    "vehicle logistics supply chain news",
+    # ── English-language queries: diverse topics ──
+    "car fire vehicle fire news {year}",
+    "car towing evcuation news",
+    "automotive recall safety alert {year}",
+    "car warranty extended warranty news",
+    "automotive design award {year}",
 ]
 
 # Track recently used query indices to avoid repetition
@@ -616,10 +652,19 @@ async def ai_discover_news() -> List[Dict]:
                     {"role": "system", "content": (
                         f"Ты автоэксперт. Сегодня {date_str}. "
                         f"Назови 15 самых важных и свежих автомобильных новостей СЕГОДНЯ. "
-                        f"Включи: новинки, премьеры, скандалы, отзывы, автоспорт (F1, WRC), "
-                        f"электромобили, китайский автопром. "
+                        f"ВКЛЮЧАЙ РАЗНООБРАЗНЫЙ контент: новинки и премьеры, скандалы и отзывы, "
+                        f"автоспорт (F1, WRC, Дакар), электромобили и технологии, "
+                        f"китайский автопром, тюнинг и рестайлинги, автомобильные рекорды, "
+                        f"аварии и ДТП с автомобилями, рынок запчастей и шин, "
+                        f"интересные случаи на дорогах, винтажные и коллекционные авто, "
+                        f"автопутешествия, автосервис и диагностика. "
                         f"НЕ включай новости про АвтоВАЗ/LADA/УАЗ/ГАЗ/КамАЗ — это скучно. "
                         f"Российский рынок только если про китайские авто в РФ. "
+                        f"🔴 КРИТИЧЕСКИ ВАЖНО: ТОЛЬКО АВТОМОБИЛЬНЫЕ НОВОСТИ! "
+                        f"НЕ включай: пожары на рынках/в ТЦ/на складах, криминал, убийства, "
+                        f"погоду, медицину, спорт (футбол/хоккей), политику, войну, "
+                        f"недвижимость, образование, культуру, рестораны. "
+                        f"Если новость НЕ про автомобили, запчасти, дороги, автоспорт — НЕ включай! "
                         f"Каждая новость — одна строка в формате: НОВОСТЬ | краткое описание (1-2 предложения) "
                         f"Никаких нумерованных списков, маркеров или другого форматирования — просто строки с | "
                         f"Пиши на русском языке. НИКАКОЙ политики и войны — только автомобили."
