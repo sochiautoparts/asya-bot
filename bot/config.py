@@ -305,8 +305,8 @@ class NewsConfig:
     """All news sources for Asya bot — auto-focused."""
 
     sources: List[NewsSource] = field(default_factory=lambda: [
-        # ── Russian-language RSS sources (working, verified) ──
-        NewsSource("Китайские автомобили", "https://china-autos.ru/rss/", "ru", "auto"),
+        # ── Russian-language RSS sources ──
+        # NOTE: "Китайские автомобили" removed — DNS failure ([Errno -2] Name or service not known)
         NewsSource("Авто.Вести", "https://auto.vesti.ru/rss/", "ru", "auto"),
         # ── Working international RSS sources (verified June 2026) ──
         # International auto industry
@@ -319,21 +319,13 @@ class NewsConfig:
         NewsSource("Autosport", "https://www.autosport.com/rss/f1/news/", "en", "auto"),
         # Australian auto
         NewsSource("CarExpert", "https://carexpert.com.au/feed/", "en", "auto"),
-        # Automotive news & reviews
-        NewsSource("MotorAuthority", "https://www.motorauthority.com/rss.xml", "en", "auto"),
+        # Automotive news & reviews (REMOVED: MotorAuthority/EVO/CarMagazine/TopGear/Autoblog/F1 — all 404/403)
         NewsSource("TheDrive", "https://www.thedrive.com/feed", "en", "auto"),
         NewsSource("Jalopnik", "https://jalopnik.com/rss", "en", "auto"),
         NewsSource("AutoExpress", "https://www.autoexpress.co.uk/rss", "en", "auto"),
-        NewsSource("EVO", "https://www.evo.co.uk/rss", "en", "auto"),
-        NewsSource("CarMagazine", "https://www.carmagazine.co.uk/rss/", "en", "auto"),
-        NewsSource("AutoCarIndia", "https://www.autocarindia.com/rss", "en", "auto"),
         # Additional international sources for diversity
         NewsSource("CarScoops", "https://www.carscoops.com/feed/", "en", "auto"),
-        NewsSource("Motor1", "https://www.motor1.com/rss/", "en", "auto"),
-        NewsSource("TopGear", "https://www.topgear.com/rss", "en", "auto"),
-        NewsSource("Autoblog", "https://www.autoblog.com/rss.xml", "en", "auto"),
-        # Motorsport
-        NewsSource("F1 Official", "https://www.formula1.com/content/fom-website/en/latest/rss.xml", "en", "auto"),
+        # Motorsport (REMOVED: F1 Official — 404)
         NewsSource("Motorsport.com", "https://www.motorsport.com/rss/all/news/", "en", "auto"),
         NewsSource("BBC Sport F1", "https://feeds.bbci.co.uk/sport/formula1/rss.xml", "en", "auto"),
     ])

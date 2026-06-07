@@ -120,8 +120,8 @@ BLOCK_KEYWORDS_RU = [
     "путин", "кремль", "госдума", "едрос", "единая россия", "кпрф",
     "навальн", "оппозиц", "протест", "митинг", "закон о", "законопроект",
     "санкци", "эмбарго", "министр", "правительств", "президент",
-    "депутат", "сенатор", "губернатор", "мэр ", "выбор", "голосован",
-    "политик", "парламент", "конституц", "референдум",
+    "депутат", "сенатор", "губернатор", "мэр ", "выборы ", "голосован",
+    "политик", "парламент", "конституц", "референдум", "выборы президента", "выборы в парламент",
     # Война / СВО
     "сво ", "специальная военная", "вооруженн", "военные действ",
     "мобилизац", "призывник", "окоп", "обстрел", "ракетн удар",
@@ -194,35 +194,51 @@ BLOCK_KEYWORDS_RU = [
 ]
 
 BLOCK_KEYWORDS_EN = [
+    # ── Political/war — strict block ──
     "putin", "kremlin", "war in ukraine", "russia-ukraine", "invasion",
     "sanction", "embargo", "mobiliz", "military", "troop", "missile strike",
     "nato expansion", "conflict zone", "battlefield", "casualt",
-    "navalny", "opposition", "protest", "election",
+    "navalny", "opposition leader",
     "covid", "coronavirus", "pandemic", "vaccin",
     # Boring Russian domestic auto brands
     "lada", "avtovaz", "uaz", "kamaz", "soldis",
     "vesta", "granta", "niva", "iskra",
-    # ── Extended NON-AUTOMOTIVE hard block ──
+    # ── NON-AUTOMOTIVE hard block — USE COMPOUND PHRASES to avoid false positives ──
+    # NOTE: Removed standalone words that block legitimate auto content:
+    #   - "election" blocked car auction/collection stories
+    #   - "championship" blocked F1/MotoGP/WRC motorsport news
+    #   - "series" blocked BMW 7 Series, C-series SUVs, racing series
+    #   - "flood" blocked Mercedes Unimog off-road reviews
+    #   - "drug" blocked DUI/driving safety articles
+    #   - "theft" blocked stolen supercar stories (legitimate auto news)
+    #   - "school" blocked AMG driving school/tuning articles
+    #   - "exam" blocked car resale/evaluation articles
+    #   - "movie" blocked automotive industry CEO interviews
+    # Instead, use compound phrases that are clearly non-automotive:
     "market fire", "mall fire", "building fire", "warehouse fire",
     "shopping center fire", "store fire", "shop fire",
     "market burned", "mall burned", "store burned",
-    "murder", "crime", "robbery", "assault", "violent",
-    "drug", "narcotic", "theft", "fraud", "corruption",
+    "murder", "armed robbery", "violent crime",
+    "narcotic trafficking", "drug cartel",
+    "insurance fraud", "political corruption",
     "apartment fire", "house fire", "roof collapse", "pipe burst",
-    "flood", "earthquake", "tsunami", "hurricane", "tornado",
+    "flood damage", "earthquake", "tsunami", "hurricane", "tornado warning",
     "weather forecast", "temperature ",
-    "hospital", "doctor", "surgery", "patient",
-    "school", "teacher", "exam",
-    "football", "soccer", "hockey", "olympic", "championship",
-    "movie", "film", "theater", "series",
-    "restaurant", "recipe", "cooking",
-    "real estate", "apartment price", "mortgage",
+    "hospital", "doctor ", "surgery ", "patient ",
+    "school shooting", "teacher strike", "school board",
+    "football match", "soccer match", "hockey game", "olympic games",
+    "movie review", "film festival", "theater production",
+    "tv series", "streaming series",
+    "restaurant review", "recipe ", "cooking ",
+    "real estate market", "apartment price", "mortgage rate",
     "cryptocurrency", "bitcoin", "ethereum", "stock exchange",
     "plane crash", "airline crash", "train crash",
-    "drowned", "beach", "swimming",
-    "celebrity", "scandal", "gossip",
-    "diet", "fitness", "weight loss",
-    "epidemic", "virus", "infection",
+    "drowned", "beach resort", "swimming pool",
+    "celebrity gossip", "celebrity scandal",
+    "diet plan", "fitness program", "weight loss",
+    "epidemic", "virus outbreak", "infection rate",
+    "political protest", "political election", "general election",
+    "parliament election", "presidential election",
 ]
 
 

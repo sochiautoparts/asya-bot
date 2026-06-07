@@ -294,13 +294,17 @@ def _validate_post_text(text: str) -> bool:
             return False
 
     # Block political/war content — LAST CHANCE filter before posting
+    # NOTE: Uses compound phrases and trailing spaces to avoid false positives:
+    #   - "выборы " (with space) instead of "выбор" which blocked partner posts about tire choices
+    #   - Removed "flood", "series", "championship", "election", "exam", "movie",
+    #     "drug", "theft", "school" — these are handled in news.py with compound phrases
     blocked_keywords = [
         "путин", "кремль", "госдума", "президент росс", "президент сша",
         "сво ", "специальная военная", "мобилизац", "санкци",
         "военные действ", "вооруженн", "министр оборон",
         "украин", "нато", "nato",
         "навальн", "оппозиц", "протест", "митинг",
-        "политик", "депутат", "законопроект", "выбор ",
+        "политик", "депутат", "законопроект", "выборы ", "голосован",
     ]
     # Block boring Russian auto brands — 50 years nothing interesting
     blocked_auto_brands = [
@@ -364,6 +368,45 @@ def _validate_post_text(text: str) -> bool:
     has_auto_keyword = any(kw.lower() in text_lower for kw in _auto_required_keywords)
     if not has_auto_keyword:
         logger.warning(f"Post BLOCKED (no auto-relevant keywords): {text[:120]}...")
+        return False
+
+    return True
+
+
+def _validate_post_text_partner(text: str) -> bool:
+    """Validate partner post text — RELAXED version that skips political keyword checks.
+    
+    Partner posts are about auto services/parts (Rossko, Autopiter, tire shops, etc.)
+    and should NEVER contain political content. But they use words like "выбор" 
+    (choosing tires/parts) that trigger the standard political filter.
+    This validator only checks for API errors, SSE artifacts, and empty text.
+    """
+    if not text or not text.strip():
+        return False
+
+    text_lower = text.lower()
+
+    # Block SSE artifacts
+    sse_patterns = [r'data:\s*\{', r'\[DONE\]', r'"type"\s*:\s*"start"', r'"type"\s*:\s*"error"']
+    for pattern in sse_patterns:
+        if re.search(pattern, text_lower):
+            return False
+
+    # Block API errors
+    error_patterns = ["authentication error", "no api key", "model not found",
+                      "rate limit", "internal server error", "bad request"]
+    for pattern in error_patterns:
+        if pattern in text_lower:
+            return False
+
+    # Block provider ad artifacts
+    ad_patterns = ["pollinations.ai", "powered by pollinations", "keep ai accessible"]
+    for pattern in ad_patterns:
+        if pattern in text_lower:
+            return False
+
+    # Block raw JSON
+    if text.strip().startswith(('{', '[', '```', 'data:')):
         return False
 
     return True
@@ -1431,8 +1474,9 @@ class ChannelManager:
         post_content = _clean_post_text(post_content)
         post_content = _ensure_footer(post_content)
 
-        # Validate
-        if not _validate_post_text(post_content):
+        # Validate — partner posts use relaxed validation (skip political keyword check)
+        # Partner posts are about auto services/parts, they don't contain political content
+        if not _validate_post_text_partner(post_content):
             return False
 
         # Smart character limit — always preserve footer
