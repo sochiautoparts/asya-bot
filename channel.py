@@ -39,7 +39,9 @@ from bot.content_engine import (
     _is_topic_covered, _extract_entities, _score_interest,
     _register_topic,
 )
-from bot.channel_scanner import is_duplicate_in_channel, get_channel_context_for_prompt
+# Channel scanner DISABLED — it's unreliable from GitHub Actions IPs (403/429)
+# and causes false blocks. DB fingerprint + semantic dedup are sufficient.
+# from bot.channel_scanner import is_duplicate_in_channel, get_channel_context_for_prompt
 
 logger = logging.getLogger("asya.channel")
 
@@ -144,87 +146,26 @@ def _clean_post_text(text: str) -> str:
     text = re.sub(r'<think\b[^>]*>.*?</think\s*>', '', text, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r'</?think[^>]*>', '', text, flags=re.IGNORECASE)
 
-    # ── Remove AI meta-comments about duplicates / "do not publish" remarks ──
-    # These appear when AI sees channel context saying "already posted" and includes
-    # that remark in the generated text instead of choosing a different topic.
-    # IMPORTANT: Patterns must handle words BETWEEN key terms (e.g. "уже дважды был")
+    # ── Remove AI meta-comments / editorial notes that leaked into post text ──
+    # Kept to ~15 essential patterns — removed common Russian words that match valid content
     meta_comment_patterns = [
-        # Russian: "уже было", "уже дважды был", "уже публиковал", etc.
-        r'[^\n]*уже.{0,20}(был|публиковал|опубликован|пост|писал|появлялся)[^\n]*',
-        r'[^\n]*не\s+(публикуй|публиковать|надо|стоит|нужно)\s+(публиковать|это|этот|данный)[^\n]*',
-        r'[^\n]*дубликат[^\n]*',
-        r'[^\n]*повтор(я|ять|ный|ная)[^\n]*',
-        r'[^\n]*этот\s+пост\s+(уже\s+)?(был|публиковал)[^\n]*',
-        r'[^\n]*об\s+этом\s+(уже\s+)?(писал|говорил|публиковал|был)[^\n]*',
-        r'[^\n]*ЭТО\s+УЖЕ\s+ОПУБЛИКОВАНО[^\n]*',
-        r'[^\n]*такой\s+пост\s+(уже\s+)?есть[^\n]*',
-        # New: catch "брать нельзя", "лучше не брать", "повтор будет заметен"
-        r'[^\n]*(брать|взять)\s+нельзя[^\n]*',
-        r'[^\n]*лучше\s+(не\s+)?(брать|писать|публиковать)[^\n]*',
-        r'[^\n]*повтор\s+будет[^\n]*',
-        r'[^\n]*крутить(ся)?\s+вокруг[^\n]*',
-        r'[^\n]*сменить\s+(угол|тему|ракурс)[^\n]*',
-        r'[^\n]*другую\s+(зарубежн|автоистори|тему|новост)[^\n]*',
-        # Meta-editorial text: "мы уже обсуждали", "нужна другая тема", "второй раз не отправляем"
-        r'[^\n]*мы\s+(уже\s+)?(обсуждали|говорили|писали|публиковали)[^\n]*',
-        r'[^\n]*нужн[аое]\s+друг[аое]\s+(тема|новост|автотема)[^\n]*',
-        r'[^\n]*второй\s+раз\s+(не\s+)?(отправляем|публикуем|постим)[^\n]*',
-        r'[^\n]*в\s+ленту\s+(одно\s+и\s+то\s+же|не\s+отправляем|повтор)[^\n]*',
-        r'[^\n]*с\s+повторами\s+строго[^\n]*',
-        r'[^\n]*я\s+сразу\s+предложу[^\n]*',
-        r'[^\n]*если\s+хочешь[^\n]*',
-        r'[^\n]*могу\s+сразу\s+(сделать|предложить|написать)[^\n]*',
+        # Editorial leakage: "тему в канал не ставим", "не наш формат"
+        r'[^\n]*тему\s+в\s+канал\s+не\s+ставим[^\n]*',
+        r'[^\n]*в\s+канал\s+не\s+ставим[^\n]*',
+        r'[^\n]*не\s+наш\s+формат[^\n]*',
+        r'[^\n]*перепишу\s+тему[^\n]*',
         r'[^\n]*напишу\s+готовый\s+пост[^\n]*',
+        r'[^\n]*я\s+сразу\s+предложу[^\n]*',
         r'[^\n]*без\s+лишних\s+вопросов[^\n]*',
-        r'[^\n]*нужна\s+свежая\s+автотема[^\n]*',
-        r'[^\n]*у\s+нас\s+в\s+редакции[^\n]*',
+        r'[^\n]*не\s+соответствует\s+(тематик|формат)[^\n]*',
+        r'[^\n]*по\s+вашим\s+(же\s+)?правилам[^\n]*',
+        # Duplicate/republish meta-comments
+        r'[^\n]*дубликат[^\n]*',
+        r'[^\n]*ЭТО\s+УЖЕ\s+ОПУБЛИКОВАНО[^\n]*',
         # English variants
         r'[^\n]*already\s+(posted|published|covered|wrote)[^\n]*',
         r'[^\n]*do\s+not\s+(publish|post)[^\n]*',
-        r'[^\n]*this\s+(was\s+)?already[^\n]*',
-        r'[^\n]*duplicate[^\n]*',
-        # Common AI refusal patterns
-        r'[^\n]*я\s+(не\s+)?буду\s+(это\s+)?публиковать[^\n]*',
-        r'[^\n]*не\s+буду\s+повторять[^\n]*',
-        r'[^\n]*пропущу\s+эту\s+новость[^\n]*',
-        r'[^\n]*выберу\s+другую[^\n]*',
-        r'[^\n]*напишу\s+о\s+друг[^\n]*',
-        r'[^\n]*могу\s+сразу\s+сделать[^\n]*',
-        # Additional patterns for "тему сейчас брать нельзя" and similar phrases
-        r'[^\n]*тему\s+сейчас\s+(беречь|брать|публиковать)\s+нельзя[^\n]*',
-        r'[^\n]*повтор\s+будет\s+заметен[^\n]*',
-        r'[^\n]*в\s+последних\s+постах[^\n]*',
-        r'[^\n]*нельзя\s+публиковать[^\n]*',
-        r'[^\n]*не\s+стоит\s+(брать|публиковать|писать)[^\n]*',
-        # ── NEW: Editorial leakage patterns ("Эту тему в канал не ставим" etc.) ──
-        r'[^\n]*тему\s+в\s+канал\s+не\s+ставим[^\n]*',
-        r'[^\n]*в\s+канал\s+не\s+ставим[^\n]*',
-        r'[^\n]*не\s+автомобильн[аоеую]+\s+(новост|тем|инфоповод)[^\n]*',
-        r'[^\n]*не\s+автоновост[^\n]*',
-        r'[^\n]*обычный\s+пожар[^\n]*',
-        r'[^\n]*пожар\s+на\s+рынк[еу][^\n]*',
-        r'[^\n]*надо\s+отсеивать[^\n]*',
-        r'[^\n]*нужно\s+отсеивать[^\n]*',
-        r'[^\n]*отсеивать\s+(так|подобн|неавтомобил)[^\n]*',
-        r'[^\n]*не\s+наш\s+формат[^\n]*',
-        r'[^\n]*не\s+подходит\s+для\s+канал[^\n]*',
-        r'[^\n]*по\s+вашим\s+(же\s+)?правилам[^\n]*',
-        r'[^\n]*прямая\s+связь\s+с\s+автотранспорт[^\n]*',
-        r'[^\n]*перепишу\s+тему[^\n]*',
-        r'[^\n]*предложу\s+\d+\s+свеж[^\n]*',
-        r'[^\n]*свежие?\s+автоновост[^\n]*',
-        r'[^\n]*сразу\s+перепишу[^\n]*',
-        r'[^\n]*могу\s+переписать[^\n]*',
-        r'[^\n]*не\s+соответствует\s+(тематик|формат)[^\n]*',
-        r'[^\n]*эту\s+(тему|новость)\s+не[^\n]*',
-        r'[^\n]*формат\s+(канал|пост)[^\n]*',
-        r'[^\n]*правил[аоу]\s+канал[^\n]*',
-        r'[^\n]*сгоревшие\s+машины[^\n]*',
-        r'[^\n]*перебои\s+с\s+поставками[^\n]*',
-        r'[^\n]*рынок\s+шин[^\n]*',
-        r'[^\n]*автосервис\s+или\s+эвакуац[^\n]*',
-        # Generic catch-all for editorial notes in brackets or with dashes
-        r'[^\n]*—\s*(не\s+)?(автомобильн|авто|наш\s+формат)[^\n]*',
+        # Generic catch-all for editorial notes in brackets
         r'\[[^\]]*(?:не\s+публиков|не\s+став|не\s+наш|редакц|пропуск)[^\]]*\]',
     ]
     for pattern in meta_comment_patterns:
@@ -251,22 +192,14 @@ def _clean_post_text(text: str) -> str:
         if phrase in text:
             text = text.replace(phrase, replacement)
 
-    # ── AGGRESSIVE meta-line removal: remove ANY line that looks like editorial notes ──
-    # Heuristic: a line is editorial if it contains certain trigger phrases
-    # This catches new variations the AI might invent
+    # ── Meta-line removal: remove lines that look like editorial notes ──
+    # Reduced to 10 core triggers that NEVER appear in valid automotive posts
     _editorial_trigger_phrases = [
-        "не ставим", "не публиков", "не автоновост", "не автомобильн",
-        "отсеивать", "отсеять", "не наш формат", "не подходит для канал",
-        "по вашим правилам", "перепишу тему", "предложу свеж",
-        "свежие автоновости за", "сразу перепишу", "могу переписать",
-        "формат канал", "формат поста", "правила канал", "правилам канал",
-        "нужна другая тема", "нужна свежая", "без лишних вопросов",
-        "напишу готовый", "я сразу предложу", "если хочешь",
-        "могу сразу предложить", "могу сразу написать",
-        "в канал не", "не для канал", "не для публикации",
-        "внутренняя заметка", "для редакции", "редакционная",
-        "автоформат", "прямая связь с автотранспорт",
-        "надо отсеивать", "нужно отсеивать",
+        "не ставим", "не наш формат",
+        "перепишу тему", "напишу готовый",
+        "я сразу предложу", "без лишних вопросов",
+        "не для публикации", "внутренняя заметка",
+        "для редакции", "редакционная",
     ]
     lines = text.split('\n')
     cleaned_lines = []
@@ -334,56 +267,26 @@ def _validate_post_text(text: str) -> bool:
     if text.strip().startswith(('{', '[', '```', 'data:')):
         return False
 
-    # ── Block AI meta-comments about duplicates that leaked through cleaning ──
-    # These indicate the AI recognized a duplicate but generated content anyway.
-    # Such posts should NEVER be published.
+    # ── Block AI editorial notes that leaked through cleaning ──
+    # Reduced to ~20 truly editorial-specific phrases that NEVER appear in valid automotive posts.
+    # Removed common Russian words like "уже", "не стоит", "в канал", "отсеивать" etc.
     duplicate_indicator_phrases = [
-        "уже опубликован", "уже было", "уже публиковал", "уже писал об",
-        "уже дважды", "уже трижды",  # "уже дважды был Алонсо"
-        "писал уже", "говорил уже", "упоминал уже",  # Additional patterns
-        "не публиковать", "не публикуй", "не надо публиковать",
-        "этот пост уже", "такой пост уже", "об этом уже",
-        "дубликат", "это повтор",
-        "брать нельзя", "взять нельзя",  # "Эту тему брать нельзя"
-        "повтор будет", "крутиться вокруг",  # "канал начнёт крутиться вокруг"
-        "лучше сменить", "лучше не брать", "лучше не публиковать",
-        "другую зарубежн", "другую автоистори",  # "взять другую зарубежную автоисторию"
-        "already posted", "already published", "already covered",
-        "do not publish", "do not post",
-        "this was already", "duplicate post",
-        "я не буду публиковать", "не буду повторять",
-        "лучше не публиковать", "пропущу эту новость",
-        "тему сейчас брать нельзя", "повтор будет заметен",
-        "в последних постах уже", "нельзя публиковать",
-        "не стоит брать", "не стоит публиковать",
-        "не стоит писать",
-        # Meta-editorial text — AI leaking internal discussion into posts
-        "мы уже обсуждали", "мы уже говорили", "мы уже публиковали",
-        "нужна другая тема", "нужна другая новост", "нужна другая автотема",
-        "второй раз не отправляем", "второй раз не публикуем",
-        "в ленту одно и то же", "в ленту не отправляем",
-        "с повторами строго", "у нас в редакции",
-        "я сразу предложу", "если хочешь",
-        "могу сразу предложить", "могу сразу написать",
-        "напишу готовый пост", "без лишних вопросов",
-        "нужна свежая автотема", "нужна свежая тема",
-        "свежая автотема за сегодня",
-        # ── NEW: catch editorial leakage like "Эту тему в канал не ставим" ──
+        # Editorial leakage — AI discussing whether to publish
         "тему в канал не ставим", "в канал не ставим", "не ставим в канал",
-        "не автомобильная новость", "не автоновость", "не автомобильн",
-        "обычный пожар", "пожар на рынке", "пожар в тц",
-        "отсеивать", "отсеять", "надо отсеивать", "нужно отсеивать",
-        "не наш формат", "не подходит для канал",
-        "по вашим же правилам", "по вашим правилам",
-        "прямая связь с автотранспортом", "нужна прямая связь",
-        "перепишу тему", "предложу свеж", "свежие автоновости за",
-        "сразу перепишу", "могу переписать",
+        "не наш формат", "перепишу тему", "напишу готовый пост",
+        "я сразу предложу", "без лишних вопросов",
         "не соответствует тематик", "не соответствует формату",
-        "эту тему не", "эту новость не",
-        "формат канал", "формат поста",
-        "правила канал", "правилам канал",
-        "сгоревшие машины, перебои", "перебои с поставками запчастей",
-        "рынок шин, логистик", "автосервис или эвакуац",
+        # Duplicate meta-comments (editorial only — not common words)
+        "дубликат", "это повтор",
+        "повтор будет заметен", "тему сейчас брать нельзя",
+        "второй раз не отправляем", "второй раз не публикуем",
+        "с повторами строго",
+        # AI refusal/editorial discussion
+        "я не буду публиковать", "не буду повторять",
+        "пропущу эту новость", "могу сразу предложить",
+        # English variants
+        "already posted", "already published", "do not publish",
+        "duplicate post",
     ]
     for phrase in duplicate_indicator_phrases:
         if phrase in text_lower:
@@ -1061,7 +964,7 @@ class ChannelManager:
 
         # ── DEDUPLICATION LAYER 1: DB-level dedup (title hash, keyword overlap) ──
         if news_item and news_item.get("title"):
-            if await is_duplicate_post(news_item["title"], hours=72):
+            if await is_duplicate_post(news_item["title"], hours=48):
                 logger.warning(f"DB DUPLICATE blocked: {news_item['title'][:60]}")
                 if news_item.get("url"):
                     await mark_news_posted(news_item["url"])
@@ -1074,23 +977,9 @@ class ChannelManager:
                     await mark_news_posted(news_item["url"])
                 return False
 
-            # ── DEDUPLICATION LAYER 3: Channel scanner — check what's ACTUALLY in the channel ──
-            # NOTE: Scanner failure is NON-BLOCKING — if t.me is down/rate-limited,
-            # we still allow the post through rather than blocking ALL posts.
-            try:
-                if await is_duplicate_in_channel(news_item["title"], threshold=0.60):
-                    logger.warning(f"CHANNEL DUPLICATE blocked: {news_item['title'][:60]}")
-                    if news_item.get("url"):
-                        await mark_news_posted(news_item["url"])
-                    # Also register in topic registry to prevent re-selection
-                    entity_key = _extract_entities(news_item["title"])
-                    _register_topic(entity_key, news_item["title"])
-                    return False
-            except Exception as e:
-                # NON-BLOCKING: Scanner failure should NOT prevent posting!
-                # t.me often returns 403/429 or changes HTML structure.
-                # We have other dedup layers (DB fingerprints, topic registry, semantic).
-                logger.warning(f"Channel scanner check failed (NON-BLOCKING, allowing post): {e}")
+            # ── Channel scanner REMOVED ──
+            # Was causing false blocks from GitHub Actions IPs (403/429).
+            # DB fingerprint + semantic dedup are sufficient.
 
         # Generate post content using AI
         source_text = ""
@@ -1100,12 +989,11 @@ class ChannelManager:
         # ── DATE CONTEXT — Ася знает какой сейчас год! ──
         date_context = get_date_context()
 
-        # ── CHANNEL CONTEXT — show AI what's ALREADY posted to prevent repetition ──
+        # ── CHANNEL CONTEXT DISABLED ──
+        # Was causing editorial leakage — AI discussed why it can't post about topics
+        # instead of just choosing a different one. Topic registry deprioritization
+        # handles dedup without triggering editorial discussion.
         channel_context = ""
-        try:
-            channel_context = await get_channel_context_for_prompt(max_items=15)
-        except Exception as e:
-            logger.warning(f"Could not get channel context: {e}")
 
         extra_instructions = (
             f"{date_context} "
@@ -1116,9 +1004,12 @@ class ChannelManager:
             "4. Меняй структуру: начинай с вопроса, факта или эмоции.\n"
             "5. Твой ответ — это ГОТОВЫЙ ТЕКСТ ПОСТА для публикации. ТОЛЬКО текст поста, больше ничего.\n"
             "6. Если новость НЕ про автомобили — верни пустой ответ.\n"
+            "7. НЕ ДОБАВЛЯЙ никаких редакционных заметок, пометок, внутренних комментариев, "
+            "обсуждений темы, пояснений почему тема подходит или не подходит. "
+            "ТОЛЬКО чистый текст поста для читателей канала.\n"
         )
-        if channel_context:
-            extra_instructions += f"\nТЕМЫ, КОТОРЫЕ УЖЕ ОПУБЛИКОВАНЫ (НЕ ПОВТОРЯЙ):\n{channel_context}\n"
+        # Channel context removed — was causing AI to discuss editorial decisions
+        # in the post text instead of just picking a different topic.
         if news_item.get("lang") and news_item.get("lang") != "ru":
             extra_instructions += (
                 "Это новость из зарубежного источника. "
@@ -1177,28 +1068,10 @@ class ChannelManager:
             logger.error(f"Post validation failed, skipping")
             return False
 
-        # ── DEDUPLICATION LAYER 3.5: Post-generation content hash dedup ──
-        # Compare first 200 chars of cleaned post text against recent channel posts.
-        # This catches near-duplicates where AI rewrote the same topic differently.
-        post_hash = hashlib.sha256(post_text[:200].encode()).hexdigest()
-        cleaned_prefix = re.sub(r'[^a-zа-яё0-9]', '', post_text[:50].lower())
-        
-        # NOTE: Topic registry check REMOVED here — it was causing a deadlock.
-        # The topic registry is populated from DB on startup with OLD topics that
-        # were never actually posted (due to previous bugs). This caused ALL posts
-        # to be blocked. Other dedup layers (DB fingerprints, content hash,
-        # channel scanner) are sufficient for preventing duplicates.
-        
-        # Check content hash against recent posts in DB
-        try:
-            if await is_duplicate_post(post_text[:100], content=post_text, hours=72):
-                logger.warning(f"POST-GEN CONTENT HASH DUPLICATE blocked: {news_item.get('title', '')[:60]}")
-                if news_item.get("url"):
-                    await mark_news_posted(news_item["url"])
-                _register_topic(entity_key, news_item.get("title", ""))
-                return False
-        except Exception:
-            pass  # Non-critical — don't block if DB check fails
+        # ── Post-generation dedup REMOVED ──
+        # The DB fingerprint check at Layer 1 already covers this.
+        # Post-gen checks were redundant and caused false blocks when AI rewrote
+        # the same news differently (which is the desired behavior).
 
         # Smart character limit enforcement — always preserve footer
         post_text = _enforce_char_limit(post_text, has_media)
@@ -1208,35 +1081,10 @@ class ChannelManager:
             logger.error(f"Post validation failed after review, skipping")
             return False
 
-        # ── DEDUPLICATION LAYER 4: Post-generation dedup ──
-        # Check the GENERATED post text against the channel scanner.
-        # This catches cases where the AI wrote about the same topic despite
-        # the channel context, even if the news title was different enough.
-        # NOTE: Post-gen channel scanner is NON-BLOCKING on failure.
-        try:
-            if await is_duplicate_in_channel(post_text, threshold=0.55):
-                logger.warning(f"POST-GENERATION DUPLICATE blocked (generated text matches channel): "
-                               f"{news_item.get('title', '')[:60]}")
-                if news_item.get("url"):
-                    await mark_news_posted(news_item["url"])
-                entity_key = _extract_entities(news_item.get("title", ""))
-                _register_topic(entity_key, news_item.get("title", ""))
-                return False
-        except Exception as e:
-            # NON-BLOCKING: Scanner failure must not prevent posting!
-            logger.warning(f"Post-gen channel scanner failed (NON-BLOCKING, allowing post): {e}")
-
-        # ── DEDUPLICATION LAYER 5: DB fingerprint check on generated text ──
-        # Check if the actual generated post content matches a recently posted one.
-        # This catches near-duplicate rewrites of the same topic.
-        try:
-            if await is_duplicate_post(news_item.get("title", ""), content=post_text, hours=72):
-                logger.warning(f"POST-CONTENT DUPLICATE blocked: {news_item.get('title', '')[:60]}")
-                if news_item.get("url"):
-                    await mark_news_posted(news_item["url"])
-                return False
-        except Exception as e:
-            logger.warning(f"Post-content fingerprint check failed: {e}")
+        # ── Channel scanner dedup and post-gen DB fingerprint checks REMOVED ──
+        # These were causing false blocks. DB fingerprint at Layer 1 + semantic
+        # dedup at Layer 2 are sufficient. Post-gen checks were overly aggressive
+        # and blocked valid rewrites of the same topic.
 
         # ── Register topic in registry AFTER successful validation ──
         # (not before AI generation — that was causing premature registration)
@@ -1684,11 +1532,12 @@ class ChannelManager:
 
     async def run_scheduled_post(self) -> bool:
         """
-        Run a scheduled post — either news or partner content.
+        Run a scheduled post — tries up to 3 different news items per cycle.
         
-        Ensures TWO DIFFERENT posts per hour by:
-        1. Skipping partner posts if hourly limit would be reached without variety
-        2. Never posting the same news/partner content twice in a row
+        SIMPLIFIED PIPELINE:
+        1. Try partner content (30% chance if interval met)
+        2. Try news — up to 3 attempts with DIFFERENT items
+        3. Fallback: AI-generated "fun fact" if no web news works
         """
         logger.info("run_scheduled_post: called")
         now = time.time()
@@ -1702,17 +1551,131 @@ class ChannelManager:
                 if result:
                     return True
                 # Partner post failed/skipped — fall through to news
+        
+        # Primary: post NEWS — try up to 3 DIFFERENT items per cycle
+        for attempt in range(3):
+            result = await self.post_news()
+            if result:
+                return True
+            logger.info(f"run_scheduled_post: attempt {attempt + 1}/3 failed, trying different item")
+            # Brief pause between attempts to avoid hammering AI
+            if attempt < 2:
+                await asyncio.sleep(2)
 
-        # Primary: post NEWS — each call picks the NEXT unposted item
-        result = await self.post_news()
+        # Fallback: generate a "fun fact" / "did you know" style post
+        logger.info("All news attempts failed — trying fallback fun fact post")
+        result = await self._post_fallback_fun_fact()
         if result:
             return True
 
-        # Fallback: if no news available, try partner content
+        # Final fallback: try partner content
         if partner_manager.should_post_partner():
             return await self.post_partner_content()
 
         return False
+
+    async def _post_fallback_fun_fact(self) -> bool:
+        """Generate a 'fun fact' / 'did you know' style post when no web news is available.
+        
+        This ensures the channel always has content even when web search fails
+        or all results are dedup-filtered.
+        """
+        if not self._bot:
+            return False
+
+        # Check daily/hourly limits
+        today_count = await get_today_post_count()
+        if today_count >= config.CHANNEL_MAX_POSTS_PER_DAY:
+            return False
+        hourly_count = await get_hourly_post_count()
+        if hourly_count >= config.CHANNEL_MAX_POSTS_PER_HOUR:
+            return False
+
+        # Pick a diverse automotive topic category
+        _FUN_FACT_CATEGORIES = [
+            "автомобильные рекорды Гиннесса",
+            "самые дорогие автомобили мира",
+            "интересные факты об автомобилях",
+            "история автомобильных брендов",
+            "автомобильные мифы и легенды",
+            "необычные автомобили мира",
+            "самые быстрые автомобили в истории",
+            "автомобильные изобретения которые изменили мир",
+            "интересные случаи на дорогах",
+            "реставрация винтажных автомобилей",
+            "автомобильная мода и тренды",
+            "как выбирают автомобили эксперты",
+            "автомобильные мошенничества схемы",
+            "секреты тюнинга от профессионалов",
+            "автоспорт интересные факты Формула 1",
+        ]
+        category = random.choice(_FUN_FACT_CATEGORIES)
+        now = datetime.now(_MOSCOW_TZ)
+        month_ru = ["января", "февраля", "марта", "апреля", "мая", "июня",
+                   "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+        date_str = f"{now.day} {month_ru[now.month - 1]} {now.year}"
+
+        extra_instructions = (
+            f"Сегодня {date_str}. "
+            f"Напиши интересный короткий пост на тему: {category}. "
+            "Это НЕ новость — это познавательный пост 'А вы знали?' для автоканала. "
+            "Пиши живо, с эмоцией и интригой. Добавь конкретные цифры и факты. "
+            "Твой ответ — ТОЛЬКО готовый текст поста для публикации. "
+            "Никаких пояснений, примечаний, редакционных заметок. "
+            "Если не можешь написать — верни пустой ответ. "
+        )
+
+        response = await ai_router.generate_channel_post(
+            topic=category,
+            source_text="",
+            extra_instructions=extra_instructions,
+            has_media=False,
+            media_count=0,
+        )
+
+        if response.error or not response.text:
+            logger.warning(f"Fallback fun fact generation failed: {response.error_message}")
+            return False
+
+        post_text = _clean_post_text(response.text)
+        post_text = _ensure_footer(post_text)
+
+        if not _validate_post_text(post_text):
+            logger.warning("Fallback fun fact validation failed")
+            return False
+
+        post_text = _enforce_char_limit(post_text, has_media=False)
+
+        try:
+            sent = await self._bot.send_message(
+                chat_id=config.CHANNEL_ID,
+                text=post_text,
+                parse_mode=ParseMode.HTML,
+                disable_notification=True,
+            )
+
+            await add_channel_post(
+                content=post_text,
+                message_id=sent.message_id,
+                post_type="fun_fact",
+                source_url="",
+            )
+
+            await add_post_fingerprint(
+                title=f"fun_fact: {category}",
+                content=post_text,
+                post_id=sent.message_id,
+            )
+
+            self._last_post_time = time.time()
+            await self._add_reaction(config.CHANNEL_ID, sent.message_id)
+
+            logger.info(f"Posted fallback fun fact: {category}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error posting fallback fun fact: {e}")
+            return False
 
 
 # ── Global instance ────────────────────────────────────────────────────────────

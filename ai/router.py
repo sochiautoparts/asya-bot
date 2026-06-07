@@ -27,7 +27,7 @@ from ai.providers.pollinations_provider import (
 )
 from bot.config import config, persona
 from bot.database import get_ai_cached, set_ai_cached, get_chat_history, add_chat_message
-from bot.channel_scanner import is_duplicate_in_channel, get_channel_context_for_prompt
+# channel_scanner removed — unreliable from GitHub Actions IPs (403/429), causes editorial notes
 
 logger = logging.getLogger("asya.ai.router")
 
@@ -455,36 +455,15 @@ class AIRouter:
         """
         Generate a post for the @sochiautoparts channel.
         Pollinations best quality models for public content.
-        
-        Includes channel dedup: checks recent posts before generating.
         """
-        # ── Channel dedup: check if this topic was already posted ──
-        try:
-            if await is_duplicate_in_channel(topic, threshold=0.50):
-                logger.info(f"Channel post SKIPPED (duplicate in channel): {topic[:60]}")
-                return AIResponse(
-                    text="",
-                    model="dedup",
-                    provider="channel_scanner",
-                    error=True,
-                    error_message=f"Duplicate topic in channel: {topic[:60]}",
-                )
-        except Exception as e:
-            logger.debug(f"Channel dedup check failed (non-critical): {e}")
-
+        # channel_scanner dedup removed — DB fingerprint + semantic dedup are sufficient
         system_prompt = persona.system_prompt + persona.channel_prompt_suffix
 
         # Add time context
         time_ctx = _get_time_context()
         system_prompt += f"\n\n{time_ctx}"
 
-        # Add channel context (recent posts to avoid repetition)
-        try:
-            channel_ctx = await get_channel_context_for_prompt(max_items=10)
-            if channel_ctx:
-                system_prompt += f"\n\n{channel_ctx}"
-        except Exception as e:
-            logger.debug(f"Channel context fetch failed (non-critical): {e}")
+        # channel_scanner context removed — caused AI to write editorial notes about duplicates
 
         # Add character limit instruction
         char_limit = config.TELEGRAM_CAPTION_LIMIT if has_media else config.TELEGRAM_TEXT_LIMIT

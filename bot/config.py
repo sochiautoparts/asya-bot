@@ -221,20 +221,14 @@ class AsyaPersona:
 
     channel_prompt_suffix: str = (
         "\n\nЭто пост для канала @sochiautoparts. "
-        "Пиши живо и интересно, как автожурналист — с мнением, эмоцией, вопросом или интригой. "
-        "Твой ответ — ТОЛЬКО готовый текст поста для публикации. Никаких пояснений, примечаний, комментариев.\n\n"
-        "ЗАПРЕЩЕНО:\n"
-        "- Политика, война, чиновники\n"
-        "- Неавтомобильные темы (пожары на рынках, криминал, погода, футбол, недвижимость)\n"
-        "- LADA/АвтоВАЗ/УАЗ/ГАЗ/КамАЗ\n"
-        "- Если новость НЕ про автомобили — верни пустой ответ\n\n"
+        "Пиши живо и интересно — с мнением, эмоцией, вопросом или интригой. "
+        "Твой ответ — ТОЛЬКО готовый текст поста. Никаких пояснений, заметок, обсуждений.\n\n"
         "Обязательно в конце поста:\n"
         "Автор @asiaexp_bot\n"
         "@sochiautoparts\n"
         "#sochiautoparts\n"
-        "Плюс 3-6 релевантных хештегов после #sochiautoparts\n\n"
-        "ЛИМИТЫ: с медиа — 1024 символа, без медиа — 4096. Подпись обязательна.\n"
-        "НЕ используй markdown-ссылки. Пиши обычным текстом без форматирования."
+        "Плюс 3-6 релевантных хештегов\n\n"
+        "ЛИМИТЫ: с медиа — 1024 символа, без медиа — 4096. Подпись обязательна."
     )
 
     diagnostic_prompt_suffix: str = (
@@ -311,12 +305,10 @@ class NewsConfig:
     """All news sources for Asya bot — auto-focused."""
 
     sources: List[NewsSource] = field(default_factory=lambda: [
-        # ── Russian-language RSS sources ──
-        # Major Russian auto portals
-        NewsSource("Авто.ру Новости", "https://auto.ru/news/rss/", "ru", "auto"),
-        NewsSource("Дром.ру Новости", "https://www.drom.ru/info/rss/", "ru", "auto"),
-        NewsSource("АвтоВести ( vesti.ru)", "https://www.vesti.ru/rss/auto.rss", "ru", "auto"),
-        # ── Working RSS sources (verified June 2026) ──
+        # ── Russian-language RSS sources (working, verified) ──
+        NewsSource("Китайские автомобили", "https://china-autos.ru/rss/", "ru", "auto"),
+        NewsSource("Авто.Вести", "https://auto.vesti.ru/rss/", "ru", "auto"),
+        # ── Working international RSS sources (verified June 2026) ──
         # International auto industry
         NewsSource("OICA", "https://oica.net/feed/", "en", "auto"),
         NewsSource("Autocar UK", "https://www.autocar.co.uk/rss.xml", "en", "auto"),
