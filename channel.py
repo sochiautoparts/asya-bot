@@ -39,9 +39,8 @@ from bot.content_engine import (
     _is_topic_covered, _extract_entities, _score_interest,
     _register_topic,
 )
-# Channel scanner DISABLED — it's unreliable from GitHub Actions IPs (403/429)
-# and causes false blocks. DB fingerprint + semantic dedup are sufficient.
-# from bot.channel_scanner import is_duplicate_in_channel, get_channel_context_for_prompt
+# Channel scanner removed — unreliable from GitHub Actions IPs (403/429).
+# DB fingerprint + semantic dedup are sufficient.
 
 logger = logging.getLogger("asya.channel")
 
@@ -171,8 +170,8 @@ def _clean_post_text(text: str) -> str:
     for pattern in meta_comment_patterns:
         text = re.sub(pattern, '', text, flags=re.IGNORECASE)
 
-    # Remove "Настя:" or "Ася:" prefixes
-    for prefix in ["Настя:", "Ася:", "Nastya:", "Asya:", "Assistant:"]:
+    # Remove AI/assistant name prefixes that leak into posts
+    for prefix in ["Ася:", "Asya:", "Assistant:"]:
         if text.startswith(prefix):
             text = text[len(prefix):].strip()
 

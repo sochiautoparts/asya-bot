@@ -1043,17 +1043,8 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
     scored_items = []
     seen_titles = set()
     
-    # Load channel posts for scanner dedup
-    channel_posts_set = set()
-    try:
-        from bot.channel_scanner import fetch_channel_posts
-        channel_posts = await fetch_channel_posts(max_posts=50)
-        for post in channel_posts:
-            # Extract key words from each channel post for quick matching
-            words = set(re.findall(r'[a-zа-яё]{3,}', post.lower()))
-            channel_posts_set.add(frozenset(words))
-    except Exception as e:
-        logger.debug(f"Could not fetch channel posts for dedup: {e}")
+    # Channel scanner removed — was unreliable from GitHub Actions IPs.
+    # DB fingerprint + semantic dedup in channel.py are sufficient.
     
     # ── STRICT FRESHNESS GATE: reject items older than 24 hours ──
     now_ts = time.time()
@@ -1100,21 +1091,7 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
         if person_blocked:
             continue
         
-        # Check if topic is already in the channel (channel scanner dedup)
-        is_channel_dup = False
-        if channel_posts_set:
-            title_words = set(re.findall(r'[a-zа-яё]{3,}', title.lower()))
-            if title_words:
-                for channel_words in channel_posts_set:
-                    overlap = title_words & channel_words
-                    if len(overlap) >= 4 and len(overlap) / max(len(title_words), 1) >= 0.35:
-                        logger.debug(f"Channel dedup in content engine: {title[:50]}")
-                        # Register as covered so we don't see it again
-                        _register_topic(entity_key, title)
-                        is_channel_dup = True
-                        break
-        if is_channel_dup:
-            continue  # Skip this item (it's a duplicate in the channel)
+        # Channel scanner dedup removed — DB fingerprint + semantic dedup in channel.py are sufficient
         
         # Score interest
         interest = _score_interest(title, summary)

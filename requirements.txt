@@ -5,5 +5,3 @@ feedparser==6.0.11
 python-dotenv==1.0.1
 Pillow>=10.0.0
 cairosvg>=2.7.0
-# huggingface_hub — only needed for local model (disabled, restorable)
-# llama-cpp-python — only needed for local model (disabled, restorable)

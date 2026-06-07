@@ -27,7 +27,7 @@ from ai.providers.pollinations_provider import (
 )
 from bot.config import config, persona
 from bot.database import get_ai_cached, set_ai_cached, get_chat_history, add_chat_message
-# channel_scanner removed — unreliable from GitHub Actions IPs (403/429), causes editorial notes
+
 
 logger = logging.getLogger("asya.ai.router")
 
@@ -456,14 +456,11 @@ class AIRouter:
         Generate a post for the @sochiautoparts channel.
         Pollinations best quality models for public content.
         """
-        # channel_scanner dedup removed — DB fingerprint + semantic dedup are sufficient
         system_prompt = persona.system_prompt + persona.channel_prompt_suffix
 
         # Add time context
         time_ctx = _get_time_context()
         system_prompt += f"\n\n{time_ctx}"
-
-        # channel_scanner context removed — caused AI to write editorial notes about duplicates
 
         # Add character limit instruction
         char_limit = config.TELEGRAM_CAPTION_LIMIT if has_media else config.TELEGRAM_TEXT_LIMIT
