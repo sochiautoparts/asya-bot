@@ -48,7 +48,7 @@ _MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 # Maps: entity_key → {first_seen, last_posted, post_count, titles}
 # Entity key = normalized brand + model + event (e.g., "bmw_m5_reveal")
 _topic_registry: Dict[str, Dict] = {}
-_REGISTRY_MAX_AGE_HOURS = 48  # Forget topics after 48 hours — faster topic cycling
+_REGISTRY_MAX_AGE_HOURS = 24  # Forget topics after 24 hours — faster topic cycling
 
 # Auto brands for entity extraction
 _AUTO_BRANDS = [
@@ -539,6 +539,22 @@ _SEARCH_QUERIES_ROTATION = [
     "automotive recall safety alert {year}",
     "car warranty extended warranty news",
     "automotive design award {year}",
+    # ── Russian-language queries: diverse & fun topics ──
+    "автомобильные рекорды Гиннесс {year}",
+    "самые дорогие автомобили аукцион {year}",
+    "автомобильные мошенничества схемы {year}",
+    "подбор автомобиля советы экспертов {year}",
+    "автомобильные гаджеты новинки {year}",
+    "забавные случаи на дорогах {year}",
+    "автомобильные легенды мифы {year}",
+    "реставрация старых автомобилей {year}",
+    "автомобильная мода тренды {year}",
+    "экстремальные автомобили мира {year}",
+    "секреты автосалонов покупки авто {year}",
+    "автомобильные фильмы документальные {year}",
+    "как не обмануть в автосервисе {year}",
+    "подготовка авто к зиме лету советы",
+    "автомобильные приложения полезные {year}",
 ]
 
 # Track recently used query indices to avoid repetition

@@ -938,21 +938,22 @@ class ChannelManager:
             logger.info(f"Daily post limit reached ({today_count}/{config.CHANNEL_MAX_POSTS_PER_DAY})")
             return False
 
-        # Check hourly limit — max 2 posts per hour
+        # Check hourly limit — max 4 posts per hour (2 posts × 2 cycles)
         hourly_count = await get_hourly_post_count()
         if hourly_count >= config.CHANNEL_MAX_POSTS_PER_HOUR:
             logger.info(f"Hourly post limit reached ({hourly_count}/{config.CHANNEL_MAX_POSTS_PER_HOUR})")
             return False
 
-        # Check minimum interval — within a cycle, allow 2 minutes between posts
-        min_interval = 120  # 2 minutes minimum between any two posts
+        # Check minimum interval — allow 60s between posts within same cycle
+        # This is shorter than the cycle gap (2-5 min) so both posts in a cycle can go through
+        min_interval = 60  # 1 minute minimum between any two posts
         if time.time() - self._last_post_time < min_interval:
             logger.info(f"Post interval too short ({time.time() - self._last_post_time:.0f}s < {min_interval}s)")
             return False
 
         # Get news item if not provided — use Smart Content Engine!
         if not news_item:
-            unposted = await get_unposted_news(limit=15)
+            unposted = await get_unposted_news(limit=25)
             logger.info(f"post_news: {len(unposted)} unposted items in DB")
             # Use content engine to pick the best item (interest scoring + topic dedup)
             news_item = await get_best_news_item(unposted)
@@ -1535,18 +1536,22 @@ class ChannelManager:
         Run a scheduled post — tries up to 3 different news items per cycle.
         
         SIMPLIFIED PIPELINE:
-        1. Try partner content (30% chance if interval met)
+        1. Try partner content (20% chance if interval met)
         2. Try news — up to 3 attempts with DIFFERENT items
         3. Fallback: AI-generated "fun fact" if no web news works
+        
+        Each cycle is called TWICE per 30-min interval (2 different posts).
+        Dedup ensures the 2nd post is always different from the 1st.
         """
         logger.info("run_scheduled_post: called")
         now = time.time()
         partner_interval = config.PARTNER_POST_INTERVAL_HOURS * 3600
 
-        # Try partner content with 30% probability (if interval met)
+        # Try partner content with 20% probability (if interval met)
+        # Lower probability so news posts dominate — partner posts are supplementary
         if (now - self._last_partner_time >= partner_interval and
                 partner_manager.should_post_partner()):
-            if random.random() < 0.3:
+            if random.random() < 0.2:
                 result = await self.post_partner_content()
                 if result:
                     return True

@@ -259,9 +259,9 @@ class BackgroundTasks:
                     if posted:
                         posts_this_cycle += 1
                         logger.info(f"Channel poster: post {post_num + 1}/2 published successfully")
-                        # Small gap between posts (2-5 minutes) so they don't look like spam
+                        # Gap between posts (1-2 minutes) — shorter to ensure both fit in cycle
                         if post_num == 0:
-                            gap = random.randint(120, 300)  # 2-5 minutes
+                            gap = random.randint(60, 120)  # 1-2 minutes
                             logger.info(f"Waiting {gap}s before next post in this cycle")
                             for _ in range(gap):
                                 if not self._running:
