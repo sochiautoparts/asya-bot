@@ -42,6 +42,9 @@ admitad_ads.json
 # Lock file
 /tmp/asya_bot.lock
 
+# Interbot state (removed, no longer used)
+interbot_state.json
+
 # OS
 .DS_Store
 Thumbs.db
