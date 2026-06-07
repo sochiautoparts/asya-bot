@@ -864,7 +864,7 @@ async def search_russian_auto_news() -> List[Dict]:
 
 # ── Smart Image Search — find images via web search ───────────────────────────
 
-async def search_news_images(query: str, max_count: int = 2) -> List[str]:
+async def search_news_images(query: str, max_count: int = 5) -> List[str]:
     """Search the web for images related to a news topic.
     
     Returns list of image URLs.
@@ -873,7 +873,7 @@ async def search_news_images(query: str, max_count: int = 2) -> List[str]:
     try:
         # Search for images
         search_query = f"{query} car photo"
-        results = await web_search(search_query, max_results=5)
+        results = await web_search(search_query, max_results=10)
         for result in results:
             url = result.url or ""
             # Check if it looks like an image URL
@@ -1178,7 +1178,7 @@ async def enrich_with_search_images(news_item: Dict) -> List[str]:
     query = query[:60]
     
     try:
-        image_urls = await search_news_images(query, max_count=2)
+        image_urls = await search_news_images(query, max_count=5)
         if image_urls:
             logger.info(f"Found {len(image_urls)} web search images for: {title[:50]}")
         return image_urls

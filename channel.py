@@ -48,15 +48,17 @@ logger = logging.getLogger("asya.channel")
 POST_REACTIONS = ["👍", "🔥", "🚗", "😍", "👏", "💯", "🤩", "⚡"]
 
 # ── How many images per news post ───────────────────────────────────────────
-# Telegram allows up to 10 media per post. But too many looks spammy.
-# We use 1-3 images: real photo from source, or 1-2 AI-generated.
+# Telegram allows up to 10 media per post.
+# We aim for up to 10 real photos from news sources.
 # AI-generated images: only 1 per post (no spam)
 NEWS_IMAGES_MIN = 1
 NEWS_IMAGES_MAX = 1
-# Maximum total images in a channel post (hard limit)
-MAX_IMAGES_PER_POST = 3
-# Maximum real images to download from RSS (not the Telegram limit!)
-MAX_RSS_IMAGES = 2
+# Maximum total images in a channel post (hard limit — Telegram max is 10)
+MAX_IMAGES_PER_POST = 10
+# Maximum real images to download from RSS + article scraping
+MAX_RSS_IMAGES = 5
+# Maximum images from article scraping
+MAX_SCRAPE_IMAGES = 5
 
 # ── Poll topics for channel engagement ──────────────────────────────────────
 
@@ -162,6 +164,19 @@ def _clean_post_text(text: str) -> str:
         r'[^\n]*крутить(ся)?\s+вокруг[^\n]*',
         r'[^\n]*сменить\s+(угол|тему|ракурс)[^\n]*',
         r'[^\n]*другую\s+(зарубежн|автоистори|тему|новост)[^\n]*',
+        # Meta-editorial text: "мы уже обсуждали", "нужна другая тема", "второй раз не отправляем"
+        r'[^\n]*мы\s+(уже\s+)?(обсуждали|говорили|писали|публиковали)[^\n]*',
+        r'[^\n]*нужн[аое]\s+друг[аое]\s+(тема|новост|автотема)[^\n]*',
+        r'[^\n]*второй\s+раз\s+(не\s+)?(отправляем|публикуем|постим)[^\n]*',
+        r'[^\n]*в\s+ленту\s+(одно\s+и\s+то\s+же|не\s+отправляем|повтор)[^\n]*',
+        r'[^\n]*с\s+повторами\s+строго[^\n]*',
+        r'[^\n]*я\s+сразу\s+предложу[^\n]*',
+        r'[^\n]*если\s+хочешь[^\n]*',
+        r'[^\n]*могу\s+сразу\s+(сделать|предложить|написать)[^\n]*',
+        r'[^\n]*напишу\s+готовый\s+пост[^\n]*',
+        r'[^\n]*без\s+лишних\s+вопросов[^\n]*',
+        r'[^\n]*нужна\s+свежая\s+автотема[^\n]*',
+        r'[^\n]*у\s+нас\s+в\s+редакции[^\n]*',
         # English variants
         r'[^\n]*already\s+(posted|published|covered|wrote)[^\n]*',
         r'[^\n]*do\s+not\s+(publish|post)[^\n]*',
@@ -275,6 +290,17 @@ def _validate_post_text(text: str) -> bool:
         "в последних постах уже", "нельзя публиковать",
         "не стоит брать", "не стоит публиковать",
         "не стоит писать",
+        # Meta-editorial text — AI leaking internal discussion into posts
+        "мы уже обсуждали", "мы уже говорили", "мы уже публиковали",
+        "нужна другая тема", "нужна другая новост", "нужна другая автотема",
+        "второй раз не отправляем", "второй раз не публикуем",
+        "в ленту одно и то же", "в ленту не отправляем",
+        "с повторами строго", "у нас в редакции",
+        "я сразу предложу", "если хочешь",
+        "могу сразу предложить", "могу сразу написать",
+        "напишу готовый пост", "без лишних вопросов",
+        "нужна свежая автотема", "нужна свежая тема",
+        "свежая автотема за сегодня",
     ]
     for phrase in duplicate_indicator_phrases:
         if phrase in text_lower:
@@ -558,12 +584,12 @@ class ChannelManager:
             logger.debug("Can't read image dimensions, accepting as-is (soft validation)")
             return True
 
-    async def _scrape_article_images(self, article_url: str, max_count: int = 2) -> List[bytes]:
-        """Scrape images from a news article page as fallback.
+    async def _scrape_article_images(self, article_url: str, max_count: int = 5) -> List[bytes]:
+        """Scrape images from a news article page.
         
         Extracts og:image and twitter:image from the article HTML.
         Only uses <img> tags as last resort, with strict filtering.
-        Returns list of image data bytes (max 2).
+        Returns list of image data bytes (up to max_count).
         """
         images = []
         try:
@@ -659,9 +685,10 @@ class ChannelManager:
         """Get images for a news post with smart strategy.
         
         Strategy:
-        1. Try real images from RSS feed (image_urls field)
-        2. If not enough, try scraping article page for images
-        3. If still no images, generate AI images as fallback
+        1. Try real images from RSS feed (image_urls field) — up to MAX_RSS_IMAGES
+        2. Try scraping article page for more images — up to MAX_SCRAPE_IMAGES
+        3. If still no images, generate AI images as fallback (1 image)
+        4. Also try web search for additional images
         
         Returns (image_list: List[bytes], source: str)
         source is 'real', 'scraped', or 'ai' for logging.
@@ -675,7 +702,7 @@ class ChannelManager:
             try:
                 image_list = await self._download_news_images(
                     rss_image_urls, 
-                    max_count=MAX_RSS_IMAGES  # Only 2 real images max from RSS
+                    max_count=MAX_RSS_IMAGES  # Up to 5 real images from RSS
                 )
                 if image_list:
                     source = "real"
@@ -683,12 +710,12 @@ class ChannelManager:
             except Exception as e:
                 logger.warning(f"Failed to download RSS images: {e}")
         
-        # Strategy 2: Scrape article page for images (only if no real images from RSS)
-        if not image_list and news_item.get("url"):
+        # Strategy 2: Scrape article page for images (ALWAYS try — adds more real photos)
+        if news_item.get("url") and len(image_list) < MAX_IMAGES_PER_POST:
             try:
                 scraped = await self._scrape_article_images(
                     news_item["url"], 
-                    max_count=2
+                    max_count=MAX_SCRAPE_IMAGES
                 )
                 if scraped:
                     image_list.extend(scraped)
@@ -709,7 +736,7 @@ class ChannelManager:
             except Exception as e:
                 logger.warning(f"AI image generation skipped: {e}")
         
-        # HARD LIMIT: never more than MAX_IMAGES_PER_POST (3 max — no spam!)
+        # HARD LIMIT: never more than MAX_IMAGES_PER_POST (10 max — Telegram limit)
         image_list = image_list[:MAX_IMAGES_PER_POST]
         
         if len(image_list) > MAX_IMAGES_PER_POST:
@@ -939,6 +966,11 @@ class ChannelManager:
             "Пиши ЖИВО, как автожурналист для Telegram-канала. Не пересказывай новость сухо — "
             "добавь мнение, эмоцию, провокационный вопрос. "
             "НЕ повторяй формулировки из предыдущих постов — каждый пост уникален. "
+            "🔴 КРИТИЧЕСКИ ВАЖНО: Пиши ТОЛЬКО ГОТОВЫЙ ПОСТ для канала. "
+            "Никаких мета-комментариев типа 'мы уже обсуждали', 'нужна другая тема', "
+            "'второй раз не отправляем', 'у нас в редакции', 'предложу 3 темы', "
+            "'если хочешь', 'без лишних вопросов'. Это ЗАПРЕЩЕНО! "
+            "Просто пиши пост про конкретную автомобильную новость — и всё! "
         )
         if channel_context:
             extra_instructions += f"\n\n{channel_context}\nЭТО УЖЕ ОПУБЛИКОВАНО — НЕ ПИШИ ПРО ТО ЖЕ САМОЕ! Выбери СОВЕРШЕННО ДРУГУЮ тему! "
@@ -956,16 +988,18 @@ class ChannelManager:
         try:
             image_list, image_source = await self._get_post_images(news_item)
             
-            # ── SMART IMAGE ENRICHMENT — search for images if none found ──
-            if not image_list and news_item.get("title"):
+            # ── SMART IMAGE ENRICHMENT — search for more images ──
+            # Always try web search for additional images if we have fewer than MAX
+            if news_item.get("title") and len(image_list) < MAX_IMAGES_PER_POST:
                 try:
                     search_image_urls = await enrich_with_search_images(news_item)
                     if search_image_urls:
-                        searched = await self._download_news_images(search_image_urls, max_count=2)
+                        remaining = MAX_IMAGES_PER_POST - len(image_list)
+                        searched = await self._download_news_images(search_image_urls, max_count=remaining)
                         if searched:
                             image_list.extend(searched)
-                            image_source = "web_search"
-                            logger.info(f"Found {len(searched)} images via web search for: {news_item.get('title', '')[:50]}")
+                            image_source = image_source + "+web_search" if image_source != "none" else "web_search"
+                            logger.info(f"Found {len(searched)} additional images via web search for: {news_item.get('title', '')[:50]}")
                 except Exception as e:
                     logger.debug(f"Web search image enrichment skipped: {e}")
             
