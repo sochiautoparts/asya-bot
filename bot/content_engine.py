@@ -534,7 +534,7 @@ _SEARCH_QUERIES_ROTATION = [
     "car service industry trends {year}",
     "vehicle logistics supply chain news",
     # ── English-language queries: diverse topics ──
-    "car fire vehicle fire news {year}",
+    "car fire vehicle fire news {year}",  # NOTE: Only car-specific fires, NOT market/building fires
     "car towing evcuation news",
     "automotive recall safety alert {year}",
     "car warranty extended warranty news",
@@ -665,6 +665,9 @@ async def ai_discover_news() -> List[Dict]:
                         f"погоду, медицину, спорт (футбол/хоккей), политику, войну, "
                         f"недвижимость, образование, культуру, рестораны. "
                         f"Если новость НЕ про автомобили, запчасти, дороги, автоспорт — НЕ включай! "
+                        f"🔴 КРИТИЧЕСКИ ВАЖНО-2: НИКАКИХ РЕДАКЦИОННЫХ ПРИМЕЧАНИЙ в списке! "
+                        f"НЕ пиши: 'Эту тему в канал не ставим', 'не автомобильная новость', "
+                        f"'надо отсеивать', 'по вашим правилам' и т.п. — ЭТО НЕ НОВОСТИ! "
                         f"Каждая новость — одна строка в формате: НОВОСТЬ | краткое описание (1-2 предложения) "
                         f"Никаких нумерованных списков, маркеров или другого форматирования — просто строки с | "
                         f"Пиши на русском языке. НИКАКОЙ политики и войны — только автомобили."
