@@ -374,7 +374,7 @@ async def main():
     dp.shutdown.register(on_shutdown)
 
     # Run polling
-    logger.info("=== Asya Bot Starting (Pollinations-Only v6) ===")
+    logger.info("=== Asya Bot Starting (Pollinations-Only v7) ===")
     try:
         await dp.start_polling(bot)
     except KeyboardInterrupt:
