@@ -48,7 +48,7 @@ _MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 # Maps: entity_key → {first_seen, last_posted, post_count, titles}
 # Entity key = normalized brand + model + event (e.g., "bmw_m5_reveal")
 _topic_registry: Dict[str, Dict] = {}
-_REGISTRY_MAX_AGE_HOURS = 24  # Forget topics after 24 hours — faster topic cycling
+_REGISTRY_MAX_AGE_HOURS = 72  # Keep topics for 72 hours — prevents same news reappearing next day
 
 # Auto brands for entity extraction
 _AUTO_BRANDS = [
@@ -154,6 +154,10 @@ def _extract_entities(title: str) -> str:
     parts = [p for p in [brand, person, team, model, event] if p]
     entity_key = "_".join(parts) if parts else ""
     
+    # ── BRAND-ONLY DEDUP KEY ──
+    # If a brand is mentioned without a specific model+event, also check brand-only coverage
+    # This prevents posting 3 different stories about the same brand in one day
+    
     # ── PERSON-ONLY DEDUP KEY ──
     # If a notable person is mentioned (e.g. "Alonso"), also register a person-only key
     # This prevents posting 3 different stories about Alonso in the same day
@@ -185,7 +189,7 @@ def _is_topic_covered(entity_key: str) -> bool:
         del _topic_registry[entity_key]
         return False
     
-    # Topic was posted in last 48h — it's covered
+    # Topic was posted in last 72h — it's covered
     return True
 
 
@@ -210,6 +214,23 @@ def _register_topic(entity_key: str, title: str):
             "post_count": 1,
             "titles": [title],
         }
+    
+    # ── Also register brand-only key for dedup ──
+    # Extract brand from entity_key (e.g., "bmw_x5_reveal" → "bmw")
+    for b in _AUTO_BRANDS:
+        b_key = b.lower().replace(" ", "_")
+        if b_key in entity_key:
+            if b_key not in _topic_registry:
+                _topic_registry[b_key] = {
+                    "first_seen": now,
+                    "last_posted": now,
+                    "post_count": 1,
+                    "titles": [f"[brand-dedup] {title}"],
+                }
+            else:
+                _topic_registry[b_key]["post_count"] += 1
+                _topic_registry[b_key]["last_posted"] = now
+            break
     
     # ── Also register person-only key for dedup ──
     # Extract person from entity_key (e.g., "alonso_criticism" → "alonso")
@@ -709,6 +730,22 @@ async def ai_discover_news() -> List[Dict]:
     
     date_str = f"{now.day} {month_ru[now.month - 1]} {now.year}"
     
+    # Load recently posted titles to avoid repeating them
+    recently_posted_titles = []
+    try:
+        from bot.database import get_recent_post_titles
+        recently_posted_titles = await get_recent_post_titles(hours=72, limit=30)
+    except Exception:
+        pass
+    
+    recently_posted_str = ""
+    if recently_posted_titles:
+        titles_list = "\n".join(f"  - {t[:80]}" for t in recently_posted_titles[:20])
+        recently_posted_str = (
+            f"\n\nУЖЕ ОПУБЛИКОВАНО (НЕ ПОВТОРЯЙ ЭТИ ТЕМЫ):\n{titles_list}\n"
+            f"НЕ называй новости, которые дублируют или пересекаются с уже опубликованными!"
+        )
+    
     # Try multiple models — some have web access, some don't
     _DISCOVERY_MODELS = ["openai-large", "gpt-5.5", "mistral-4", "deepseek", "qwen-large"]
     
@@ -731,6 +768,7 @@ async def ai_discover_news() -> List[Dict]:
                         f"Каждая новость — одна строка: НОВОСТЬ | краткое описание (1-2 предложения) "
                         f"Никаких нумерованных списков, маркеров — просто строки с | "
                         f"Пиши на русском языке. ТОЛЬКО автомобили."
+                        f"{recently_posted_str}"
                     )},
                 ],
                 model=model_name,
@@ -1119,12 +1157,34 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
                 logger.debug(f"FRESHNESS GATE: rejected stale item ({age_hours:.0f}h old): {title[:50]}")
                 continue
         
+        # ── DB fingerprint check — prevents reposting from previous days ──
+        try:
+            from bot.database import is_duplicate_post
+            if await is_duplicate_post(title, hours=72):
+                logger.debug(f"DB dedup blocked: {title[:50]}")
+                continue
+        except Exception:
+            pass  # DB check is best-effort
+        
         # Extract entities for dedup
         entity_key = _extract_entities(title)
         
         # Check if topic is already covered (in-memory + DB registry)
         if _is_topic_covered(entity_key):
             logger.debug(f"Topic already covered: {entity_key} — {title[:50]}")
+            continue
+        
+        # ── Also check brand-only dedup key (prevents "BMW 3x" in same day) ──
+        brand_blocked = False
+        for b in _AUTO_BRANDS:
+            b_key = b.lower().replace(" ", "_")
+            if b_key in title.lower() and _is_topic_covered(b_key):
+                # Brand was already posted about — block unless entity_key has specific model+event
+                if not entity_key or entity_key == b_key:
+                    logger.debug(f"Brand dedup blocked: {b_key} — {title[:50]}")
+                    brand_blocked = True
+                    break
+        if brand_blocked:
             continue
         
         # ── Also check person-only dedup key (prevents "Alonso 3x") ──

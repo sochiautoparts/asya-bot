@@ -78,7 +78,7 @@ _MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 # ── Keyword-based semantic dedup for channel posts ─────────────────────────────
 # Stores significant words from recently posted titles
 _recent_post_keywords: list = []
-_MAX_RECENT_POSTS = 30
+_MAX_RECENT_POSTS = 100  # Track more posts for better semantic dedup (48 posts/day)
 
 # Words to ignore in semantic comparison
 _SEMANTIC_STOP_WORDS = frozenset([
@@ -91,19 +91,19 @@ _SEMANTIC_STOP_WORDS = frozenset([
 
 
 def _is_semantically_duplicate(title: str) -> bool:
-    """Check if 4+ significant words from title match a recently posted title."""
+    """Check if 3+ significant words from title match a recently posted title."""
     global _recent_post_keywords
 
     # Extract significant words from the new title
     words = re.findall(r'[a-zа-яё]{3,}', title.lower())
     significant = [w for w in words if w not in _SEMANTIC_STOP_WORDS]
 
-    if len(significant) < 4:
+    if len(significant) < 3:
         return False
 
     for recent_words in _recent_post_keywords:
         matches = sum(1 for w in significant if w in recent_words)
-        if matches >= 4:
+        if matches >= 3:
             return True
 
     return False
@@ -1007,7 +1007,7 @@ class ChannelManager:
 
         # ── DEDUPLICATION LAYER 1: DB-level dedup (title hash, keyword overlap) ──
         if news_item and news_item.get("title"):
-            if await is_duplicate_post(news_item["title"], hours=48):
+            if await is_duplicate_post(news_item["title"], hours=72):
                 logger.warning(f"DB DUPLICATE blocked: {news_item['title'][:60]}")
                 if news_item.get("url"):
                     await mark_news_posted(news_item["url"])
@@ -1144,6 +1144,15 @@ class ChannelManager:
         # These were causing false blocks. DB fingerprint at Layer 1 + semantic
         # dedup at Layer 2 are sufficient. Post-gen checks were overly aggressive
         # and blocked valid rewrites of the same topic.
+
+        # ── DB fingerprint dedup — last chance to catch duplicates ──
+        # Check both title AND generated content against DB with 72h window
+        try:
+            if await is_duplicate_post(news_item.get("title", ""), content=post_text, hours=72):
+                logger.warning(f"DB dedup blocked post (post-gen): {news_item.get('title', '')[:60]}")
+                return False
+        except Exception:
+            pass  # DB check is best-effort
 
         # ── Register topic in registry AFTER successful validation ──
         # (not before AI generation — that was causing premature registration)
