@@ -565,6 +565,8 @@ async def is_duplicate_post(title: str, content: str = "", hours: int = 48,
     4. Keyword overlap match (extract key nouns — catches paraphrased titles about same subject)
        Also normalizes car brand names (BMW/Bayerische, LADA/ВАЗ, etc.)
     5. Content hash match (same content, possibly different title)
+    6. NORMALIZED CORE MATCH — extract core words (brand + model + event) and compare
+       This catches "BMW представила новый X5" vs "Новый BMW X5 2026: первые детали"
 
     Args:
         title: News item title to check
@@ -636,14 +638,37 @@ async def is_duplicate_post(title: str, content: str = "", hours: int = 48,
                     common = title_keywords_normalized & existing_keywords_normalized
                     if len(common) >= 2:
                         overlap_ratio = len(common) / min(len(title_keywords_normalized), len(existing_keywords_normalized))
-                        if overlap_ratio >= 0.55:
+                        if overlap_ratio >= 0.50:
                             return True
                     # Also check overlap between raw keywords for better matching
                     raw_common = title_keywords & existing_keywords
                     if len(raw_common) >= 3:
                         raw_overlap_ratio = len(raw_common) / min(len(title_keywords), len(existing_keywords)) if min(len(title_keywords), len(existing_keywords)) > 0 else 0
-                        if raw_overlap_ratio >= 0.5:
+                        if raw_overlap_ratio >= 0.45:
                             return True
+
+        # ── Check 6: NORMALIZED CORE MATCH ──
+        # Extract core content words (brands, models, numbers, events) and compare
+        # This catches cases where titles are completely reworded but about same event
+        core_words = _extract_core_words(title)
+        if len(core_words) >= 2:
+            async with db.execute(
+                "SELECT title_prefix FROM post_fingerprints WHERE created_at >= ?",
+                (cutoff,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                for row in rows:
+                    existing_prefix = row[0] if row else ""
+                    if not existing_prefix:
+                        continue
+                    existing_core = _extract_core_words(existing_prefix)
+                    if len(existing_core) < 2:
+                        continue
+                    core_common = core_words & existing_core
+                    # If 2+ core words match (e.g., "BMW" + "X5" or "Tesla" + "recalls"),
+                    # it's almost certainly the same event
+                    if len(core_common) >= 2:
+                        return True
 
         # Check 5: Content hash match (if content provided)
         if content:
@@ -748,6 +773,70 @@ def _extract_title_keywords(title: str) -> set:
         if len(w) >= 3 and w not in _TITLE_STOPWORDS:
             significant.add(w)
     return significant
+
+
+def _extract_core_words(title: str) -> set:
+    """Extract CORE content words from a title for robust dedup.
+    
+    Unlike _extract_title_keywords which includes all significant words,
+    this function focuses on the "identity" words of a news item:
+    - Car brand names (BMW, Tesla, etc.)
+    - Car model names/numbers (X5, Model 3, 911, etc.)
+    - Significant numbers (years, displacements, horsepower)
+    - Key event words (reveal, recall, launch, debut, etc.)
+    
+    This catches cases where the same event is described differently:
+    - "BMW представила новый X5" vs "Новый BMW X5 2026: первые детали"
+    - "Tesla recalls 10000 cars" vs "Tesla issues safety recall for Model Y"
+    """
+    import re as _re
+    text = title.lower()
+    core = set()
+    
+    # Car brands — most important identity markers
+    for brand in _BRAND_NORMALIZE_MAP.values():
+        if brand in text:
+            core.add(brand)
+    # Also check original brand names not in map
+    for brand in ["bmw", "mercedes", "audi", "toyota", "honda", "nissan", "hyundai", "kia",
+                  "ford", "chevrolet", "porsche", "lexus", "volvo", "tesla", "byd", "zeekr",
+                  "chery", "haval", "geely", "changan", "exeed", "tank", "renault", "peugeot",
+                  "skoda", "subaru", "suzuki", "mitsubishi", "jaguar", "land rover", "mini",
+                  "jeep", "infiniti", "genesis", "rivian", "lucid", "polestar",
+                  "ferrari", "lamborghini", "maserati", "bentley", "rolls-royce", "bugatti",
+                  "mclaren", "aston martin", "lotus", "fiat", "alfa romeo", "citroen"]:
+        if brand in text and brand not in core:
+            core.add(brand)
+    
+    # Model names/numbers — strong identity markers
+    model_patterns = [
+        r'\b([mglxqsec]\d+)\b',  # M3, X5, Q7, A4
+        r'\b(model\s?[s3xy])\b',  # Model S, Model 3
+        r'\b(\d{3,4}[ix]?)\b',   # 911, 330i
+        r'\b(class|series|corolla|camry|civic|accord|mustang|camaro|corvette|prius|rav4|supra)\b',
+        r'\b(taycan|macan|cayenne|panamera|wrangler|bronco|defender|civic|prius|accord)\b',
+        r'\b(двигател[яь]|мотор|турбо|гибрид|электромобиль|электрокар)\b',
+    ]
+    for pattern in model_patterns:
+        matches = _re.findall(pattern, text)
+        for m in matches:
+            core.add(m.replace(" ", "_"))
+    
+    # Event keywords — what happened
+    event_words = [
+        "reveal", "launch", "debut", "unveil", "release", "announce", "announce",
+        "recall", "recalls", "отзыв", "ban", "запрет", "record", "рекорд",
+        "crash", "авария", "merger", "слияни", "bankruptcy", "банкрот",
+        "redesign", "рестайлинг", "facelift", "update", "обновлен",
+        "премьера", "запуск", "дебют", "анонс", "представлен", "выпуск",
+        "скандал", "scandal", "отзыв", "recall", "проблем", "problem",
+        "sold", "продан", "продаж", "цена", "price", "стоимост",
+    ]
+    for ew in event_words:
+        if ew in text:
+            core.add(ew)
+    
+    return core
 
 
 # Car brand name normalization map for dedup

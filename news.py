@@ -47,7 +47,13 @@ def _fingerprint_matches_existing(fingerprint: str) -> bool:
 
 
 def reset_fingerprints():
-    """Reset fingerprint set (called each news cycle)."""
+    """Reset fingerprint set.
+    
+    NOTE: Do NOT call this at the start of each fetch cycle!
+    Previously, resetting fingerprints every cycle caused the same news to be
+    re-added across cycles. Now fingerprints persist within the process lifetime.
+    Only call this if you explicitly want to clear the in-memory cache.
+    """
     global _recent_fingerprints
     _recent_fingerprints = set()
 
@@ -386,8 +392,10 @@ async def fetch_all_news() -> int:
     """
     total_new = 0
 
-    # Reset fingerprint set for this cycle
-    reset_fingerprints()
+    # DO NOT reset fingerprint set every cycle!
+    # Previously this caused the same news to be re-added across cycles.
+    # The _recent_fingerprints set now persists across fetch cycles within the process.
+    # DB-level dedup (is_duplicate_post) provides cross-restart protection.
 
     # ── Phase 1: Web Search FIRST (primary source) ──
     logger.info("Phase 1: Web search for automotive news")

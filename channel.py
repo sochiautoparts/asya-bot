@@ -15,6 +15,7 @@ import os
 import re
 import hashlib
 import httpx
+import aiosqlite
 from typing import Optional, List, Dict, Tuple
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -30,6 +31,7 @@ from bot.database import (
     add_channel_post, get_today_post_count, get_hourly_post_count, get_unposted_news,
     mark_news_posted, add_partner_post, get_today_partner_post_count,
     is_duplicate_post, add_post_fingerprint, cleanup_old_fingerprints,
+    get_recent_post_titles, DB_PATH,
 )
 from ai.router import ai_router
 from bot.partners import partner_manager
@@ -91,22 +93,118 @@ _SEMANTIC_STOP_WORDS = frozenset([
 
 
 def _is_semantically_duplicate(title: str) -> bool:
-    """Check if 3+ significant words from title match a recently posted title."""
+    """Check if 3+ significant words from title match a recently posted title.
+    
+    Uses a TWO-LEVEL check:
+    - Level 1: 3+ significant words overlap → DUPLICATE
+    - Level 2: 2+ CORE words (brand + model/event) overlap → DUPLICATE
+    
+    This catches both obvious and subtle duplicates like:
+    - "BMW X5 получил новый двигатель" vs "Новый мотор для BMW X5"
+    - "Tesla отзывает 10000 машин" vs "Tesla начала отзывную кампанию"
+    """
     global _recent_post_keywords
 
     # Extract significant words from the new title
     words = re.findall(r'[a-zа-яё]{3,}', title.lower())
     significant = [w for w in words if w not in _SEMANTIC_STOP_WORDS]
 
-    if len(significant) < 3:
+    if len(significant) < 2:
         return False
 
+    # Extract core words (brands, models, events) for Level 2 check
+    core_words = _extract_core_words_from_title(title)
+
     for recent_words in _recent_post_keywords:
+        # Level 1: 3+ significant words overlap
         matches = sum(1 for w in significant if w in recent_words)
         if matches >= 3:
             return True
+        
+        # Level 2: 2+ core words overlap (brand + model/event)
+        if len(core_words) >= 2:
+            recent_core = [w for w in recent_words if w in _ALL_CORE_WORDS_SET]
+            core_matches = sum(1 for w in core_words if w in recent_core)
+            if core_matches >= 2:
+                return True
 
     return False
+
+
+def _extract_core_words_from_title(title: str) -> list:
+    """Extract core identity words (brands, models, key events) from a title."""
+    title_lower = title.lower()
+    core = []
+    
+    # Car brands
+    _core_brands = [
+        "bmw", "mercedes", "audi", "toyota", "honda", "nissan", "hyundai", "kia",
+        "ford", "chevrolet", "porsche", "lexus", "volvo", "tesla", "byd", "zeekr",
+        "chery", "haval", "geely", "changan", "exeed", "tank", "renault", "peugeot",
+        "skoda", "subaru", "suzuki", "mitsubishi", "jaguar", "infiniti", "genesis",
+        "ferrari", "lamborghini", "maserati", "bentley", "rolls-royce", "bugatti",
+        "mclaren", "lotus", "fiat", "citroen", "mini", "jeep", "rivian", "lucid",
+        "polestar", "aston martin", "alfa romeo",
+        # Russian aliases
+        "бмв", "мерседес", "фольксваген", "тойота", "хёндай", "киа", "порше",
+        "шкода", "джили", "чери", "хавал", "тесла",
+    ]
+    for brand in _core_brands:
+        if brand in title_lower:
+            core.append(brand)
+            break
+    
+    # Model names
+    model_patterns = [
+        r'\b([mglxqsec]\d+)\b',
+        r'\b(model\s?[s3xy])\b',
+        r'\b(\d{3,4}[ix]?)\b',
+        r'\b(corolla|camry|civic|accord|mustang|camaro|corvette|prius|rav4|supra)\b',
+        r'\b(taycan|macan|cayenne|panamera|wrangler|bronco|defender)\b',
+    ]
+    for pattern in model_patterns:
+        match = re.search(pattern, title_lower)
+        if match:
+            core.append(match.group(1).replace(" ", "_"))
+            break
+    
+    # Key events
+    event_words = [
+        "reveal", "launch", "debut", "unveil", "release", "announce",
+        "recall", "recalls", "отзыв", "ban", "запрет", "record", "рекорд",
+        "crash", "авария", "merger", "слияни", "bankruptcy", "банкрот",
+        "redesign", "рестайлинг", "facelift", "update", "обновлен",
+        "премьера", "запуск", "дебют", "анонс", "представлен", "выпуск",
+        "скандал", "scandal", "проблем", "sold", "продан", "продаж", "цена", "price",
+    ]
+    for ew in event_words:
+        if ew in title_lower:
+            core.append(ew)
+            break
+    
+    return core
+
+
+# Pre-computed set of all core words for fast membership checking
+_ALL_CORE_WORDS_SET = set()
+for _b in ["bmw", "mercedes", "audi", "toyota", "honda", "nissan", "hyundai", "kia",
+           "ford", "chevrolet", "porsche", "lexus", "volvo", "tesla", "byd", "zeekr",
+           "chery", "haval", "geely", "changan", "exeed", "tank", "renault", "peugeot",
+           "skoda", "subaru", "suzuki", "mitsubishi", "jaguar", "infiniti", "genesis",
+           "ferrari", "lamborghini", "maserati", "bentley", "rolls-royce", "bugatti",
+           "mclaren", "lotus", "fiat", "citroen", "mini", "jeep", "rivian", "lucid",
+           "polestar", "бмв", "мерседес", "тойота", "хёндай", "киа", "порше", "шкода",
+           "тесла", "джили", "чери", "хавал",
+           "reveal", "launch", "debut", "unveil", "release", "announce",
+           "recall", "recalls", "отзыв", "запрет", "record", "рекорд",
+           "авария", "слияни", "банкрот", "рестайлинг", "facelift",
+           "премьера", "запуск", "дебют", "анонс", "представлен", "выпуск",
+           "скандал", "scandal", "проблем", "продаж", "цена",
+           "x5", "x3", "x7", "m3", "m5", "q7", "a4", "a6", "e-class",
+           "911", "model", "corolla", "camry", "civic", "mustang", "supra",
+           "taycan", "macan", "cayenne", "wrangler", "bronco", "defender",
+           "prius", "rav4"]:
+    _ALL_CORE_WORDS_SET.add(_b)
 
 
 def _record_post_title(title: str):
@@ -469,6 +567,7 @@ class ChannelManager:
         self._last_poll_time: float = 0
         self._poll_count: int = 0
         self._post_model_index: int = 0  # For rotating content models
+        self._semantic_loaded: bool = False  # Track if we loaded recent post keywords from DB
 
     # Content models rotation — each post uses a different model for variety
     # NOTE: openai-fast removed — it always returns empty responses for content generation
@@ -481,6 +580,24 @@ class ChannelManager:
     def set_bot(self, bot: Bot) -> None:
         """Set the bot instance for sending messages."""
         self._bot = bot
+
+    async def load_recent_semantic_data(self) -> None:
+        """Load recently posted titles from DB into in-memory semantic dedup.
+        
+        This ensures that after a restart, the bot knows what was recently posted
+        and won't re-post the same topics. Called once at startup.
+        """
+        if self._semantic_loaded:
+            return
+        
+        try:
+            titles = await get_recent_post_titles(hours=72, limit=50)
+            for title in titles:
+                _record_post_title(title)
+            self._semantic_loaded = True
+            logger.info(f"Loaded {len(titles)} recent post titles into semantic dedup")
+        except Exception as e:
+            logger.warning(f"Could not load recent post titles for semantic dedup: {e}")
 
     async def _add_reaction(self, chat_id, message_id: int) -> None:
         """Add a reaction to a post from the channel account."""
@@ -1007,11 +1124,45 @@ class ChannelManager:
 
         # ── DEDUPLICATION LAYER 1: DB-level dedup (title hash, keyword overlap) ──
         if news_item and news_item.get("title"):
+            # Check with extended 72h window — same topic should not reappear within 3 days
             if await is_duplicate_post(news_item["title"], hours=72):
                 logger.warning(f"DB DUPLICATE blocked: {news_item['title'][:60]}")
                 if news_item.get("url"):
                     await mark_news_posted(news_item["url"])
                 return False
+
+            # ── DEDUPLICATION LAYER 1.5: Direct channel_posts check ──
+            # Check the actual posted content in the channel — this catches cases where
+            # AI rephrased the title significantly but it's the same event
+            try:
+                async with aiosqlite.connect(DB_PATH) as db:
+                    cutoff = time.time() - (72 * 3600)  # 72h window
+                    async with db.execute(
+                        "SELECT content FROM channel_posts WHERE created_at >= ? AND post_type = 'news' ORDER BY created_at DESC LIMIT 30",
+                        (cutoff,),
+                    ) as cursor:
+                        rows = await cursor.fetchall()
+                        for row in rows:
+                            content = row[0] if row else ""
+                            if not content:
+                                continue
+                            # Extract first line (title) from content
+                            first_line = content.split('\n')[0].strip()
+                            if not first_line:
+                                continue
+                            # Check core word overlap with the first line of posted content
+                            from bot.database import _extract_core_words
+                            posted_core = _extract_core_words(first_line)
+                            new_core = _extract_core_words(news_item["title"])
+                            if len(posted_core) >= 2 and len(new_core) >= 2:
+                                overlap = posted_core & new_core
+                                if len(overlap) >= 2:
+                                    logger.warning(f"CHANNEL DEDUP blocked (core words match: {overlap}): {news_item['title'][:60]}")
+                                    if news_item.get("url"):
+                                        await mark_news_posted(news_item["url"])
+                                    return False
+            except Exception as e:
+                logger.debug(f"Channel posts dedup check failed: {e}")
 
             # ── DEDUPLICATION LAYER 2: In-memory semantic dedup ──
             if _is_semantically_duplicate(news_item["title"]):

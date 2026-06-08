@@ -27,7 +27,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import config
-from bot.database import init_db, cleanup_old_fingerprints, add_chat_message
+from bot.database import init_db, cleanup_old_fingerprints, add_chat_message, load_topic_registry
 from bot.partners import partner_manager
 from ai.router import ai_router
 from news import run_news_cycle
@@ -327,6 +327,21 @@ async def main():
     await init_db()
     logger.info("Database initialized")
 
+    # Load topic registry from DB — CRITICAL for dedup after restart
+    # Without this, the bot re-posts the same topics after every restart
+    try:
+        from bot.content_engine import _topic_registry, _register_topic, _is_topic_covered
+        loaded_registry = await load_topic_registry()
+        if loaded_registry:
+            # Import the content_engine module to set its global registry
+            import bot.content_engine as ce
+            ce._topic_registry = loaded_registry
+            logger.info(f"Topic registry loaded: {len(loaded_registry)} topics from DB (dedup active)")
+        else:
+            logger.info("Topic registry empty — first run or all topics expired")
+    except Exception as e:
+        logger.warning(f"Could not load topic registry from DB: {e}")
+
     # Initialize AI router
     await ai_router.initialize()
     logger.info("AI Router initialized")
@@ -340,6 +355,12 @@ async def main():
 
     # Set bot on channel manager
     channel_manager.set_bot(bot)
+
+    # Load recently posted titles into semantic dedup (prevents duplicates after restart)
+    try:
+        await channel_manager.load_recent_semantic_data()
+    except Exception as e:
+        logger.warning(f"Could not load semantic dedup data: {e}")
 
     # Set up dispatcher
     storage = MemoryStorage()
