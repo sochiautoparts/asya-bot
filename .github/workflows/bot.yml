@@ -1,8 +1,8 @@
-name: Asya Bot — POLLINATIONS-ONLY v6
+name: Asya Bot — POLLINATIONS-ONLY v7
 
 on:
   schedule:
-    - cron: '0 0,5,10,15,20 * * *'   # Every 5 hours
+    - cron: '0 */5 * * *'      # Every 5 hours
   workflow_dispatch:                     # Manual trigger
 
 concurrency:
@@ -29,6 +29,10 @@ env:
   LOG_LEVEL: INFO
   # Local model — DISABLED (Pollinations-only mode, restorable)
   ENABLE_LOCAL_MODEL: "false"
+  # Schedule settings
+  NEWS_INTERVAL_MINUTES: "30"
+  CHANNEL_POST_INTERVAL_MINUTES: "30"
+  PARTNER_POST_INTERVAL_HOURS: "4"
 
 jobs:
   run-bot:
@@ -87,7 +91,7 @@ jobs:
 
       - name: Run Asya Bot with auto-restart
         run: |
-          echo "=== Starting Asya Bot v6.0 POLLINATIONS-ONLY ==="
+          echo "=== Starting Asya Bot v7.0 POLLINATIONS-ONLY ==="
           echo "ALL ROUTES: Pollinations.ai (61 models, dual-key failover)"
           echo "CHAT: Pollinations → Static fallback"
           echo "FUNCTION (posts, VIN, diagnostics): Pollinations → Static fallback"
@@ -95,6 +99,8 @@ jobs:
           echo "VISION: Pollinations vision models"
           echo "CONTENT ENGINE: Web-search-first, RSS fallback, AI topic selection"
           echo "STRATEGY: Pollinations-only, dual-key=KEY1+KEY2, circuit-break=5min"
+          echo "SCHEDULE: 30 min intervals, 2 posts/cycle + partner posts"
+          echo "NEW: Editorial jokes, translation/uniquification, improved image pipeline"
           echo ""
 
           MAX_RESTARTS=10

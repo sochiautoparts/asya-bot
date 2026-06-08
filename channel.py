@@ -37,7 +37,7 @@ from bot.web_search import web_search, search_news, SearchResult
 from bot.content_engine import (
     get_best_news_item, enrich_with_search_images, get_date_context,
     _is_topic_covered, _extract_entities, _score_interest,
-    _register_topic,
+    _register_topic, get_editorial_aside, get_translation_uniquification_hint,
 )
 # Channel scanner removed — unreliable from GitHub Actions IPs (403/429).
 # DB fingerprint + semantic dedup are sufficient.
@@ -535,8 +535,8 @@ class ChannelManager:
                     content = response.content
                     content_type = response.headers.get("content-type", "")
 
-                    # Validate: must be an image and at least 5KB (lowered from 20KB for news images)
-                    if len(content) < 5000:
+                    # Validate: must be an image and at least 3KB (lowered for news images)
+                    if len(content) < 3000:
                         logger.debug(f"Skipping small image ({len(content)} bytes): {url[:80]}")
                         continue
 
@@ -616,13 +616,13 @@ class ChannelManager:
         """Validate that image data represents a proper content photo, not a banner/ad/logo.
         
         Checks:
-        - Minimum size: 5KB (hard filter before this function)
-        - Minimum dimensions: 600x400px (raised from 200x150 to filter out thumbnails)
+        - Minimum size: 3KB (hard filter before this function)
+        - Minimum dimensions: 400x300px (lowered for news images that can be smaller)
         - Maximum aspect ratio: 3:1 (skip wide banners) and 1:3 (skip tall skyscraper ads)
-        - Minimum pixel area: 240000px (600*400 — skip small thumbnails even if file is big)
+        - Minimum pixel area: 120000px (400*300 — skip small thumbnails even if file is big)
         """
-        # Minimum size — nothing under 5KB is a content image
-        if len(image_data) < 5000:
+        # Minimum size — nothing under 3KB is a content image
+        if len(image_data) < 3000:
             return False
 
         try:
@@ -633,8 +633,8 @@ class ChannelManager:
             width, height = img.size
 
             # Skip small images (icons, thumbnails, tiny previews)
-            # Raised from 200x150 to 600x400 — thumbnails are not content photos
-            if width < 600 or height < 400:
+            # Lowered from 600x400 to 400x300 — news images can be smaller
+            if width < 400 or height < 300:
                 return False
 
             # Skip extremely wide images (banners, ad strips)
@@ -645,9 +645,9 @@ class ChannelManager:
             if height / max(width, 1) > 3.0:
                 return False
 
-            # Skip small area images (likely icons/buttons/thumbnails even if > 5KB)
-            # 240000 = 600*400 — raised from 50000 to properly filter thumbnails
-            if width * height < 240000:
+            # Skip small area images (likely icons/buttons/thumbnails even if > 3KB)
+            # 120000 = 400*300 — lowered from 240000 to accept more news images
+            if width * height < 120000:
                 return False
 
             return True
@@ -1053,6 +1053,22 @@ class ChannelManager:
         )
         # Channel context removed — was causing AI to discuss editorial decisions
         # in the post text instead of just picking a different topic.
+
+        # ── Translation & uniquification hint based on language ──
+        news_lang = news_item.get("lang", "ru")
+        translation_hint = get_translation_uniquification_hint(news_lang)
+        if translation_hint:
+            extra_instructions += f"\n{translation_hint}\n"
+
+        # ── Editorial aside / joke — adds personality ──
+        editorial_aside = get_editorial_aside()
+        if editorial_aside:
+            extra_instructions += (
+                f"\nРЕДАКЦИОННАЯ ШУТКА (вставь её органично в текст, если уместно): "
+                f"«{editorial_aside}»\n"
+                "Не вставляй насильно — только если это естественно вписывается в текст.\n"
+            )
+
         if news_item.get("lang") and news_item.get("lang") != "ru":
             extra_instructions += (
                 "Это новость из зарубежного источника. "

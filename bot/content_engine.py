@@ -539,6 +539,33 @@ _SEARCH_QUERIES_ROTATION = [
     "automotive recall safety alert {year}",
     "car warranty extended warranty news",
     "automotive design award {year}",
+    # ── NEW: auto shows & events ──
+    "Geneva Motor Show {year} reveals debuts",
+    "Goodwood Festival of Speed {year} highlights",
+    "Pebble Beach Concours d'Elegance {year}",
+    "Tokyo Motor Show {year} Japanese reveals",
+    "Shanghai Auto Show {year} Chinese cars",
+    "IAA Mobility Munich {year} news",
+    "SEMA Show {year} tuning custom cars",
+    # ── NEW: car culture & lifestyle ──
+    "celebrity cars famous people vehicles {year}",
+    "movie cars iconic vehicles cinema",
+    "most reliable cars ranking {year}",
+    "worst cars ever made automotive failures",
+    "future cars concept cars {year}",
+    "hydrogen fuel cell vehicle news {year}",
+    "car auction record sale {year} Barrett-Jackson RM Sotheby",
+    "classic car restoration stories {year}",
+    "automotive myths debunked car facts",
+    "road trip adventures best driving routes {year}",
+    "car gadgets accessories new products {year}",
+    "unusual vehicles weird cars world",
+    # ── NEW: industry deep dives ──
+    "car manufacturing factory production news {year}",
+    "automotive supply chain semiconductors chips {year}",
+    "car subscription services news {year}",
+    "ride sharing mobility news {year}",
+    "car insurance industry trends {year}",
     # ── Russian-language queries: diverse & fun topics ──
     "автомобильные рекорды Гиннесс {year}",
     "самые дорогие автомобили аукцион {year}",
@@ -555,6 +582,30 @@ _SEARCH_QUERIES_ROTATION = [
     "как не обмануть в автосервисе {year}",
     "подготовка авто к зиме лету советы",
     "автомобильные приложения полезные {year}",
+    # ── NEW: events & shows ──
+    "автосалон женева {year} новости премьеры",
+    "мотор-шоу {year} новинки концепты",
+    "Pebble Beach Concours {year} результаты",
+    "Goodwood Festival of Speed {year}",
+    "IAA Mobility {year} автомобильная выставка",
+    "Токио автосалон {year} японские новинки",
+    "Шанхай автосалон {year} китайские премьеры",
+    # ── NEW: interesting cases & culture ──
+    "автомобильные рекорды скорости {year}",
+    "самые необычные автомобили мира",
+    "винтажные автомобили аукцион рекорды {year}",
+    "знаменитости и их автомобили {year}",
+    "автомобили в кино известные машины",
+    "самые надёжные автомобили рейтинг {year}",
+    "автомобильные провалы неудачные модели",
+    "история автомобильных брендов компании",
+    "автомобили будущего концепт кары {year}",
+    "экологические автомобили водород {year}",
+    # ── NEW: Russian market specifics ──
+    "продажи автомобилей Россия {year} статистика",
+    "китайские авто рейтинг популярность Россия {year}",
+    "автомобильный рынок прогнозы {year}",
+    "новые автосалоны Россия открытие {year}",
 ]
 
 # Track recently used query indices to avoid repetition
@@ -1222,6 +1273,41 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
     # the topic already in the registry — creating a dead loop where posts could never publish.
     
     return best_item
+
+
+def get_editorial_aside() -> str:
+    """Get a random editorial aside/joke for channel posts.
+    
+    Returns a short humorous remark about office life (coffee, pencils, etc.)
+    or an empty string (40% chance of returning empty for variety).
+    """
+    if random.random() < 0.4:
+        # 40% chance of no aside — keeps content varied
+        return ""
+    return random.choice(persona.editorial_asides)
+
+
+def get_translation_uniquification_hint(lang: str) -> str:
+    """Get a hint for the AI about translating/uniquifying content.
+    
+    For English-language news, instructs AI to translate and rewrite in its own words.
+    For Russian news, reminds AI to still rewrite uniquely.
+    """
+    if lang == "en":
+        return (
+            "ВНИМАНИЕ: Исходная новость на АНГЛИЙСКОМ. "
+            "ПЕРЕВЕДИ на русский и ОБЯЗАТЕЛЬНО ПЕРЕСКАЗЫВАЙ СВОИМИ СЛОВАМИ. "
+            "Добавь мнение редакции, экспертный комментарий или сравнение. "
+            "Пост НЕ ДОЛЖЕН быть дословным переводом — это должен быть УНИКАЛЬНЫЙ "
+            "авторский текст редакции @sochiautoparts. "
+            "Упомяни что 'зарубежные источники сообщают' или 'по данным иностранных СМИ' — "
+            "это покажет что новость международная."
+        )
+    return (
+        "Перескажи новость СВОИМИ словами — добавь мнение редакции, "
+        "экспертный комментарий или живую эмоцию. "
+        "Пост должен быть уникальным авторским текстом."
+    )
 
 
 async def enrich_with_search_images(news_item: Dict) -> List[str]:
