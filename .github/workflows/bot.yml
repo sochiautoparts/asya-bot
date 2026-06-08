@@ -78,7 +78,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: asya_bot.db
-          key: asya-bot-db-v5
+          key: asya-bot-db-v6
           restore-keys: |
             asya-bot-db-
 
