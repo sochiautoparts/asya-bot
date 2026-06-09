@@ -843,6 +843,7 @@ class ChannelManager:
     async def _generate_post_images(self, news_title: str, count: int = 1) -> List[bytes]:
         """Generate multiple images for a news post using AI (fallback).
         Returns list of image data bytes, up to `count` images.
+        Tries multiple models (flux, flux-pro) for reliability.
         """
         images = []
         # Different prompts for variety
@@ -860,13 +861,19 @@ class ChannelManager:
         ]
         selected_prompts = prompts[:min(count, len(prompts))]
 
+        # Try multiple image models for reliability
+        _IMAGE_MODELS = ["flux", "flux-pro", "flux-realism"]
+
         for i, prompt in enumerate(selected_prompts):
-            try:
-                image_data = await ai_router._primary.generate_image(prompt, model="flux")
-                if image_data:
-                    images.append(image_data)
-            except Exception as e:
-                logger.error(f"Image generation #{i+1} failed: {e}")
+            for img_model in _IMAGE_MODELS:
+                try:
+                    image_data = await ai_router._primary.generate_image(prompt, model=img_model)
+                    if image_data:
+                        images.append(image_data)
+                        break  # Got image, no need to try next model
+                except Exception as e:
+                    logger.debug(f"Image generation #{i+1} with model {img_model} failed: {e}")
+                    continue
 
         logger.info(f"Generated {len(images)}/{count} AI images for post")
         return images
@@ -940,7 +947,8 @@ class ChannelManager:
             except Exception as e:
                 logger.debug(f"Web search image enrichment skipped: {e}")
         
-        # Strategy 4: AI generation as fallback (1 image only — no spam!)
+        # Strategy 4: AI generation as fallback — MANDATORY: every post must have an image!
+        # Try harder with multiple prompts and models to ensure we get at least one image.
         if not image_list:
             try:
                 image_list = await self._generate_post_images(
@@ -949,6 +957,28 @@ class ChannelManager:
                 if image_list:
                     source = "ai"
                     logger.info(f"Generated {len(image_list)} AI images (no real images found)")
+                else:
+                    # All specific prompts failed — try a generic automotive prompt
+                    generic_prompts = [
+                        "Beautiful modern car on a scenic road, professional automotive photography, golden hour, no text.",
+                        "Sleek car in urban setting, dramatic lighting, magazine cover quality, no text.",
+                        "Sports car close-up, headlight detail, moody lighting, professional photo, no text.",
+                    ]
+                    for gprompt in generic_prompts:
+                        for img_model in ["flux", "flux-pro", "flux-realism"]:
+                            try:
+                                img_data = await ai_router._primary.generate_image(gprompt, model=img_model)
+                                if img_data:
+                                    image_list = [img_data]
+                                    source = "ai-generic"
+                                    logger.info(f"Generated generic AI image with model {img_model}")
+                                    break
+                            except Exception:
+                                continue
+                        if image_list:
+                            break
+                    if not image_list:
+                        logger.warning("ALL image generation strategies failed — post may be blocked")
             except Exception as e:
                 logger.warning(f"AI image generation skipped: {e}")
         
@@ -1201,8 +1231,10 @@ class ChannelManager:
             "7. НЕ ДОБАВЛЯЙ никаких редакционных заметок, пометок, внутренних комментариев, "
             "обсуждений темы, пояснений почему тема подходит или не подходит. "
             "ТОЛЬКО чистый текст поста для читателей канала.\n"
-            "8. БУДЬ КОМПАКТЕН: 400-800 символов — оптимально. До 1000 если есть что сказать. "
-            "НЕ раздувай текст водой — каждый абзац несёт смысл. "
+            "8. БУДЬ КОМПАКТЕН: 300-700 символов — оптимально. Пост ОБЯЗАТЕЛЬНО публикуется с фото, "
+            "а Telegram ограничивает подпись к фото 1024 символами. "
+            "Если текст длиннее 1024 — пост теряет фото и становится скучным текстом! "
+            "Уложись в 950 символов включая подпись. "
             "МАКСИМУМ ОДИН персонаж редакции за пост — не перечисляй всех!\n"
         )
         # Channel context removed — was causing AI to discuss editorial decisions
@@ -1316,23 +1348,85 @@ class ChannelManager:
         # Post-gen checks were redundant and caused false blocks when AI rewrote
         # the same news differently (which is the desired behavior).
 
-        # ── SMART MEDIA DECISION: keep full text for valuable posts ──
-        # If post text is long and valuable (>1024 chars), publish WITHOUT media
-        # to use the 4096-char text-only limit instead of the 1024-char caption limit.
-        # This ensures editorial content is never truncated.
-        # Short posts (<1024 chars) get media normally.
+        # ── SMART MEDIA DECISION: posts WITH media are MANDATORY ──
+        # Posts without photos are ONLY allowed when the Telegram caption limit (1024 chars)
+        # cannot fit the interesting content and more characters are needed (up to 4096).
+        # This ensures every post is visually rich — text-only is a LAST RESORT.
         _CAPTION_LIMIT = config.TELEGRAM_CAPTION_LIMIT  # 1024
         _TEXT_LIMIT = config.TELEGRAM_TEXT_LIMIT  # 4096
 
-        if has_media and len(post_text) > _CAPTION_LIMIT:
-            # Post is too long for caption — check if it's worth keeping full text
-            # Always prefer full text over media — editorial content is king
+        if not has_media and len(post_text) <= _CAPTION_LIMIT:
+            # No images AND text fits in caption — MANDATORY: must have an image!
+            # Try one more time with AI generation as last resort
+            logger.warning(
+                f"Post has NO media and text is only {len(post_text)} chars (fits in caption). "
+                f"Attempting LAST-RESORT AI image generation to avoid text-only post."
+            )
+            try:
+                last_resort_images = await self._generate_post_images(
+                    news_item.get("title", ""), count=1
+                )
+                if last_resort_images:
+                    image_list = last_resort_images
+                    has_media = True
+                    logger.info(f"Last-resort AI image generation SUCCEEDED — post will have media")
+                else:
+                    # Still no image — try a simplified generic prompt
+                    generic_prompt = (
+                        "Car on a road, professional automotive photography, "
+                        "vibrant colors, dramatic lighting, high quality, no text."
+                    )
+                    for img_model in ["flux", "flux-pro", "flux-realism"]:
+                        try:
+                            img_data = await ai_router._primary.generate_image(generic_prompt, model=img_model)
+                            if img_data:
+                                image_list = [img_data]
+                                has_media = True
+                                logger.info(f"Generic AI image generation SUCCEEDED with model {img_model}")
+                                break
+                        except Exception:
+                            continue
+            except Exception as e:
+                logger.warning(f"Last-resort image generation failed: {e}")
+
+            if not has_media:
+                # ABSOLUTE LAST RESORT: still no image — SKIP this post entirely
+                # rather than posting a boring text-only post
+                logger.error(
+                    f"POST BLOCKED: No images available and text ({len(post_text)} chars) "
+                    f"fits in caption limit. Text-only posts are NOT allowed for short content. "
+                    f"Skipping this post to keep channel visually rich."
+                )
+                return False
+
+        elif has_media and len(post_text) > _CAPTION_LIMIT:
+            # Post has media but text exceeds caption limit
+            # Try to COMPRESS text to fit caption before dropping media
+            # Media is MORE IMPORTANT than extra text — visual posts get more engagement
             logger.info(
                 f"Post text {len(post_text)} chars > caption limit {_CAPTION_LIMIT}. "
-                f"Publishing WITHOUT media to preserve full text (limit {_TEXT_LIMIT})."
+                f"Attempting to compress text to preserve media attachment."
             )
-            has_media = False
-            image_list = []
+            
+            # Try to truncate content (preserve footer) to fit in caption
+            compressed = _enforce_char_limit(post_text, has_media=True)
+            if len(compressed) <= _CAPTION_LIMIT and len(compressed) >= 200:
+                # Successfully compressed to fit with media — keep media!
+                post_text = compressed
+                logger.info(
+                    f"Text compressed from {len(post_text)} to {len(compressed)} chars — "
+                    f"keeping media attachment."
+                )
+            else:
+                # Text is genuinely too long to compress meaningfully
+                # Only now allow text-only post — content is too valuable to truncate
+                logger.info(
+                    f"Text cannot be compressed enough ({len(post_text)} chars). "
+                    f"Publishing WITHOUT media to preserve full text (limit {_TEXT_LIMIT}). "
+                    f"Text-only is justified because content requires more space than caption allows."
+                )
+                has_media = False
+                image_list = []
 
         # Smart character limit enforcement — always preserve footer
         post_text = _enforce_char_limit(post_text, has_media)
@@ -1705,15 +1799,48 @@ class ChannelManager:
         if not _validate_post_text_partner(post_content):
             return False
 
-        # ── SMART MEDIA DECISION: keep full text for partner posts too ──
-        # If partner post text > 1024 chars, publish without media to preserve text
-        if has_media and len(post_content) > config.TELEGRAM_CAPTION_LIMIT:
-            logger.info(
-                f"Partner post {len(post_content)} chars > caption limit. "
-                f"Publishing WITHOUT media to preserve full text."
+        # ── SMART MEDIA DECISION: partner posts also need media ──
+        # Same rule as news posts: text-only ONLY when text > caption limit
+        # and content cannot be compressed to fit.
+        if not has_media and len(post_content) <= config.TELEGRAM_CAPTION_LIMIT:
+            # Short text but no image — try to generate one
+            logger.warning(
+                f"Partner post has NO media and text is only {len(post_content)} chars. "
+                f"Attempting AI image generation to avoid text-only post."
             )
-            has_media = False
-            partner_image_data = None
+            try:
+                ai_image = await self._generate_post_image(f"{program.name} automotive service logo")
+                if ai_image:
+                    partner_image_data = ai_image
+                    has_media = True
+                    logger.info("Generated AI image for partner post — avoiding text-only")
+            except Exception as e:
+                logger.warning(f"Partner AI image generation failed: {e}")
+
+            if not has_media:
+                # No image available and text fits in caption — BLOCK text-only post
+                logger.error(
+                    f"PARTNER POST BLOCKED: No image and text ({len(post_content)} chars) "
+                    f"fits in caption. Text-only partner posts are NOT allowed."
+                )
+                return False
+
+        elif has_media and len(post_content) > config.TELEGRAM_CAPTION_LIMIT:
+            # Text too long for caption — try to compress first, keep media
+            compressed = _enforce_char_limit(post_content, has_media=True)
+            if len(compressed) <= config.TELEGRAM_CAPTION_LIMIT and len(compressed) >= 200:
+                post_content = compressed
+                logger.info(
+                    f"Partner text compressed to {len(compressed)} chars — keeping media."
+                )
+            else:
+                # Genuinely long content — allow text-only as last resort
+                logger.info(
+                    f"Partner post {len(post_content)} chars > caption limit. "
+                    f"Publishing WITHOUT media to preserve full text."
+                )
+                has_media = False
+                partner_image_data = None
 
         # Smart character limit — always preserve footer
         post_content = _enforce_char_limit(post_content, has_media)
