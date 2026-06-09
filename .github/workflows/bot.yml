@@ -1,4 +1,4 @@
-name: Asya Bot — POLLINATIONS-ONLY v7
+name: Asya Bot — POLLINATIONS-ONLY v8 — Ася + Редакция
 
 on:
   schedule:
@@ -78,7 +78,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: asya_bot.db
-          key: asya-bot-db-v6
+          key: asya-bot-db-v7
           restore-keys: |
             asya-bot-db-
 
@@ -91,8 +91,12 @@ jobs:
 
       - name: Run Asya Bot with auto-restart
         run: |
-          echo "=== Starting Asya Bot v7.0 POLLINATIONS-ONLY ==="
+          echo "=== Starting Asya Bot v8.0 — Ася + Редакция ==="
           echo "ALL ROUTES: Pollinations.ai (61 models, dual-key failover)"
+          echo "EDITORIAL TEAM: Ася + Лёха + Димон + Марина + Кеша(попугай) + Сеньор Помидор(кот)"
+          echo "CONTENT: RSS-first (22+ sources), Google News RSS, Reddit, AI Discovery"
+          echo "AUDIENCE: Global (RU/KZ/DE/IL/CY), not just Moscow"
+          echo "FORMATS: 16 content types for 24/7 diverse schedule"
           echo "CHAT: Pollinations → Static fallback"
           echo "FUNCTION (posts, VIN, diagnostics): Pollinations → Static fallback"
           echo "COMMENT: Pollinations (fast models) → Static fallback"

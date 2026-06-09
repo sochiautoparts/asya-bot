@@ -32,6 +32,7 @@ import asyncio
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from urllib.parse import quote_plus
 
 import httpx
 
@@ -40,6 +41,26 @@ from ai.router import ai_router
 from bot.web_search import web_search, search_news, search_google_news_rss
 
 logger = logging.getLogger("asya.content_engine")
+
+# ── Content Format Types for 24/7 schedule ─────────────────────────────────────
+CONTENT_FORMATS = {
+    "world_news": {"emoji": "🌍", "name": "Мировая новость", "priority": 1},
+    "russian_news": {"emoji": "📰", "name": "Российская новость", "priority": 1},
+    "part_of_day": {"emoji": "🔧", "name": "Запчасть дня", "priority": 2},
+    "tech_fact": {"emoji": "🧠", "name": "Знаете ли вы?", "priority": 2},
+    "global_poll": {"emoji": "💬", "name": "Глобальный опрос", "priority": 2},
+    "asya_drive": {"emoji": "🏎️", "name": "Драйв Аси", "priority": 3},
+    "garage_story": {"emoji": "🏠", "name": "Гаражная история", "priority": 3},
+    "market_day": {"emoji": "🌐", "name": "Рынок дня", "priority": 3},
+    "auto_lesson": {"emoji": "🎓", "name": "Автоурок", "priority": 3},
+    "espresso": {"emoji": "☕", "name": "Эспрессо с Асей", "priority": 2},
+    "legend": {"emoji": "🌙", "name": "Легенда дорог", "priority": 4},
+    "fact_check": {"emoji": "🔍", "name": "Фактчек", "priority": 3},
+    "night_tip": {"emoji": "🌙", "name": "Ночной совет", "priority": 4},
+    "auto_fact": {"emoji": "🌙", "name": "Автофакт", "priority": 4},
+    "morning_greeting": {"emoji": "☀️", "name": "Доброе утро!", "priority": 1},
+    "editors_life": {"emoji": "😂", "name": "Жизнь редакции", "priority": 4},
+}
 
 # Moscow timezone
 _MOSCOW_TZ = ZoneInfo("Europe/Moscow")
@@ -633,6 +654,33 @@ _SEARCH_QUERIES_ROTATION = [
 _recent_query_indices: list = []
 _MAX_RECENT_QUERIES = 10  # Track more queries to avoid repetition with larger pool
 
+# ── Google News RSS queries for global coverage ────────────────────────────────
+_GOOGLE_NEWS_RSS_QUERIES = [
+    # Russian queries
+    ("автомобили новости", "ru", "RU"),
+    ("автозапчасти рынок", "ru", "RU"),
+    ("китайские автомобили экспорт", "ru", "RU"),
+    ("электромобили зарядные станции", "ru", "RU"),
+    ("ПДД изменения штрафы", "ru", "RU"),
+    ("автокредит страхование ОСАГО", "ru", "RU"),
+    # English queries
+    ("automotive industry news", "en", "US"),
+    ("electric vehicles 2025", "en", "US"),
+    ("autonomous driving self driving", "en", "US"),
+    ("car recalls safety", "en", "US"),
+    ("auto shows 2025", "en", "US"),
+    ("hydrogen fuel cell vehicle", "en", "US"),
+    ("EV battery technology solid state", "en", "US"),
+    ("supply chain automotive chips", "en", "US"),
+    ("used car market prices", "en", "US"),
+    ("Chinese cars global expansion", "en", "US"),
+    ("car sales market report", "en", "US"),
+    # German queries
+    ("Auto Nachrichten Elektroauto", "de", "DE"),
+    # Japanese queries
+    ("car news Japan automotive", "en", "JP"),
+]
+
 
 def _get_search_query() -> str:
     """Get a search query avoiding recent repetition."""
@@ -913,7 +961,33 @@ async def search_auto_news() -> List[Dict]:
                 })
         except Exception as e:
             logger.error(f"Web search for auto news failed (query: {query}): {e}")
-    
+
+    # ── Phase 1.5: Google News RSS for broad coverage ──
+    logger.info("Phase 1.5: Google News RSS for global coverage")
+    try:
+        # Pick 2 random queries from the Google News RSS list
+        gn_queries = random.sample(_GOOGLE_NEWS_RSS_QUERIES, min(2, len(_GOOGLE_NEWS_RSS_QUERIES)))
+        for query, lang, gl in gn_queries:
+            gn_results = await search_google_news_rss(query, max_results=5)
+            for result in gn_results:
+                if result.url in seen_urls:
+                    continue
+                seen_urls.add(result.url)
+                is_russian = any('\u0400' <= c <= '\u04FF' for c in result.title)
+                items.append({
+                    "source": f"google_news_{lang}",
+                    "title": result.title,
+                    "url": result.url,
+                    "summary": result.snippet[:500] if result.snippet else "",
+                    "published": time.time(),
+                    "published_time": time.time(),
+                    "category": "auto",
+                    "lang": "ru" if is_russian else lang,
+                    "image_urls": [],
+                })
+    except Exception as e:
+        logger.debug(f"Google News RSS phase failed: {e}")
+
     logger.info(f"Search found {len(items)} auto news items (Google News + web search)")
     return items
 
@@ -1335,24 +1409,83 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
     return best_item
 
 
+def get_editorial_team_comment() -> str:
+    """Get a random dialogue/comment from the editorial team characters.
+    
+    Returns a random quote from one of the editorial team members:
+    Ася, Лёха, Димон, Марина, Кеша (попугай), Сеньор Помидор (кот).
+    """
+    team_comments = [
+        # Ася
+        "Я на своей Quadrifoglio уже на третьем комплекте колодок за год — но я и не медленно езжу",
+        "Звук V6 лечит головную боль. Научных подтверждений нет, но редакция верит",
+        # Лёха
+        "Оригинал? Это тот же Lemförder с логотипом за двойную цену. Я такие сказки каждый день слышу",
+        "Если стук не усиливается — это не проблема, это особенность. Мы не согласны, но спорить боимся",
+        # Димон
+        "Вы видели новый 800V архитектуру Hyundai? Это будущее! Хотя… розетки-то где?",
+        "Димон предлагает внедрить AI в диагностику. Лёха предлагает внедрить кувалду. Оба метода одинаково эффективны",
+        # Марина
+        "Марина посчитала стоимость владения и ушла плакать. Вернулась с купоном на Росско",
+        "Мне всё равно какой 0-100. Мне важно: влезут ли два кресла и коляска",
+        # Кеша (попугай)
+        "Кеша с жёрдочки кричит 'Свободная пресса!'",
+        "Кеша считает что BMW — это разновидность птицы",
+        "Попугай нахохлился и отказался комментировать",
+        "Кеша требует добавить 'кар-кар' в каждый пост",
+        "Кеша переписал заголовок: 'Попугаи тоже умеют водить!'",
+        # Сеньор Помидор (кот)
+        "Сеньор Помидор лёг на клавиатуру — пост прерывается на 'гвфдыаопр'",
+        "Кот редакции внёс правки — удалил половину текста и уснул",
+        "Сеньор Помидор воздержался (спит)",
+    ]
+    return random.choice(team_comments)
+
+
 def get_editorial_aside() -> str:
     """Get a random editorial aside/joke for channel posts.
     
     Returns a short humorous remark about office life (coffee, pencils, etc.)
-    or an empty string (40% chance of returning empty for variety).
+    or a comment from the editorial team characters.
+    40% chance of returning empty for variety.
+    When returning a comment, 50% chance it's from persona asides,
+    50% chance it's from the editorial team.
     """
     if random.random() < 0.4:
         # 40% chance of no aside — keeps content varied
         return ""
-    return random.choice(persona.editorial_asides)
+    # 50/50 split between classic asides and editorial team comments
+    if random.random() < 0.5 and persona.editorial_asides:
+        return random.choice(persona.editorial_asides)
+    return get_editorial_team_comment()
 
 
 def get_translation_uniquification_hint(lang: str) -> str:
     """Get a hint for the AI about translating/uniquifying content.
     
-    For English-language news, instructs AI to translate and rewrite in its own words.
+    Uses a 7-step transformation process to ensure unique, high-quality content:
+    1. Extract facts from source
+    2. Global perspective (how this affects drivers in Russia/Kazakhstan/EU/Middle East)
+    3. Asya's expert opinion
+    4. Editorial team voice (Лёха/Димон/Марина/Кеша comment occasionally)
+    5. Context and world trends
+    6. Audience engagement (ask a question to global audience)
+    7. Editorial joke (random from team)
+    
+    For English-language news, also instructs AI to translate and rewrite in its own words.
     For Russian news, reminds AI to still rewrite uniquely.
     """
+    _7_STEP_PROCESS = (
+        "ПРОЦЕСС ТРАНСФОРМАЦИИ (7 шагов — ОБЯЗАТЕЛЬНО):\n"
+        "Шаг 1: Извлеки факты из источника (марка, модель, цена, характеристики, событие)\n"
+        "Шаг 2: Глобальная перспектива — как это влияет на водителей в России, Казахстане, ЕС, Ближнем Востоке\n"
+        "Шаг 3: Экспертное мнение Аси — её личный взгляд как владелицы Alfa Romeo и автоэксперта\n"
+        "Шаг 4: Голос редакции — иногда добавь комментарий от Лёхи, Димона, Марины или Кеши\n"
+        "Шаг 5: Контекст и мировые тренды — как эта новость вписывается в глобальные тенденции\n"
+        "Шаг 6: Вовлечение аудитории — задай вопрос глобальной аудитории в конце поста\n"
+        "Шаг 7: Шутка от редакции — добавь лёгкий юмор от команды\n"
+    )
+    
     if lang == "en":
         return (
             "ВНИМАНИЕ: Исходная новость на АНГЛИЙСКОМ. "
@@ -1361,12 +1494,14 @@ def get_translation_uniquification_hint(lang: str) -> str:
             "Пост НЕ ДОЛЖЕН быть дословным переводом — это должен быть УНИКАЛЬНЫЙ "
             "авторский текст редакции @sochiautoparts. "
             "Упомяни что 'зарубежные источники сообщают' или 'по данным иностранных СМИ' — "
-            "это покажет что новость международная."
+            "это покажет что новость международная.\n\n"
+            + _7_STEP_PROCESS
         )
     return (
         "Перескажи новость СВОИМИ словами — добавь мнение редакции, "
         "экспертный комментарий или живую эмоцию. "
-        "Пост должен быть уникальным авторским текстом."
+        "Пост должен быть уникальным авторским текстом.\n\n"
+        + _7_STEP_PROCESS
     )
 
 

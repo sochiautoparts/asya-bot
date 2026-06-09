@@ -378,6 +378,105 @@ def is_blocked_topic(item: Dict, lang: str = "ru") -> bool:
     return False
 
 
+# ── Additional global RSS sources ──────────────────────────────────────────────
+GLOBAL_RSS_SOURCES = [
+    # World auto news
+    {"name": "Reuters Auto", "url": "https://www.reuters.com/business/autos-transportation/rss", "lang": "en", "category": "auto"},
+    {"name": "Motor1", "url": "https://www.motor1.com/rss/", "lang": "en", "category": "auto"},
+    {"name": "CarNewsChina", "url": "https://carnewschina.com/feed/", "lang": "en", "category": "auto"},
+    {"name": "Electrek", "url": "https://electrek.co/feed/", "lang": "en", "category": "auto"},
+    {"name": "InsideEVs", "url": "https://insideevs.com/rss/", "lang": "en", "category": "auto"},
+    # Reddit (community stories, mechanic advice, funny car moments)
+    {"name": "Reddit r/cars", "url": "https://www.reddit.com/r/cars/.rss", "lang": "en", "category": "auto"},
+    {"name": "Reddit r/MechanicAdvice", "url": "https://www.reddit.com/r/MechanicAdvice/.rss", "lang": "en", "category": "auto"},
+    {"name": "Reddit r/Justrolledintotheshop", "url": "https://www.reddit.com/r/Justrolledintotheshop/.rss", "lang": "en", "category": "auto"},
+]
+
+
+async def fetch_global_rss_sources() -> List[Dict]:
+    """Fetch news from additional global RSS sources.
+    
+    Returns list of news items with the same format as fetch_rss().
+    """
+    items = []
+    for source_data in GLOBAL_RSS_SOURCES:
+        source = NewsSource(
+            name=source_data["name"],
+            url=source_data["url"],
+            lang=source_data.get("lang", "en"),
+            category=source_data.get("category", "auto"),
+        )
+        try:
+            source_items = await fetch_rss(source)
+            for item in source_items:
+                # Apply same filters
+                if is_blocked_topic(item, source.lang):
+                    continue
+                if not is_auto_relevant(item, source.lang):
+                    continue
+                items.append(item)
+            logger.info(f"Global RSS {source.name}: {len(source_items)} items")
+        except Exception as e:
+            logger.debug(f"Global RSS fetch error for {source.name}: {e}")
+    return items
+
+
+async def fetch_google_news_rss_batch() -> List[Dict]:
+    """Fetch news from Google News RSS using multiple queries for broad coverage.
+    
+    Uses different queries and regional settings for global perspective.
+    """
+    items = []
+    seen_urls = set()
+    
+    # Google News RSS queries for global coverage
+    queries = [
+        # Russian
+        ("автомобили новости", "ru", "RU"),
+        ("автозапчасти рынок", "ru", "RU"),
+        ("китайские автомобили экспорт", "ru", "RU"),
+        ("электромобили зарядные станции", "ru", "RU"),
+        ("ПДД изменения штрафы", "ru", "RU"),
+        # English
+        ("automotive industry news", "en", "US"),
+        ("electric vehicles latest", "en", "US"),
+        ("autonomous driving self driving car", "en", "US"),
+        ("car recalls safety alert", "en", "US"),
+        ("auto show reveals 2025", "en", "US"),
+        ("hydrogen fuel cell vehicle news", "en", "US"),
+        ("EV battery technology", "en", "US"),
+        ("Chinese cars global expansion", "en", "US"),
+        ("used car market prices", "en", "US"),
+        # German
+        ("Auto Nachrichten Elektroauto", "de", "DE"),
+    ]
+    
+    # Pick 4 random queries per cycle (don't fetch all at once)
+    import random
+    selected = random.sample(queries, min(4, len(queries)))
+    
+    for query, lang, gl in selected:
+        try:
+            from urllib.parse import quote_plus
+            url = f"https://news.google.com/rss/search?q={quote_plus(query)}&hl={lang}&gl={gl}&ceid={gl}:{lang}"
+            source = NewsSource(name=f"GoogleNews_{lang}", url=url, lang=lang, category="auto")
+            source_items = await fetch_rss(source)
+            for item in source_items:
+                if item["url"] in seen_urls:
+                    continue
+                seen_urls.add(item["url"])
+                if is_blocked_topic(item, lang):
+                    continue
+                if not is_auto_relevant(item, lang):
+                    continue
+                items.append(item)
+        except Exception as e:
+            logger.debug(f"Google News RSS failed for query '{query}': {e}")
+    
+    logger.info(f"Google News RSS batch: {len(items)} items")
+    return items
+
+
 # ── Main news fetching cycle ───────────────────────────────────────────────────
 
 async def fetch_all_news() -> int:
@@ -387,6 +486,8 @@ async def fetch_all_news() -> int:
     
     Phase 1: Web search for automotive news (broad queries, primary source)
     Phase 2: RSS feeds (fallback/supplement)
+    Phase 3: Global RSS sources (additional international coverage)
+    Phase 4: Google News RSS batch (broad query-based coverage)
     
     All existing filtering is preserved (auto-relevance, political block, dedup).
     """
@@ -490,6 +591,72 @@ async def fetch_all_news() -> int:
         except Exception as e:
             logger.error(f"Error processing source {source.name}: {e}")
             continue
+
+    # ── Phase 3: Global RSS sources ──
+    logger.info("Phase 3: Global RSS sources")
+    try:
+        global_items = await fetch_global_rss_sources()
+        for item in global_items:
+            if is_blocked_topic(item, item.get("lang", "en")):
+                continue
+            if not is_auto_relevant(item, item.get("lang", "en")):
+                continue
+            if await is_duplicate_post(item["title"], hours=48):
+                continue
+            fp = _compute_fingerprint(item["title"])
+            if _fingerprint_matches_existing(fp):
+                continue
+            added = await add_news_item(
+                source=item["source"],
+                title=item["title"],
+                url=item["url"],
+                summary=item.get("summary", ""),
+                published=item.get("published", time.time()),
+                category=item.get("category", "auto"),
+                lang=item.get("lang", "en"),
+                image_urls=item.get("image_urls", []),
+            )
+            if added:
+                total_new += 1
+                _recent_fingerprints.add(fp)
+                logger.info(f"Global RSS added: {item['title'][:60]}")
+    except Exception as e:
+        logger.warning(f"Global RSS phase failed: {e}")
+    
+    logger.info(f"Phase 3 (global RSS) complete: {total_new} total new items")
+
+    # ── Phase 4: Google News RSS batch ──
+    logger.info("Phase 4: Google News RSS batch")
+    try:
+        gn_items = await fetch_google_news_rss_batch()
+        for item in gn_items:
+            if is_blocked_topic(item, item.get("lang", "en")):
+                continue
+            if not is_auto_relevant(item, item.get("lang", "en")):
+                continue
+            if await is_duplicate_post(item["title"], hours=48):
+                continue
+            fp = _compute_fingerprint(item["title"])
+            if _fingerprint_matches_existing(fp):
+                continue
+            added = await add_news_item(
+                source=item["source"],
+                title=item["title"],
+                url=item["url"],
+                summary=item.get("summary", ""),
+                published=item.get("published", time.time()),
+                category=item.get("category", "auto"),
+                lang=item.get("lang", "en"),
+                image_urls=item.get("image_urls", []),
+            )
+            if added:
+                total_new += 1
+                _recent_fingerprints.add(fp)
+                logger.info(f"Google News RSS added: {item['title'][:60]}")
+    except Exception as e:
+        logger.warning(f"Google News RSS phase failed: {e}")
+    
+    logger.info(f"Phase 4 (Google News RSS) complete: {total_new} total new items")
 
     logger.info(f"News fetch complete: {total_new} new items")
     return total_new
