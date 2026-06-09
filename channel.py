@@ -1,6 +1,6 @@
 from bot.media_handler import media_handler, ImageQuality
 
-Channel Manager — Posts to @sochiautoparts with proper formatting.
+Channel Manager - Posts to @sochiautoparts with proper formatting.
 Handles news posts, partner posts, scheduled content, reactions,
 media, polls, and internet news search.
 Properly enforces Telegram character limits: 1024 with media, 4096 without.
