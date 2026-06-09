@@ -1421,3 +1421,195 @@ def get_registry_stats() -> Dict:
         "topics": {k: {"post_count": v["post_count"], "age_hours": round((time.time() - v["first_seen"]) / 3600, 1)}
                    for k, v in list(_topic_registry.items())[:20]},
     }
+
+
+# ── TONE ANALYSIS — Multi-step Chain of Thought ──────────────────────────────
+
+from enum import Enum
+from dataclasses import dataclass
+from typing import Optional
+
+class NewsTone(Enum):
+    """Classification of news tone for appropriate editorial response"""
+    SERIOUS = "serious"      # ДТП, отзыв, трагедия, штрафы — NO jokes
+    HYPE = "hype"            # Новый суперкар, рекорд, премьеры — fun jokes OK
+    ROUTINE = "routine"      # Обновление цен, плановые новости — light jokes
+    FUN = "fun"              # Забавные случаи, курьезы — funny jokes
+    TECHNICAL = "technical"  # Технические характеристики — tech jokes
+
+@dataclass
+class ExtractedFacts:
+    """Structured facts extracted from news for validation"""
+    brand: str
+    model: str
+    year: Optional[str]
+    price: Optional[str]
+    power: Optional[str]
+    key_event: str
+    tone: NewsTone
+    is_partner: bool = False
+
+async def analyze_news_tone(title: str, summary: str, content: str = "") -> ExtractedFacts:
+    """
+    Multi-step Chain of Thought analysis:
+    1. Extract key facts (brand, model, price, power)
+    2. Determine tone (serious/hype/routine/fun/technical)
+    3. Return structured data for post generation
+    """
+    text = f"{title} {summary} {content}".lower()
+    
+    # Extract brand
+    brand = ""
+    for b in _AUTO_BRANDS:
+        if b.lower() in text:
+            brand = b
+            break
+    
+    # Extract model (simplified)
+    model = ""
+    if brand:
+        model_patterns = [
+            rf'{brand.lower()}\s+([a-z0-9]+)',
+            rf'{brand.lower()}\s+([mglxqsec]\d+)',
+        ]
+        for pattern in model_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                model = match.group(1).upper()
+                break
+    
+    # Extract facts
+    price = None
+    power = None
+    year = None
+    
+    # Price
+    price_match = re.search(r'\$([\d,]+)', text)
+    if price_match:
+        price = price_match.group(1)
+    else:
+        price_match = re.search(r'([\d,]+)\s*(?:руб|рубл|rub|₽)', text, re.IGNORECASE)
+        if price_match:
+            price = price_match.group(1)
+    
+    # Power
+    power_match = re.search(r'(\d+)\s*(?:л\.?с|hp|horsepower|лс)', text, re.IGNORECASE)
+    if power_match:
+        power = power_match.group(1)
+    
+    # Year
+    year_match = re.search(r'\b(20[12]\d)\b', text)
+    if year_match:
+        year = year_match.group(1)
+    
+    # Determine tone
+    tone = _determine_tone(text, title)
+    
+    return ExtractedFacts(
+        brand=brand or "Неизвестно",
+        model=model,
+        year=year,
+        price=price,
+        power=power,
+        key_event=title,
+        tone=tone,
+        is_partner=False
+    )
+
+def _determine_tone(text: str, title: str) -> NewsTone:
+    """Determine news tone based on keywords"""
+    text_lower = text.lower()
+    title_lower = title.lower()
+    
+    # SERIOUS
+    serious_kw = ["дтп", "авария", "катастроф", "погиб", "смерть", "жертв",
+                  "отзыв", "отзывают", "recalls", "бан", "запрет", "штраф",
+                  "crash", "accident", "death", "fatal", "recall", "ban"]
+    for kw in serious_kw:
+        if kw in text_lower or kw in title_lower:
+            return NewsTone.SERIOUS
+    
+    # FUN
+    fun_kw = ["забавн", "курьез", "смешн", "необычн", "удивител",
+              "funny", "curious", "weird", "strange", "amazing"]
+    for kw in fun_kw:
+        if kw in text_lower or kw in title_lower:
+            return NewsTone.FUN
+    
+    # HYPE
+    hype_kw = ["премьер", "дебют", "анонс", "представлен", "новинк",
+               "рекорд", "суперкар", "гиперкар", "прорыв",
+               "reveal", "debut", "launch", "unveil", "record", "supercar"]
+    for kw in hype_kw:
+        if kw in text_lower or kw in title_lower:
+            return NewsTone.HYPE
+    
+    # TECHNICAL
+    tech_kw = ["характеристик", "мощност", "скорост", "разгон",
+               "тест-драйв", "сравнен", "обзор", "техническ",
+               "specifications", "horsepower", "speed", "test", "comparison"]
+    for kw in tech_kw:
+        if kw in text_lower or kw in title_lower:
+            return NewsTone.TECHNICAL
+    
+    return NewsTone.ROUTINE
+
+def get_tone_specific_joke(tone: NewsTone) -> str:
+    """Get a joke appropriate for the news tone"""
+    if tone == NewsTone.SERIOUS:
+        return ""  # NO jokes for serious news
+    
+    joke_pools = {
+        NewsTone.HYPE: [
+            "Пока мы тут спорили, какой карандаш острее, они уже выпустили эту машину! ✏️",
+            "Редакция в шоке: даже кофе не бодрит так, как эта новость! ☕",
+        ],
+        NewsTone.ROUTINE: [
+            "Пока варим утренний кофе, делимся новостью... ☕",
+            "Сломали очередной карандаш, составляя этот пост ✏️",
+        ],
+        NewsTone.FUN: [
+            "В редакции смеялись до слез (и до нового сломанного карандаша) 😂",
+            "Кофе сегодня был особенно вкусным после такой новости! ☕",
+        ],
+        NewsTone.TECHNICAL: [
+            "Разбираемся в цифрах, пока кофе остывает... ☕📊",
+        ],
+    }
+    
+    pool = joke_pools.get(tone, [])
+    return random.choice(pool) if pool else ""
+
+def validate_facts_in_text(text: str, facts: ExtractedFacts) -> str:
+    """Ensure key facts are preserved in generated text"""
+    if facts.price and facts.price not in text:
+        text += f"\n💰 Цена: {facts.price}"
+    if facts.power and facts.power not in text:
+        text += f"\n⚡ Мощность: {facts.power} л.с."
+    if facts.year and facts.year not in text:
+        text += f"\n📅 Год: {facts.year}"
+    return text
+
+def trim_to_telegram_limits(text: str, has_media: bool) -> str:
+    """Trim text to Telegram limits"""
+    MAX_CAPTION = 1024
+    MAX_MESSAGE = 4096
+    max_len = MAX_CAPTION if has_media else MAX_MESSAGE
+    
+    if len(text) <= max_len:
+        return text
+    
+    lines = text.split('\n')
+    trimmed = []
+    current_len = 0
+    
+    for line in lines:
+        if current_len + len(line) + 1 <= max_len:
+            trimmed.append(line)
+            current_len += len(line) + 1
+        else:
+            if current_len + 3 <= max_len:
+                trimmed.append("...")
+            break
+    
+    return '\n'.join(trimmed)
