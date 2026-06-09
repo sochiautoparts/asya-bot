@@ -62,43 +62,33 @@ async def search_ddg_html(query: str, max_results: int = 5, region: str = "ru") 
             }
             response = await client.get("https://html.duckduckgo.com/html/", params=params, headers=DDG_HEADERS)
             if response.status_code != 200:
-                logger.warning(f"DDG HTML returned {response.status_code}")
-                # 202 = DDG rate limiting/blocking, wait and retry, then try lite version
+                logger.debug(f"DDG HTML returned {response.status_code}")
+                # 202 = DDG rate limiting/blocking — common from GitHub Actions IPs
+                # Skip retry (2s wait wastes time when DDG consistently blocks cloud IPs)
                 if response.status_code == 202:
-                    # Wait longer before retry — DDG rate limits need time to clear
-                    await asyncio.sleep(2.0)
+                    # Try lite version directly (different endpoint, less likely blocked)
                     try:
-                        response = await client.get("https://html.duckduckgo.com/html/", params=params, headers=DDG_HEADERS)
-                        if response.status_code == 200:
-                            # Got through on retry — parse normally below
-                            pass
-                        else:
-                            # Still blocked, try lite version as fallback
-                            try:
-                                await asyncio.sleep(1.0)
-                                lite_params = {"q": query, "kl": DDG_REGIONS.get(region, "ru-ru")}
-                                response = await client.get(
-                                    "https://lite.duckduckgo.com/lite/",
-                                    params=lite_params,
-                                    headers=DDG_HEADERS,
-                                )
-                                if response.status_code != 200:
-                                    return results
-                                # Parse lite version results (different HTML structure)
-                                urls = re.findall(r'<a[^>]+class="result-link"[^>]+href="([^"]+)"', response.text)
-                                titles = re.findall(r'<a[^>]+class="result-link"[^>]*>(.*?)</a>', response.text, re.DOTALL)
-                                snippets = re.findall(r'<td[^>]+class="result-snippet"[^>]*>(.*?)</td>', response.text, re.DOTALL)
-                                for i, url in enumerate(urls[:max_results]):
-                                    title = _clean_html(titles[i]) if i < len(titles) else ""
-                                    snippet = _clean_html(snippets[i]) if i < len(snippets) else ""
-                                    if url and title:
-                                        results.append(SearchResult(title=title, url=url, snippet=snippet, source="duckduckgo_lite"))
-                                return results
-                            except Exception as e2:
-                                logger.debug(f"DDG Lite search error: {e2}")
+                        await asyncio.sleep(0.5)  # Minimal delay
+                        lite_params = {"q": query, "kl": DDG_REGIONS.get(region, "ru-ru")}
+                        response = await client.get(
+                            "https://lite.duckduckgo.com/lite/",
+                            params=lite_params,
+                            headers=DDG_HEADERS,
+                        )
+                        if response.status_code != 200:
                             return results
+                        # Parse lite version results (different HTML structure)
+                        urls = re.findall(r'<a[^>]+class="result-link"[^>]+href="([^"]+)"', response.text)
+                        titles = re.findall(r'<a[^>]+class="result-link"[^>]*>(.*?)</a>', response.text, re.DOTALL)
+                        snippets = re.findall(r'<td[^>]+class="result-snippet"[^>]*>(.*?)</td>', response.text, re.DOTALL)
+                        for i, url in enumerate(urls[:max_results]):
+                            title = _clean_html(titles[i]) if i < len(titles) else ""
+                            snippet = _clean_html(snippets[i]) if i < len(snippets) else ""
+                            if url and title:
+                                results.append(SearchResult(title=title, url=url, snippet=snippet, source="duckduckgo_lite"))
+                        return results
                     except Exception as e2:
-                        logger.debug(f"DDG HTML retry error: {e2}")
+                        logger.debug(f"DDG Lite search error: {e2}")
                 return results
 
             html = response.text
@@ -205,44 +195,43 @@ async def search_yandex(query: str, max_results: int = 5) -> List[SearchResult]:
 
 SEARXNG_INSTANCES = [
     # Most reliable instances (tested June 2026)
-    "https://search.sapti.me",
+    # Ordered by typical response speed and reliability from GitHub Actions IPs
     "https://searx.be",
+    "https://search.sapti.me",
     "https://searxng.ch",
-    "https://search.ononoki.org",
     "https://baresearch.org",
     "https://searx.tiekoetter.com",
-    "https://search.bus-hit.me",
-    "https://searx.fmac.xyz",
-    "https://search.mdosch.de",
-    "https://searx.prvcy.eu",
-    "https://search.rowie.at",
-    "https://searx.divided-by-zero.eu",
+    "https://search.ononoki.org",
     "https://search.lvkaszus.pl",
-    # Additional instances for better coverage
     "https://searxng.site",
-    "https://search.sergioprado.blog",
-    "https://searx.work",
-    "https://search.rhscze.cf",
-    "https://searxng.tordenskjold.one",
-    "https://searxng.bravefence.com",
-    # More reliable alternatives added for resilience
-    "https://searxng.shreven.org",
-    "https://search.privacyredirect.com",
     "https://searxng.perennialte.ch",
     "https://search.0relay.com",
     "https://searxng.au",
-    "https://searx.no-logs.com",
+    "https://searxng.shreven.org",
+    "https://search.privacyredirect.com",
+    "https://searxng.tordenskjold.one",
     "https://search.cronobox.one",
+    "https://searx.fmac.xyz",
+    "https://search.mdosch.de",
+    "https://searx.prvcy.eu",
+    "https://search.bus-hit.me",
+    "https://search.rowie.at",
+    "https://searx.divided-by-zero.eu",
+    "https://search.sergioprado.blog",
+    "https://searx.work",
+    "https://searxng.bravefence.com",
+    "https://searx.no-logs.com",
     "https://searx.datura.network",
+    "https://search.rhscze.cf",
     "https://search.charleseroop.com",
 ]
 
 
 async def search_searxng(query: str, max_results: int = 5, language: str = "ru", categories: str = "") -> List[SearchResult]:
-    """Search using SearXNG public instances.
+    """Search using SearXNG public instances with CONCURRENT requests.
     
-    Tries instances in order and returns results from the first one that responds.
-    Uses shuffling to distribute load across instances.
+    Tries multiple instances concurrently (first N that responds wins),
+    which is MUCH faster than sequential when most instances are slow/down.
     categories: 'news', 'general', 'images', etc. (SearXNG categories)
     """
     import random
@@ -251,9 +240,13 @@ async def search_searxng(query: str, max_results: int = 5, language: str = "ru",
     instances = SEARXNG_INSTANCES.copy()
     random.shuffle(instances)
     
-    for instance in instances:
+    CONCURRENT_LIMIT = 5  # Try 5 instances at once
+    PER_INSTANCE_TIMEOUT = 6.0  # 6 seconds per instance (was 8, reduced for speed)
+    
+    async def _try_instance(instance: str) -> List[SearchResult]:
+        """Try a single SearXNG instance."""
         try:
-            async with httpx.AsyncClient(timeout=8.0) as client:  # Shorter timeout per instance
+            async with httpx.AsyncClient(timeout=PER_INSTANCE_TIMEOUT) as client:
                 params = {
                     "q": query,
                     "format": "json",
@@ -265,18 +258,32 @@ async def search_searxng(query: str, max_results: int = 5, language: str = "ru",
                 response = await client.get(f"{instance}/search", params=params)
                 if response.status_code == 200:
                     data = response.json()
+                    instance_results = []
                     for item in data.get("results", [])[:max_results]:
-                        results.append(SearchResult(
+                        instance_results.append(SearchResult(
                             title=item.get("title", ""),
                             url=item.get("url", ""),
                             snippet=item.get("content", ""),
                             source=f"searxng({instance})",
                         ))
-                    if results:
-                        return results
+                    return instance_results
         except Exception as e:
             logger.debug(f"SearXNG instance {instance} failed: {e}")
-            continue
+        return []
+    
+    # Try instances in batches of CONCURRENT_LIMIT
+    for batch_start in range(0, len(instances), CONCURRENT_LIMIT):
+        batch = instances[batch_start:batch_start + CONCURRENT_LIMIT]
+        tasks = [_try_instance(inst) for inst in batch]
+        batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        for result in batch_results:
+            if isinstance(result, list) and result:
+                results.extend(result)
+        
+        if results:
+            return results[:max_results]
+    
     return results
 
 
@@ -450,53 +457,40 @@ async def search_parts_by_vin(vin: str, part_name: str = "", max_results: int = 
 
 async def web_search(query: str, max_results: int = None, region: str = "ru") -> List[SearchResult]:
     """
-    Multi-engine web search with fallback chain:
-    SearXNG → DDG HTML → DDG Lite → Yandex → Google → Google News RSS → DDG API
+    Multi-engine web search with FAST fallback chain:
+    Google News RSS (fast, reliable) + SearXNG (concurrent) → DDG HTML → DDG API
     
-    SearXNG is tried first because DDG HTML frequently returns 202 (block) responses.
-    Each engine is tried with a short timeout, and we move on quickly if it fails.
+    Priority changes: Google News RSS is tried FIRST (it's the most reliable from cloud IPs),
+    then SearXNG concurrently, then DDG as fallback. Yandex and Google scraping removed
+    as they always fail from GitHub Actions IPs.
     """
     max_results = max_results or config.SEARCH_MAX_RESULTS
 
-    # Strategy 1: SearXNG (most reliable, multiple instances)
-    results = await search_searxng(query, max_results=max_results, language=region)
-    if len(results) >= 2:
-        return results[:max_results]
+    # Strategy 1: Google News RSS (FASTEST and most reliable from cloud IPs)
+    gnews_results = await search_google_news_rss(query, max_results=max_results)
+    if len(gnews_results) >= 2:
+        return gnews_results[:max_results]
 
-    # Strategy 2: DDG HTML
+    # Strategy 2: SearXNG (concurrent, reliable)
+    searxng_results = await search_searxng(query, max_results=max_results, language=region)
+    if searxng_results:
+        gnews_results.extend(searxng_results)
+    if len(gnews_results) >= 2:
+        return gnews_results[:max_results]
+
+    # Strategy 3: DDG HTML (often blocked from cloud IPs, but try anyway)
     ddg_results = await search_ddg_html(query, max_results=max_results, region=region)
     if ddg_results:
-        results.extend(ddg_results)
-    if len(results) >= 2:
-        return results[:max_results]
+        gnews_results.extend(ddg_results)
+    if len(gnews_results) >= 1:
+        return gnews_results[:max_results]
 
-    # Strategy 3: Yandex
-    yandex_results = await search_yandex(query, max_results=max_results)
-    if yandex_results:
-        results.extend(yandex_results)
-    if len(results) >= 2:
-        return results[:max_results]
-
-    # Strategy 4: Google
-    google_results = await search_google(query, max_results=max_results)
-    if google_results:
-        results.extend(google_results)
-    if len(results) >= 1:
-        return results[:max_results]
-
-    # Strategy 5: Google News RSS (reliable for news queries)
-    gnews_results = await search_google_news_rss(query, max_results=max_results)
-    if gnews_results:
-        results.extend(gnews_results)
-    if len(results) >= 1:
-        return results[:max_results]
-
-    # Strategy 6: DDG API (instant answer only)
+    # Strategy 4: DDG API (instant answer only — last resort)
     ddg_api = await search_ddg_api(query, region=region)
     if ddg_api:
-        results.append(ddg_api)
+        gnews_results.append(ddg_api)
 
-    return results[:max_results]
+    return gnews_results[:max_results]
 
 
 async def search_google_news_rss(query: str, max_results: int = 5) -> List[SearchResult]:
@@ -528,23 +522,28 @@ async def search_google_news_rss(query: str, max_results: int = 5) -> List[Searc
 
 
 async def search_news(query: str, max_results: int = 5) -> List[SearchResult]:
-    """Search for news articles — SearXNG news category first, then DDG, then Google News RSS fallback.
+    """Search for news articles — Google News RSS FIRST (fastest), then SearXNG, then DDG.
     
-    The query is passed as-is — the caller already specifies what to search for.
-    No extra keywords are appended to avoid diluting results.
+    Google News RSS is prioritized because it's the most reliable from cloud IPs
+    and returns actual news articles with timestamps.
     """
-    # Try SearXNG with news category for better relevance
-    results = await search_searxng(query, max_results=max_results, language="ru", categories="news")
-    if len(results) < 2:
-        # Fallback to general search without news category
-        results += await search_searxng(query, max_results=max_results, language="ru")
+    # Google News RSS FIRST — fastest and most reliable from GitHub Actions
+    results = await search_google_news_rss(query, max_results=max_results)
+    if len(results) >= 2:
+        return results[:max_results]
+    
+    # SearXNG with news category for better relevance
+    searxng_results = await search_searxng(query, max_results=max_results, language="ru", categories="news")
+    if searxng_results:
+        results.extend(searxng_results)
+    if len(results) >= 2:
+        return results[:max_results]
+    
+    # DDG as fallback
     if len(results) < 2:
         ddg_results = await search_ddg_html(query, max_results=max_results)
         results.extend(ddg_results)
-    if len(results) < 2:
-        # Google News RSS as additional fallback
-        gnews_results = await search_google_news_rss(query, max_results=max_results)
-        results.extend(gnews_results)
+    
     return results[:max_results]
 
 

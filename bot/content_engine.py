@@ -867,8 +867,8 @@ async def search_auto_news() -> List[Dict]:
     month_en = ["January", "February", "March", "April", "May", "June",
                "July", "August", "September", "October", "November", "December"]
     
-    # Use 5 different queries per call for broader coverage
-    queries = [_get_search_query() for _ in range(5)]
+    # Use 3 queries per call (reduced from 5 for speed — each query takes time)
+    queries = [_get_search_query() for _ in range(3)]
     # Deduplicate queries (in case same one picked twice)
     queries = list(dict.fromkeys(queries))
     
@@ -876,7 +876,7 @@ async def search_auto_news() -> List[Dict]:
         logger.info(f"Searching web for auto news: {query}")
         try:
             # Use web_search directly — the query already specifies what to search for
-            results = await web_search(query, max_results=8)
+            results = await web_search(query, max_results=5)
             for result in results:
                 title = result.title or ""
                 url = result.url or ""

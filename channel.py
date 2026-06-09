@@ -1259,24 +1259,24 @@ class ChannelManager:
             )
 
         # ── TONE ANALYSIS — Determine appropriate tone for this news ──
+        # NOTE: Tone joke is added AFTER post_text is generated (see below)
+        tone_joke = ""
+        tone_value = "neutral"
         try:
-            from bot.content_engine import analyze_news_tone, get_tone_specific_joke, validate_facts_in_text
+            from bot.content_engine import analyze_news_tone, get_tone_specific_joke
             facts = await analyze_news_tone(
                 news_item.get("title", ""),
                 news_item.get("summary", ""),
                 source_text
             )
-            logger.info(f"📊 Tone analysis: {facts.tone.value}, brand={facts.brand}, model={facts.model}")
+            logger.info(f"Tone analysis: {facts.tone.value}, brand={facts.brand}, model={facts.model}")
+            tone_value = facts.tone.value
             
-            # Add tone-specific joke if appropriate (NOT for serious news)
+            # Prepare tone-specific joke if appropriate (NOT for serious news)
             if facts.tone.value != "serious" and not news_item.get("is_partner"):
                 tone_joke = get_tone_specific_joke(facts.tone)
-                if tone_joke and tone_joke not in post_text:
-                    post_text = post_text.rstrip() + f"\\n\\n✏️ {tone_joke}"
-                    logger.info(f"✅ Added tone joke for {facts.tone.value}")
         except Exception as e:
-            logger.warning(f"Tone analysis failed: {e}")
-            facts = None
+            logger.debug(f"Tone analysis skipped: {e}")
         
         response = await ai_router.generate_channel_post(
             topic=news_item["title"],
@@ -1292,6 +1292,16 @@ class ChannelManager:
 
         post_text = _clean_post_text(response.text)
         post_text = _ensure_footer(post_text)
+
+        # ── Add tone-specific joke AFTER post generation (if applicable) ──
+        if tone_joke and tone_joke not in post_text:
+            # Insert joke before footer
+            footer_marker = "\n\nАвтор @asiaexp_bot"
+            if footer_marker in post_text:
+                post_text = post_text.replace(footer_marker, f"\n\n{tone_joke}{footer_marker}")
+            else:
+                post_text = post_text.rstrip() + f"\n\n{tone_joke}"
+            logger.info(f"Added tone joke for {tone_value}")
 
         # Validate before posting
         if not _validate_post_text(post_text):
