@@ -844,6 +844,7 @@ class ChannelManager:
         """Generate multiple images for a news post using AI (fallback).
         Returns list of image data bytes, up to `count` images.
         Tries multiple models (flux, flux-pro) for reliability.
+        LIMITED to max 2 model attempts to avoid timeout/OOM on GitHub Actions.
         """
         images = []
         # Different prompts for variety
@@ -852,30 +853,40 @@ class ChannelManager:
             f"front three-quarter view, modern car, vibrant colors, high quality, dramatic lighting, no text.",
             f"Automotive news illustration: {news_title}. Side profile shot, "
             f"studio lighting, sleek design, magazine quality, no text overlay.",
-            f"Automotive news illustration: {news_title}. Rear angle view, "
-            f"dynamic composition, professional car photography, vivid colors, no text.",
-            f"Automotive news illustration: {news_title}. Interior detail shot, "
-            f"dashboard and steering wheel, premium feel, cinematic lighting, no text.",
-            f"Automotive news illustration: {news_title}. Detail close-up, "
-            f"headlight or wheel, dramatic lighting, high contrast, no text.",
         ]
         selected_prompts = prompts[:min(count, len(prompts))]
 
-        # Try multiple image models for reliability
-        _IMAGE_MODELS = ["flux", "flux-pro", "flux-realism"]
+        # Try image models — limited to 2 attempts to prevent OOM/timeout
+        _IMAGE_MODELS = ["flux", "flux-pro"]
+        attempts = 0
+        max_attempts = 2  # Safety: don't try too many models (each has 120s timeout)
 
         for i, prompt in enumerate(selected_prompts):
             for img_model in _IMAGE_MODELS:
+                attempts += 1
+                if attempts > max_attempts:
+                    logger.warning(f"Image generation: reached max {max_attempts} attempts, stopping")
+                    break
                 try:
-                    image_data = await ai_router._primary.generate_image(prompt, model=img_model)
+                    image_data = await asyncio.wait_for(
+                        ai_router._primary.generate_image(prompt, model=img_model),
+                        timeout=60.0  # Hard limit per attempt: 60s
+                    )
                     if image_data:
                         images.append(image_data)
                         break  # Got image, no need to try next model
+                except asyncio.TimeoutError:
+                    logger.warning(f"Image generation #{i+1} with {img_model} timed out (60s limit)")
+                    continue
                 except Exception as e:
                     logger.debug(f"Image generation #{i+1} with model {img_model} failed: {e}")
                     continue
+            if images:
+                break  # Got enough, don't try more prompts
+            if attempts >= max_attempts:
+                break
 
-        logger.info(f"Generated {len(images)}/{count} AI images for post")
+        logger.info(f"Generated {len(images)}/{count} AI images for post ({attempts} attempts)")
         return images
 
     async def _generate_post_image(self, news_title: str) -> Optional[bytes]:
@@ -947,8 +958,7 @@ class ChannelManager:
             except Exception as e:
                 logger.debug(f"Web search image enrichment skipped: {e}")
         
-        # Strategy 4: AI generation as fallback — MANDATORY: every post must have an image!
-        # Try harder with multiple prompts and models to ensure we get at least one image.
+        # Strategy 4: AI generation as fallback — try once with _generate_post_images (limited attempts)
         if not image_list:
             try:
                 image_list = await self._generate_post_images(
@@ -958,27 +968,24 @@ class ChannelManager:
                     source = "ai"
                     logger.info(f"Generated {len(image_list)} AI images (no real images found)")
                 else:
-                    # All specific prompts failed — try a generic automotive prompt
-                    generic_prompts = [
-                        "Beautiful modern car on a scenic road, professional automotive photography, golden hour, no text.",
-                        "Sleek car in urban setting, dramatic lighting, magazine cover quality, no text.",
-                        "Sports car close-up, headlight detail, moody lighting, professional photo, no text.",
-                    ]
-                    for gprompt in generic_prompts:
-                        for img_model in ["flux", "flux-pro", "flux-realism"]:
-                            try:
-                                img_data = await ai_router._primary.generate_image(gprompt, model=img_model)
-                                if img_data:
-                                    image_list = [img_data]
-                                    source = "ai-generic"
-                                    logger.info(f"Generated generic AI image with model {img_model}")
-                                    break
-                            except Exception:
-                                continue
-                        if image_list:
-                            break
+                    # Specific prompts failed — try ONE generic prompt with ONE model
+                    try:
+                        img_data = await asyncio.wait_for(
+                            ai_router._primary.generate_image(
+                                "Beautiful modern car on a scenic road, professional automotive "
+                                "photography, golden hour, no text.",
+                                model="flux",
+                            ),
+                            timeout=60.0,
+                        )
+                        if img_data:
+                            image_list = [img_data]
+                            source = "ai-generic"
+                            logger.info("Generated generic AI image with flux")
+                    except (asyncio.TimeoutError, Exception) as e:
+                        logger.warning(f"Generic image generation failed: {e}")
                     if not image_list:
-                        logger.warning("ALL image generation strategies failed — post may be blocked")
+                        logger.warning("ALL image generation strategies failed — post may be text-only")
             except Exception as e:
                 logger.warning(f"AI image generation skipped: {e}")
         
@@ -1363,11 +1370,13 @@ class ChannelManager:
         _TEXT_LIMIT = config.TELEGRAM_TEXT_LIMIT          # 4096
         _MIN_CONTENT_FOR_TEXT_ONLY = 1025  # Must exceed caption limit to justify text-only
 
-        # ── CASE 1: No media + short text (≤1024) → MUST get an image or SKIP ──
+        # ── CASE 1: No media + short text (≤1024) → try to get an image ──
+        # PREFER media, but DON'T block the post entirely — better to publish
+        # text-only than to leave the channel silent for hours.
         if not has_media and len(post_text) <= _CAPTION_LIMIT:
             logger.warning(
                 f"Post has NO media and text is {len(post_text)} chars (fits in caption). "
-                f"Attempting mandatory image generation — text-only not allowed for short posts."
+                f"Attempting image generation — text-only allowed only as last resort."
             )
             try:
                 last_resort_images = await self._generate_post_images(
@@ -1378,35 +1387,33 @@ class ChannelManager:
                     has_media = True
                     logger.info("Mandatory image generation SUCCEEDED — post will have media")
                 else:
-                    # Still no image — try generic automotive prompts
-                    generic_prompts = [
-                        "Car on a road, professional automotive photography, "
-                        "vibrant colors, dramatic lighting, high quality, no text.",
-                        "Modern car in studio, sleek design, dramatic lighting, no text.",
-                        "Sports car close-up, headlight detail, professional photo, no text.",
-                    ]
-                    for gprompt in generic_prompts:
-                        for img_model in ["flux", "flux-pro", "flux-realism"]:
-                            try:
-                                img_data = await ai_router._primary.generate_image(gprompt, model=img_model)
-                                if img_data:
-                                    image_list = [img_data]
-                                    has_media = True
-                                    logger.info(f"Generic AI image SUCCEEDED with model {img_model}")
-                                    break
-                            except Exception:
-                                continue
-                        if has_media:
-                            break
+                    # Try ONE generic prompt with ONE model (fast, 60s max)
+                    try:
+                        img_data = await asyncio.wait_for(
+                            ai_router._primary.generate_image(
+                                "Car on a road, professional automotive photography, "
+                                "vibrant colors, dramatic lighting, high quality, no text.",
+                                model="flux",
+                            ),
+                            timeout=60.0,
+                        )
+                        if img_data:
+                            image_list = [img_data]
+                            has_media = True
+                            logger.info("Generic AI image SUCCEEDED with flux")
+                    except (asyncio.TimeoutError, Exception) as e:
+                        logger.warning(f"Generic image generation failed: {e}")
             except Exception as e:
                 logger.warning(f"Mandatory image generation failed: {e}")
 
             if not has_media:
-                logger.error(
-                    f"POST BLOCKED: No images and text is {len(post_text)} chars (≤{_CAPTION_LIMIT}). "
-                    f"Short posts MUST have photos. Skipping to keep channel visually rich."
+                # LAST RESORT: publish text-only rather than leaving channel silent.
+                # This is not ideal but better than no posts for hours.
+                # Log a warning so we can track how often this happens.
+                logger.warning(
+                    f"POSTING TEXT-ONLY (last resort): No images available, text is "
+                    f"{len(post_text)} chars. Channel silence is worse than no-photo post."
                 )
-                return False
 
         # ── CASE 2: Has media + text > caption limit → try compress to keep media ──
         elif has_media and len(post_text) > _CAPTION_LIMIT:
@@ -1459,10 +1466,10 @@ class ChannelManager:
                     f"Content is interesting enough to justify publishing without photo."
                 )
             else:
-                # Not interesting enough for text-only — try harder to get an image
+                # Not interesting enough for long text-only — try ONE image gen, then publish anyway
                 logger.warning(
-                    f"Text-only post REJECTED: interest={interest_score:.2f}, "
-                    f"text={len(post_text)} chars. Trying mandatory image generation."
+                    f"Text-only post: interest={interest_score:.2f}, "
+                    f"text={len(post_text)} chars. Trying quick image generation."
                 )
                 try:
                     last_resort_images = await self._generate_post_images(
@@ -1475,16 +1482,22 @@ class ChannelManager:
                         post_text = _enforce_char_limit(post_text, has_media=True)
                         logger.info("Got image for low-interest long post — compressed text to fit caption")
                     else:
-                        # No image + not interesting → skip post entirely
-                        logger.error(
-                            f"POST BLOCKED: No image, interest={interest_score:.2f} < 0.5, "
-                            f"text={len(post_text)} chars. Not interesting enough for text-only."
+                        # No image — publish text-only as last resort instead of blocking
+                        # Truncate to Telegram text-only limit if needed
+                        if len(post_text) > _TEXT_LIMIT:
+                            post_text = _enforce_char_limit(post_text, has_media=False)
+                        logger.warning(
+                            f"POSTING TEXT-ONLY (last resort): No image, interest={interest_score:.2f}, "
+                            f"text={len(post_text)} chars. Better than channel silence."
                         )
-                        return False
                 except Exception as e:
-                    logger.warning(f"Image generation for low-interest long post failed: {e}")
-                    logger.error("POST BLOCKED: No image and content not interesting enough for text-only.")
-                    return False
+                    logger.warning(f"Image generation for long post failed: {e}")
+                    # Still publish text-only — don't block
+                    if len(post_text) > _TEXT_LIMIT:
+                        post_text = _enforce_char_limit(post_text, has_media=False)
+                    logger.warning(
+                        f"POSTING TEXT-ONLY (after error): {len(post_text)} chars."
+                    )
 
         # Smart character limit enforcement — always preserve footer
         post_text = _enforce_char_limit(post_text, has_media)
@@ -1858,8 +1871,7 @@ class ChannelManager:
             return False
 
         # ── SMART MEDIA DECISION: partner posts also need media ──
-        # Same rules as news posts: text-only ONLY when text > 1024 chars
-        # (doesn't fit in caption) and content is interesting, up to 4096 chars.
+        # Try to get an image, but don't block — text-only is acceptable as last resort.
         if not has_media and len(post_content) <= config.TELEGRAM_CAPTION_LIMIT:
             # Short text but no image — try to generate one
             logger.warning(
@@ -1873,33 +1885,30 @@ class ChannelManager:
                     has_media = True
                     logger.info("Generated AI image for partner post — avoiding text-only")
                 else:
-                    # Try generic prompts
-                    for gprompt in [
-                        f"Auto service {program.name}, professional logo, clean design, no text.",
-                        "Car service center, modern workshop, professional photo, no text.",
-                    ]:
-                        for img_model in ["flux", "flux-pro"]:
-                            try:
-                                img_data = await ai_router._primary.generate_image(gprompt, model=img_model)
-                                if img_data:
-                                    partner_image_data = img_data
-                                    has_media = True
-                                    logger.info(f"Generic partner image SUCCEEDED with {img_model}")
-                                    break
-                            except Exception:
-                                continue
-                        if has_media:
-                            break
+                    # Try ONE generic prompt with ONE model (fast)
+                    try:
+                        img_data = await asyncio.wait_for(
+                            ai_router._primary.generate_image(
+                                f"Auto service {program.name}, professional logo, clean design, no text.",
+                                model="flux",
+                            ),
+                            timeout=60.0,
+                        )
+                        if img_data:
+                            partner_image_data = img_data
+                            has_media = True
+                            logger.info("Generic partner image SUCCEEDED with flux")
+                    except (asyncio.TimeoutError, Exception) as e:
+                        logger.warning(f"Generic partner image generation failed: {e}")
             except Exception as e:
                 logger.warning(f"Partner AI image generation failed: {e}")
 
             if not has_media:
-                # No image available and text fits in caption — BLOCK text-only post
-                logger.error(
-                    f"PARTNER POST BLOCKED: No image and text ({len(post_content)} chars) "
-                    f"fits in caption. Text-only partner posts are NOT allowed."
+                # LAST RESORT: publish text-only rather than skipping partner post
+                logger.warning(
+                    f"PARTNER POST TEXT-ONLY (last resort): No image available, "
+                    f"text={len(post_content)} chars. Publishing without photo."
                 )
-                return False
 
         elif has_media and len(post_content) > config.TELEGRAM_CAPTION_LIMIT:
             # Text too long for caption — try to compress first, keep media
