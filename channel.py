@@ -1,4 +1,5 @@
-from bot.media_handler import media_handler, ImageQuality\n\n"""
+from bot.media_handler import media_handler, ImageQuality
+
 Channel Manager — Posts to @sochiautoparts with proper formatting.
 Handles news posts, partner posts, scheduled content, reactions,
 media, polls, and internet news search.
