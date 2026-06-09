@@ -843,7 +843,8 @@ class ChannelManager:
     async def _generate_post_images(self, news_title: str, count: int = 1) -> List[bytes]:
         """Generate multiple images for a news post using AI (fallback).
         Returns list of image data bytes, up to `count` images.
-        Tries multiple models (flux, flux-pro) for reliability.
+
+        3-level failover: Pollinations (key) → Pollinations (free) → None
         LIMITED to max 2 model attempts to avoid timeout/OOM on GitHub Actions.
         """
         images = []
@@ -868,18 +869,41 @@ class ChannelManager:
                     logger.warning(f"Image generation: reached max {max_attempts} attempts, stopping")
                     break
                 try:
+                    # ── LEVEL 1: Pollinations with key ──
                     image_data = await asyncio.wait_for(
                         ai_router._primary.generate_image(prompt, model=img_model),
-                        timeout=60.0  # Hard limit per attempt: 60s
+                        timeout=60.0
                     )
                     if image_data:
                         images.append(image_data)
                         break  # Got image, no need to try next model
+
+                    # ── LEVEL 2: Pollinations FREE API (no auth) ──
+                    logger.info(f"Image gen Level 1 returned None, trying free API with {img_model}")
+                    image_data = await asyncio.wait_for(
+                        ai_router._primary.generate_image_free(prompt, model=img_model),
+                        timeout=60.0
+                    )
+                    if image_data:
+                        images.append(image_data)
+                        break
+
                 except asyncio.TimeoutError:
                     logger.warning(f"Image generation #{i+1} with {img_model} timed out (60s limit)")
                     continue
                 except Exception as e:
                     logger.debug(f"Image generation #{i+1} with model {img_model} failed: {e}")
+                    # Try free API on exception
+                    try:
+                        image_data = await asyncio.wait_for(
+                            ai_router._primary.generate_image_free(prompt, model=img_model),
+                            timeout=60.0
+                        )
+                        if image_data:
+                            images.append(image_data)
+                            break
+                    except Exception as e2:
+                        logger.debug(f"Free image gen also failed: {e2}")
                     continue
             if images:
                 break  # Got enough, don't try more prompts

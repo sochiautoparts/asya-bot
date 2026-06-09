@@ -1,11 +1,13 @@
-"""Pollinations AI Provider v4.0 — DUAL API KEY + 60+ MODEL SUPPORT
+"""Pollinations AI Provider v5.0 — DUAL API KEY + FREE API FALLBACK + 60+ MODEL SUPPORT
 OpenAI-compatible API at gen.pollinations.ai
 
-v4.0 UPDATES:
-  DUAL API KEY FAILOVER:
-  - KEY1 (config.POLLINATIONS_API_KEY) -> KEY2 (config.POLLINATIONS_API_KEY_2) -> Error
+v5.0 UPDATES:
+  DUAL API KEY FAILOVER + FREE API FALLBACK:
+  - KEY1 (config.POLLINATIONS_API_KEY) -> KEY2 (config.POLLINATIONS_API_KEY_2) -> FREE API
   - On 402/401: mark current key as depleted, auto-switch to next
   - Depleted keys auto-retry after 600 seconds cooldown
+  - FREE API: text.pollinations.ai / image.pollinations.ai WITHOUT Authorization
+  - Free API is the LAST resort before router fallback to Cloudflare
   - NO hardcoded keys — all from environment/config
 
   EXPANDED MODEL LIST (60+ models from API catalog, June 2026):
@@ -232,15 +234,17 @@ _FAILURE_COOLDOWN = 300  # 5 minutes
 
 
 class PollinationsProvider(BaseAIProvider):
-    """Pollinations AI provider v4.0 — DUAL KEY + 60+ MODELS!
+    """Pollinations AI provider v5.0 — DUAL KEY + FREE API FALLBACK + 60+ MODELS!
 
     Uses gen.pollinations.ai/v1/chat/completions (OpenAI-compatible).
+    Falls back to text.pollinations.ai (FREE, no auth) when keys are depleted.
 
-    DUAL API KEY FAILOVER:
+    FAILOVER CHAIN (within provider):
       1. Try KEY1 first (config.POLLINATIONS_API_KEY)
       2. On 402/401 from KEY1 -> switch to KEY2 (config.POLLINATIONS_API_KEY_2)
-      3. On 402/401 from KEY2 -> return error (router decides fallback)
+      3. On 402/401 from KEY2 -> try FREE API (text.pollinations.ai, no auth)
       4. Depleted keys auto-retry after 600 seconds cooldown
+      5. Free API always available but rate-limited and slower
 
     IMPORTANT: Models are NEVER removed when unavailable.
     Pollinations.ai rotates model availability — a failure today
@@ -262,6 +266,12 @@ class PollinationsProvider(BaseAIProvider):
         # 0 = active/never depleted; >0 = timestamp when depleted
         self._key1_depleted_at: float = 0.0
         self._key2_depleted_at: float = 0.0
+
+        # ── Free API endpoints (no auth required) ──
+        self._free_text_url: str = config.POLLINATIONS_FREE_TEXT_URL
+        self._free_image_url: str = config.POLLINATIONS_FREE_IMAGE_URL
+        self._free_api_available: bool = True  # Assume available until proven otherwise
+        self._free_api_cooldown_until: float = 0.0  # Timestamp when free API cooldown ends
 
     # ── API Key Management ──────────────────────────────────────
 
@@ -645,19 +655,254 @@ class PollinationsProvider(BaseAIProvider):
         )
 
     async def is_available(self) -> bool:
-        """Check if Pollinations API is reachable."""
+        """Check if Pollinations API is reachable (with key or free)."""
         active_key, _ = self._get_active_key_tier()
-        if not active_key:
+        if active_key:
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    response = await client.get(
+                        f"{self.base_url}/v1/models",
+                        headers={"Authorization": f"Bearer {active_key}"},
+                    )
+                    return response.status_code == 200
+            except Exception:
+                pass
+        # Also check free API
+        return self._is_free_api_available()
+
+    def _is_free_api_available(self) -> bool:
+        """Check if free Pollinations API is available."""
+        if not self._free_text_url:
             return False
+        if self._free_api_cooldown_until > time.time():
+            return False
+        return self._free_api_available
+
+    def _mark_free_api_cooldown(self, duration: float = 60.0) -> None:
+        """Put free API on cooldown after failures."""
+        self._free_api_cooldown_until = time.time() + duration
+        logger.warning(f"Free Pollinations API on cooldown for {duration:.0f}s")
+
+    # ── FREE API METHODS (no auth) ───────────────────────────────────
+
+    async def chat_free(
+        self,
+        messages: List[Dict[str, str]],
+        model: str = "openai",
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
+    ) -> AIResponse:
+        """Send a chat completion request using FREE Pollinations API.
+
+        Uses text.pollinations.ai WITHOUT Authorization header.
+        This is the fallback when all API keys are depleted.
+        Free API may be rate-limited and slower.
+        """
+        if not self._is_free_api_available():
+            return AIResponse(
+                text="",
+                model=model,
+                provider=f"{self.name}-free",
+                error=True,
+                error_message="Free API unavailable or on cooldown",
+            )
+
+        model = model or DEFAULT_MODEL
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(
-                    f"{self.base_url}/v1/models",
-                    headers={"Authorization": f"Bearer {active_key}"},
-                )
-                return response.status_code == 200
-        except Exception:
-            return False
+            headers = {"Content-Type": "application/json"}
+            # NO Authorization header — this is the free API
+
+            async with httpx.AsyncClient(timeout=90.0) as client:
+                start_time = time.time()
+                url = f"{self._free_text_url}/openai/chat/completions"
+                response = await client.post(url, headers=headers, json=payload)
+                elapsed = time.time() - start_time
+
+                if response.status_code == 200:
+                    data = response.json()
+                    text = ""
+                    choices = data.get("choices", [])
+                    if choices:
+                        msg = choices[0].get("message", {})
+                        text = msg.get("content", "") or ""
+                        if not text:
+                            text = msg.get("reasoning_content", "") or ""
+
+                    if not text:
+                        logger.warning(f"Free API: empty response from {model}")
+                        return AIResponse(
+                            text="",
+                            model=model,
+                            provider=f"{self.name}-free",
+                            error=True,
+                            error_message="Empty response from free API",
+                        )
+
+                    logger.info(
+                        f"Free API response: model={model}, "
+                        f"time={elapsed:.1f}s, length={len(text)}"
+                    )
+
+                    return AIResponse(
+                        text=text,
+                        model=model,
+                        provider=f"{self.name}-free",
+                    )
+
+                elif response.status_code == 429:
+                    logger.warning(f"Free API rate limited (429)")
+                    self._mark_free_api_cooldown(120.0)  # 2 min cooldown
+                    return AIResponse(
+                        text="",
+                        model=model,
+                        provider=f"{self.name}-free",
+                        error=True,
+                        error_message="Free API rate limited",
+                    )
+
+                else:
+                    error_text = response.text[:300]
+                    logger.error(f"Free API error: {response.status_code}: {error_text}")
+                    self._mark_free_api_cooldown(60.0)
+                    return AIResponse(
+                        text="",
+                        model=model,
+                        provider=f"{self.name}-free",
+                        error=True,
+                        error_message=f"Free API HTTP {response.status_code}: {error_text}",
+                    )
+
+        except httpx.TimeoutException:
+            logger.error(f"Free API timeout: model={model}")
+            self._mark_free_api_cooldown(30.0)
+            return AIResponse(
+                text="",
+                model=model,
+                provider=f"{self.name}-free",
+                error=True,
+                error_message="Free API timeout",
+            )
+
+        except Exception as e:
+            logger.error(f"Free API exception: {e}")
+            self._mark_free_api_cooldown(60.0)
+            return AIResponse(
+                text="",
+                model=model,
+                provider=f"{self.name}-free",
+                error=True,
+                error_message=f"Free API exception: {e}",
+            )
+
+    async def analyze_image_free(
+        self,
+        image_url: str = "",
+        image_base64: str = "",
+        prompt: str = "Опиши подробно что ты видишь на этом изображении.",
+        model: str = "openai",
+        system_prompt: str = "",
+        max_tokens: int = 600,
+        temperature: float = 0.7,
+    ) -> AIResponse:
+        """Analyze an image using FREE Pollinations API (no auth).
+        Same format as analyze_image but without API key.
+        """
+        # Build the content array for vision
+        content = [
+            {"type": "text", "text": prompt}
+        ]
+
+        if image_url:
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": image_url}
+            })
+        elif image_base64:
+            media_type = "image/jpeg"
+            clean_base64 = image_base64
+            if image_base64.startswith("data:"):
+                header, clean_base64 = image_base64.split(",", 1)
+                if "png" in header:
+                    media_type = "image/png"
+                elif "webp" in header:
+                    media_type = "image/webp"
+                elif "gif" in header:
+                    media_type = "image/gif"
+
+            content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{media_type};base64,{clean_base64}"
+                }
+            })
+
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+
+        messages.append({"role": "user", "content": content})
+
+        # Try with a few vision models on free API
+        for vision_model in [model, "mistral", "openai"]:
+            if vision_model != model and self._is_model_in_cooldown(vision_model):
+                continue
+            result = await self.chat_free(
+                messages=messages,
+                model=vision_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            if not result.error and result.text:
+                return result
+
+        return AIResponse(
+            text="",
+            model=model,
+            provider=f"{self.name}-free",
+            error=True,
+            error_message="Free API vision failed",
+        )
+
+    async def generate_image_free(self, prompt: str, model: str = "flux") -> Optional[bytes]:
+        """Generate an image using FREE Pollinations API (no auth).
+
+        Uses image.pollinations.ai/prompt/{encoded_prompt} — simple GET request.
+        Returns image bytes or None on failure.
+        """
+        if not self._free_image_url:
+            return None
+
+        try:
+            import urllib.parse
+            encoded_prompt = urllib.parse.quote(prompt)
+            url = f"{self._free_image_url}/prompt/{encoded_prompt}"
+            # Add model and size params
+            url += f"?model={model}&width=1344&height=768&nologo=true"
+
+            async with httpx.AsyncClient(timeout=90.0) as client:
+                response = await client.get(url)
+                if response.status_code == 200:
+                    content_type = response.headers.get("content-type", "")
+                    if "image" in content_type or len(response.content) > 10000:
+                        logger.info(f"Free image API: generated image ({len(response.content)} bytes)")
+                        return response.content
+                    else:
+                        logger.warning(f"Free image API: unexpected content type: {content_type}")
+                else:
+                    logger.error(f"Free image API error: {response.status_code}")
+
+        except Exception as e:
+            logger.error(f"Free image API exception: {e}")
+
+        return None
 
     def _is_model_in_cooldown(self, model: str) -> bool:
         """Check if a model has recently failed and is in cooldown.

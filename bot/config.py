@@ -23,10 +23,20 @@ class BotConfig:
     CHANNEL_ID: str = os.getenv("CHANNEL_ID", "-1001479468835")
     CHANNEL_USERNAME: str = os.getenv("CHANNEL_USERNAME", "@sochiautoparts")
 
-    # Pollinations AI — DUAL KEY FAILOVER (KEY1 -> KEY2 -> Error)
+    # Pollinations AI — DUAL KEY FAILOVER (KEY1 -> KEY2 -> Free API)
     POLLINATIONS_API_KEY: str = os.getenv("POLLINATIONS_API_KEY", "")
     POLLINATIONS_API_KEY_2: str = os.getenv("POLLINATIONS_API_KEY_2", "")
     POLLINATIONS_BASE_URL: str = "https://gen.pollinations.ai"
+
+    # Pollinations FREE API (no auth required) — fallback when keys are depleted
+    POLLINATIONS_FREE_TEXT_URL: str = os.getenv("POLLINATIONS_FREE_TEXT_URL", "https://text.pollinations.ai")
+    POLLINATIONS_FREE_IMAGE_URL: str = os.getenv("POLLINATIONS_FREE_IMAGE_URL", "https://image.pollinations.ai")
+
+    # Cloudflare Workers AI — Mistral Small 3.1 (2 accounts, 10K req/day each)
+    CF_ACCOUNT_ID_1: str = os.getenv("CF_ACCOUNT_ID_1", "")
+    CF_API_TOKEN_1: str = os.getenv("CF_API_TOKEN_1", "")
+    CF_ACCOUNT_ID_2: str = os.getenv("CF_ACCOUNT_ID_2", "")
+    CF_API_TOKEN_2: str = os.getenv("CF_API_TOKEN_2", "")
 
     # GitHub PAT for self-dispatch
     GH_PAT_TOKEN: str = os.getenv("GH_PAT_TOKEN", "")

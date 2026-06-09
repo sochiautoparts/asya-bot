@@ -1,4 +1,4 @@
-name: Asya Bot — POLLINATIONS-ONLY v8 — Ася + Редакция
+name: Asya Bot — MULTI-PROVIDER v9 — Ася + Редакция
 
 on:
   schedule:
@@ -18,9 +18,16 @@ env:
   OWNER_ID: ${{ secrets.OWNER_ID }}
   CHANNEL_ID: "-1001479468835"
   CHANNEL_USERNAME: ${{ secrets.CHANNEL_USERNAME }}
-  # Pollinations.ai — DUAL KEY FAILOVER
+  # Pollinations.ai — DUAL KEY FAILOVER + FREE API
   POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
   POLLINATIONS_API_KEY_2: ${{ secrets.POLLINATIONS_API_KEY_2 }}
+  POLLINATIONS_FREE_TEXT_URL: "https://text.pollinations.ai"
+  POLLINATIONS_FREE_IMAGE_URL: "https://image.pollinations.ai"
+  # Cloudflare Workers AI — Mistral Small 3.1 (2 accounts, 10K req/day each)
+  CF_ACCOUNT_ID_1: ${{ secrets.CF_ACCOUNT_ID_1 }}
+  CF_API_TOKEN_1: ${{ secrets.CF_API_TOKEN_1 }}
+  CF_ACCOUNT_ID_2: ${{ secrets.CF_ACCOUNT_ID_2 }}
+  CF_API_TOKEN_2: ${{ secrets.CF_API_TOKEN_2 }}
   GH_PAT_TOKEN: ${{ secrets.GH_PAT_TOKEN }}
   GH_REPO: sochiautoparts/asya-bot
   ADMITAD_ADS_FILE: data/admitad_ads.json
@@ -91,20 +98,23 @@ jobs:
 
       - name: Run Asya Bot with auto-restart
         run: |
-          echo "=== Starting Asya Bot v8.0 — Ася + Редакция ==="
-          echo "ALL ROUTES: Pollinations.ai (61 models, dual-key failover)"
+          echo "=== Starting Asya Bot v9.0 — MULTI-PROVIDER ==="
+          echo "FAILOVER CHAIN: Pollinations(key) → Pollinations(free) → Cloudflare → Static"
+          echo "POLLINATIONS: 61 models, dual-key failover + free API fallback"
+          echo "CLOUDFLARE: Mistral Small 3.1, 2 accounts, 20K req/day total"
+          echo "FREE API: text.pollinations.ai / image.pollinations.ai (no auth)"
           echo "EDITORIAL TEAM: Ася + Лёха + Димон + Марина + Кеша(попугай) + Сеньор Помидор(кот)"
           echo "CONTENT: RSS-first (22+ sources), Google News RSS, Reddit, AI Discovery"
           echo "AUDIENCE: Global (RU/KZ/DE/IL/CY), not just Moscow"
           echo "FORMATS: 16 content types for 24/7 diverse schedule"
-          echo "CHAT: Pollinations → Static fallback"
-          echo "FUNCTION (posts, VIN, diagnostics): Pollinations → Static fallback"
-          echo "COMMENT: Pollinations (fast models) → Static fallback"
-          echo "VISION: Pollinations vision models"
-          echo "CONTENT ENGINE: Web-search-first, RSS fallback, AI topic selection"
-          echo "STRATEGY: Pollinations-only, dual-key=KEY1+KEY2, circuit-break=5min"
+          echo "CHAT: Pollinations → Free API → Cloudflare → Static fallback"
+          echo "FUNCTION (posts, VIN, diagnostics): Same 3-level failover"
+          echo "COMMENT: Same 3-level failover"
+          echo "VISION: Pollinations → Free → Cloudflare (image_url) → Static"
+          echo "IMAGE GEN: Pollinations (key) → Free API → None"
+          echo "VOICE: Pollinations (key) → Key2 → Free API → None"
+          echo "STRATEGY: 3-level failover, circuit-break=5min, key-cooldown=10min"
           echo "SCHEDULE: 30 min intervals, 3 posts/cycle + partner posts"
-          echo "NEW: Editorial jokes, translation/uniquification, improved image pipeline"
           echo ""
 
           MAX_RESTARTS=10

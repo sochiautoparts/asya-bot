@@ -1,14 +1,19 @@
 """
-AI Router v6.0 — POLLINATIONS-ONLY ROUTING with MODEL TIERING.
-All routes go through Pollinations cloud. No local model.
+AI Router v7.0 — MULTI-PROVIDER FAILOVER with MODEL TIERING.
 
-Route strategy (v6.0):
-  CHAT route_type (user chats) → Pollinations (weighted model selection, fast for simple, quality for complex)
-  FUNCTION route_type (posts, VIN, diagnostics, parts) → Pollinations (best quality: openai-large, gpt-5.5, deepseek)
-  COMMENT route_type (comments in other groups) → Pollinations (fast/cheap: openai, mistral, nova-fast) → Static fallback
-  VISION tasks (photos) → Pollinations vision models only
+FAILOVER CHAIN (3 levels before static fallback):
+  Level 1: Pollinations (with API key) → KEY1 → KEY2
+  Level 2: Pollinations FREE API (text.pollinations.ai, no auth)
+  Level 3: Cloudflare Workers AI (@cf/mistralai/mistral-small-3.1-24b-instruct)
+  Last resort: Static fallback responses
 
-  If Pollinations fails → Static fallback responses (LAST resort)
+Route strategy (v7.0):
+  CHAT route_type (user chats) → Pollinations key → Pollinations free → Cloudflare → Static
+  FUNCTION route_type (posts, VIN, diagnostics, parts) → Pollinations key → Pollinations free → Cloudflare → Static
+  COMMENT route_type (comments) → Pollinations key → Pollinations free → Cloudflare → Static
+  VISION tasks (photos) → Pollinations vision (key) → Pollinations vision (free) → Cloudflare vision → Static
+  IMAGE generation → Pollinations (key) → Pollinations free → None
+  AUDIO transcription → Pollinations (key) → Pollinations free → None
 """
 
 import hashlib
@@ -25,6 +30,7 @@ from ai.providers.pollinations_provider import (
     CHAT_MODELS, REASONING_MODELS, VISION_MODELS,
     CONTENT_MODELS, SEARCH_MODELS, IMAGE_MODELS, FALLBACK_MODELS,
 )
+from ai.providers.cloudflare_provider import CloudflareProvider
 from bot.config import config, persona
 from bot.database import get_ai_cached, set_ai_cached, get_chat_history, add_chat_message
 
@@ -67,7 +73,7 @@ def _get_time_context() -> str:
     )
 
 
-# Static fallback responses for when Pollinations fails completely
+# Static fallback responses for when ALL providers fail
 FALLBACK_RESPONSES = [
     "Ммм... Ася задумалась. Повтори? 🤔",
     "Ой, Ася отвлеклась... Что ты сказал? 😅",
@@ -86,31 +92,44 @@ FUNCTION_MODELS = ["openai-large", "gpt-5.5", "deepseek"]
 
 
 class AIRouter:
-    """Routes AI requests through Pollinations with model tiering.
+    """Routes AI requests through multiple providers with 3-level failover.
 
-    v6.0 POLLINATIONS-ONLY strategy:
-    - Chat (user conversations) → Pollinations (weighted model selection)
-    - Function (posts, VIN, diagnostics, parts) → Pollinations (best quality models)
-    - Comment (comments in other groups) → Pollinations (fast/cheap models) → Static fallback
-    - Vision (photos) → Pollinations vision models
+    v7.0 MULTI-PROVIDER strategy:
+    - Level 1: Pollinations with API key (best quality, 60+ models)
+    - Level 2: Pollinations FREE API (no auth, rate-limited)
+    - Level 3: Cloudflare Workers AI (Mistral Small 3.1, 20K req/day)
+    - Last resort: Static fallback responses
     """
 
     def __init__(self):
         self.providers: List[BaseAIProvider] = []
         self._primary: Optional[PollinationsProvider] = None
+        self._cloudflare: Optional[CloudflareProvider] = None
         self._total_fallbacks: int = 0
         self._total_requests: int = 0
+        # Track which fallback level we're on for monitoring
+        self._level1_count: int = 0  # Pollinations with key
+        self._level2_count: int = 0  # Pollinations free
+        self._level3_count: int = 0  # Cloudflare
+        self._static_count: int = 0  # Static fallback
 
     async def initialize(self) -> None:
-        """Initialize Pollinations provider (cloud-only)."""
+        """Initialize all providers."""
         pollinations = PollinationsProvider()
-        self.providers = [pollinations]
         self._primary = pollinations
 
+        # Initialize Cloudflare provider
+        self._cloudflare = CloudflareProvider()
+
+        self.providers = [pollinations]
+        if self._cloudflare._accounts:
+            self.providers.append(self._cloudflare)
+
+        cf_status = "active" if self._cloudflare._accounts else "not_configured"
         logger.info(
-            f"AI Router v6.0 POLLINATIONS-ONLY initialized: "
-            f"pollinations=active "
-            f"(chat=weighted, function=quality, comment=fast/cheap, vision=cloud, "
+            f"AI Router v7.0 MULTI-PROVIDER initialized: "
+            f"pollinations=active (key+free), cloudflare={cf_status}, "
+            f"failover: Pollinations(key) → Pollinations(free) → Cloudflare → Static, "
             f"{len(POLLINATIONS_MODELS)} models: "
             f"{len(CHAT_MODELS)} chat, {len(VISION_MODELS)} vision, "
             f"{len(CONTENT_MODELS)} content, {len(SEARCH_MODELS)} search)"
@@ -123,6 +142,10 @@ class AIRouter:
     @property
     def primary(self) -> Optional[BaseAIProvider]:
         return self._primary
+
+    @property
+    def cloudflare(self) -> Optional[CloudflareProvider]:
+        return self._cloudflare
 
     def _build_system_prompt(self, base_prompt: str = "", extra_context: str = "") -> str:
         """Build full system prompt with time context and extra context."""
@@ -151,12 +174,12 @@ class AIRouter:
         route_type: str = "chat",
     ) -> AIResponse:
         """
-        Send a chat message through the AI router.
+        Send a chat message through the AI router with 3-level failover.
 
-        v6.0 POLLINATIONS-ONLY ROUTING via route_type:
-        - "chat" (default): Pollinations with weighted model selection (provider handles it)
-        - "function": Pollinations with best quality models (openai-large, gpt-5.5, deepseek)
-        - "comment": Pollinations with fast/cheap models (mistral, openai, nova-fast) → Static fallback
+        v7.0 ROUTING via route_type:
+        - "chat" (default): Pollinations key → free → Cloudflare → Static
+        - "function": Same chain but starts with best quality models
+        - "comment": Same chain but starts with fast/cheap models
         """
         temperature = temperature or config.CHAT_TEMPERATURE
         max_tokens = max_tokens or config.CHAT_MAX_TOKENS
@@ -190,25 +213,58 @@ class AIRouter:
             # CHAT (default): use provided model or let provider handle weighted selection
             model = model or ""
 
-        # ── Try Pollinations ──
+        # ── LEVEL 1: Pollinations with API key ──
         response = await self._try_pollinations(
             user_id, message, history, sys_prompt, temperature, max_tokens, model
         )
 
-        # ── If Pollinations failed, static fallback ──
-        if response.error:
-            self._total_fallbacks += 1
-            logger.error(f"Pollinations failed for route_type={route_type}, using static fallback. Error: {response.error_message}")
-            return AIResponse(
-                text=random.choice(FALLBACK_RESPONSES),
-                model="fallback",
-                provider="static",
-                tokens_used=0,
-            )
+        if not response.error:
+            self._level1_count += 1
+            self._total_requests += 1
+            return await self._save_response(user_id, message, response, sys_prompt, use_cache, save_history)
 
-        self._total_requests += 1
+        # ── LEVEL 2: Pollinations FREE API ──
+        logger.warning(f"Level 1 failed (route={route_type}), trying Level 2 (free API): {response.error_message}")
+        response = await self._try_pollinations_free(
+            user_id, message, history, sys_prompt, temperature, max_tokens, model
+        )
 
-        # Save to history
+        if not response.error:
+            self._level2_count += 1
+            self._total_requests += 1
+            return await self._save_response(user_id, message, response, sys_prompt, use_cache, save_history)
+
+        # ── LEVEL 3: Cloudflare Workers AI ──
+        logger.warning(f"Level 2 failed (route={route_type}), trying Level 3 (Cloudflare): {response.error_message}")
+        response = await self._try_cloudflare(
+            user_id, message, history, sys_prompt, temperature, max_tokens
+        )
+
+        if not response.error:
+            self._level3_count += 1
+            self._total_requests += 1
+            return await self._save_response(user_id, message, response, sys_prompt, use_cache, save_history)
+
+        # ── LAST RESORT: Static fallback ──
+        self._static_count += 1
+        self._total_fallbacks += 1
+        logger.error(
+            f"ALL 3 LEVELS FAILED for route_type={route_type}. "
+            f"Level1={self._level1_count}, Level2={self._level2_count}, "
+            f"Level3={self._level3_count}, Static={self._static_count}"
+        )
+        return AIResponse(
+            text=random.choice(FALLBACK_RESPONSES),
+            model="fallback",
+            provider="static",
+            tokens_used=0,
+        )
+
+    async def _save_response(
+        self, user_id: int, message: str, response: AIResponse,
+        sys_prompt: str, use_cache: bool, save_history: bool
+    ) -> AIResponse:
+        """Save response to history and cache."""
         if save_history and response.text:
             await add_chat_message(user_id, "user", message)
             await add_chat_message(user_id, "assistant", response.text)
@@ -223,10 +279,8 @@ class AIRouter:
     async def _try_pollinations(self, user_id: int, message: str, history: list,
                                  sys_prompt: str, temperature: float, max_tokens: int,
                                  model: str) -> AIResponse:
-        """Try Pollinations with smart model selection and model-level fallback.
-
-        The provider handles KEY1 → KEY2 failover internally.
-        Here we handle model-level fallback (try different models if one fails).
+        """Level 1: Try Pollinations with API key (KEY1 → KEY2 internally).
+        Also tries model-level fallbacks.
         """
         messages = self._primary.format_messages(sys_prompt, history, message)
 
@@ -244,14 +298,11 @@ class AIRouter:
                               for code in ["All API keys depleted", "401", "402", "unavailable", "cooldown"])
 
             if is_key_error:
-                # Both keys depleted — try a few different models with broader selection
-                # Different models may have different balance pools
                 fallback_models = [m for m in FALLBACK_MODELS
                                    if m != model and not self._primary._is_model_in_cooldown(m)][:3]
                 if fallback_models:
                     logger.info(f"Key error, trying {len(fallback_models)} fallback models")
             else:
-                # Other errors (timeout, server error) — try a few fallback models
                 fallback_models = [
                     m for m in ["mistral-small", "deepseek-v4", "llama-3.3", "nova-fast",
                                 "gemma", "qwen3-coder", "step-3.5-flash", "nova-micro"]
@@ -276,6 +327,59 @@ class AIRouter:
 
         return response
 
+    async def _try_pollinations_free(self, user_id: int, message: str, history: list,
+                                      sys_prompt: str, temperature: float, max_tokens: int,
+                                      model: str) -> AIResponse:
+        """Level 2: Try Pollinations FREE API (no auth, text.pollinations.ai)."""
+        messages = self._primary.format_messages(sys_prompt, history, message)
+
+        # Use simpler models for free API — they're more reliable
+        free_models = ["openai", "mistral", "openai-large"]
+        if model and model not in free_models:
+            free_models.insert(0, model)
+
+        for free_model in free_models[:3]:
+            if self._primary._is_model_in_cooldown(free_model):
+                continue
+            result = await self._primary.chat_free(
+                messages=messages,
+                model=free_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            if not result.error and result.text:
+                return result
+
+        return AIResponse(
+            text="",
+            model=model or "openai",
+            provider="pollinations-free",
+            error=True,
+            error_message="Free API failed for all models",
+        )
+
+    async def _try_cloudflare(self, user_id: int, message: str, history: list,
+                               sys_prompt: str, temperature: float, max_tokens: int) -> AIResponse:
+        """Level 3: Try Cloudflare Workers AI (Mistral Small 3.1)."""
+        if not self._cloudflare or not self._cloudflare._accounts:
+            return AIResponse(
+                text="",
+                model="cloudflare",
+                provider="cloudflare",
+                error=True,
+                error_message="Cloudflare not configured",
+            )
+
+        # Cloudflare has only one model — Mistral Small 3.1
+        # It handles Russian well, good for all route types
+        messages = self._primary.format_messages(sys_prompt, history, message)
+
+        return await self._cloudflare.chat(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
     async def analyze_image(
         self,
         user_id: int,
@@ -285,7 +389,12 @@ class AIRouter:
         extra_context: str = "",
     ) -> AIResponse:
         """
-        Analyze an image using Pollinations vision-capable models.
+        Analyze an image with 3-level vision failover.
+
+        Level 1: Pollinations vision (with key)
+        Level 2: Pollinations vision (free API)
+        Level 3: Cloudflare vision (Mistral Small 3.1 with image_url)
+        Last resort: Static fallback
         """
         # Build the vision prompt
         if not prompt:
@@ -302,7 +411,7 @@ class AIRouter:
         # Build context from history
         context_summary = ""
         if history:
-            recent = history[-6:]  # Last 6 messages for context
+            recent = history[-6:]
             for msg in recent:
                 role = "Пользователь" if msg.get("role") == "user" else "Ася"
                 content = msg.get("content", "")[:100]
@@ -312,6 +421,7 @@ class AIRouter:
         if context_summary:
             sys_prompt += f"\n\nКонтекст недавней беседы:\n{context_summary}"
 
+        # ── LEVEL 1: Pollinations vision with key ──
         response = await self._primary.analyze_image(
             image_url=image_url,
             image_base64=image_base64,
@@ -322,25 +432,63 @@ class AIRouter:
             temperature=0.7,
         )
 
-        # If vision failed, static fallback
-        if response.error:
-            self._total_fallbacks += 1
-            logger.error(f"Vision analysis failed: {response.error_message}")
-            response = AIResponse(
-                text="Ой, не получилось разглядеть фото 😅 Попробуй ещё раз!",
-                model="fallback",
-                provider="static",
-                error=True,
-                error_message=response.error_message,
+        if not response.error:
+            self._level1_count += 1
+            # Save to history
+            if response.text:
+                await add_chat_message(user_id, "user", f"[Фото] {prompt[:97]}")
+                await add_chat_message(user_id, "assistant", response.text)
+            return response
+
+        # ── LEVEL 2: Pollinations FREE vision ──
+        logger.warning(f"Vision Level 1 failed, trying free API: {response.error_message}")
+        response = await self._primary.analyze_image_free(
+            image_url=image_url,
+            image_base64=image_base64,
+            prompt=prompt,
+            model="openai",
+            system_prompt=sys_prompt,
+            max_tokens=800,
+            temperature=0.7,
+        )
+
+        if not response.error:
+            self._level2_count += 1
+            if response.text:
+                await add_chat_message(user_id, "user", f"[Фото] {prompt[:97]}")
+                await add_chat_message(user_id, "assistant", response.text)
+            return response
+
+        # ── LEVEL 3: Cloudflare vision (Mistral Small 3.1 with image_url) ──
+        logger.warning(f"Vision Level 2 failed, trying Cloudflare: {response.error_message}")
+        if self._cloudflare and self._cloudflare._accounts:
+            response = await self._cloudflare.analyze_image(
+                image_url=image_url,
+                image_base64=image_base64,
+                prompt=prompt,
+                system_prompt=sys_prompt,
+                max_tokens=800,
+                temperature=0.7,
             )
 
-        # Save to history
-        if not response.error and response.text:
-            prompt_text = prompt if len(prompt) < 100 else prompt[:97] + "..."
-            await add_chat_message(user_id, "user", f"[Фото] {prompt_text}")
-            await add_chat_message(user_id, "assistant", response.text)
+            if not response.error:
+                self._level3_count += 1
+                if response.text:
+                    await add_chat_message(user_id, "user", f"[Фото] {prompt[:97]}")
+                    await add_chat_message(user_id, "assistant", response.text)
+                return response
 
-        return response
+        # ── LAST RESORT: Static fallback ──
+        self._static_count += 1
+        self._total_fallbacks += 1
+        logger.error(f"ALL vision levels failed: {response.error_message}")
+        return AIResponse(
+            text="Ой, не получилось разглядеть фото 😅 Попробуй ещё раз!",
+            model="fallback",
+            provider="static",
+            error=True,
+            error_message=response.error_message,
+        )
 
     async def decode_vin(
         self,
@@ -350,7 +498,7 @@ class AIRouter:
     ) -> AIResponse:
         """
         Decode a VIN code or body number for vehicle information.
-        FUNCTION route — best quality Pollinations models for accuracy.
+        FUNCTION route — best quality models for accuracy.
         """
         # Clean VIN code
         vin_clean = vin_code.strip().upper()
@@ -454,7 +602,7 @@ class AIRouter:
     ) -> AIResponse:
         """
         Generate a post for the @sochiautoparts channel.
-        Pollinations best quality models for public content.
+        3-level failover: Pollinations key → free → Cloudflare.
         """
         system_prompt = persona.system_prompt + persona.channel_prompt_suffix
 
@@ -496,12 +644,12 @@ class AIRouter:
         if extra_instructions:
             user_content += f"\n\nДополнительные инструкции: {extra_instructions}"
 
-        # ── Pollinations for channel posts (best quality for public content!) ──
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
         ]
 
+        # ── LEVEL 1: Pollinations with key ──
         post_model = model or "openai-large"
         response = await self._primary.chat(
             messages=messages,
@@ -525,8 +673,30 @@ class AIRouter:
                     max_tokens=1500,
                 )
                 if not response.error:
-                    self._total_requests += 1
                     break
+
+        # ── LEVEL 2: Pollinations free API ──
+        if response.error:
+            logger.warning(f"Channel post Level 1 failed, trying free API")
+            for free_model in ["openai", "mistral", "openai-large"]:
+                result = await self._primary.chat_free(
+                    messages=messages,
+                    model=free_model,
+                    temperature=0.8,
+                    max_tokens=1500,
+                )
+                if not result.error and result.text:
+                    response = result
+                    break
+
+        # ── LEVEL 3: Cloudflare ──
+        if response.error and self._cloudflare and self._cloudflare._accounts:
+            logger.warning(f"Channel post Level 2 failed, trying Cloudflare")
+            response = await self._cloudflare.chat(
+                messages=messages,
+                temperature=0.8,
+                max_tokens=1500,
+            )
 
         response = self._finalize_channel_post(response, has_media)
         return response
@@ -623,8 +793,8 @@ class AIRouter:
         system_prompt: str = "",
         extra_context: str = "",
     ) -> AIResponse:
-        """Generate a comment in another group. Uses fast/cheap Pollinations models.
-        If Pollinations fails, uses static fallback.
+        """Generate a comment in another group. Uses fast/cheap models.
+        3-level failover: Pollinations key → free → Cloudflare → Static.
         """
         return await self.chat(
             user_id=user_id,
@@ -708,6 +878,26 @@ class AIRouter:
             "search": SEARCH_MODELS,
             "image": IMAGE_MODELS,
         }
+
+    def get_status(self) -> Dict[str, str]:
+        """Get current status of all providers."""
+        status = {}
+        # Pollinations
+        status["pollinations_keys"] = self._primary._get_key_status_summary()
+        status["pollinations_free"] = "available" if self._primary._is_free_api_available() else "cooldown"
+        # Cloudflare
+        if self._cloudflare and self._cloudflare._accounts:
+            status["cloudflare"] = self._cloudflare.get_status()
+        else:
+            status["cloudflare"] = "not_configured"
+        # Stats
+        status["stats"] = (
+            f"L1(poll-key)={self._level1_count} "
+            f"L2(poll-free)={self._level2_count} "
+            f"L3(cloudflare)={self._level3_count} "
+            f"static={self._static_count}"
+        )
+        return status
 
 
 # ── Global instance ────────────────────────────────────────────────────────────
