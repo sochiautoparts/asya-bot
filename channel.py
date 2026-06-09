@@ -1097,7 +1097,7 @@ class ChannelManager:
             logger.info(f"Daily post limit reached ({today_count}/{config.CHANNEL_MAX_POSTS_PER_DAY})")
             return False
 
-        # Check hourly limit — max 4 posts per hour (2 posts × 2 cycles)
+        # Check hourly limit — max 6 posts per hour (3 posts × 2 cycles)
         hourly_count = await get_hourly_post_count()
         if hourly_count >= config.CHANNEL_MAX_POSTS_PER_HOUR:
             logger.info(f"Hourly post limit reached ({hourly_count}/{config.CHANNEL_MAX_POSTS_PER_HOUR})")
@@ -1789,8 +1789,8 @@ class ChannelManager:
         2. Try news — up to 3 attempts with DIFFERENT items
         3. Fallback: AI-generated "fun fact" if no web news works
         
-        Each cycle is called TWICE per 30-min interval (2 different posts).
-        Dedup ensures the 2nd post is always different from the 1st.
+        Each cycle is called 3 TIMES per 30-min interval (3 different posts).
+        Dedup ensures each post is always different from the others.
         """
         logger.info("run_scheduled_post: called")
         now = time.time()

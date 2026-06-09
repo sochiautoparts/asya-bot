@@ -235,13 +235,14 @@ class BackgroundTasks:
                 await asyncio.sleep(1)
 
     async def _channel_poster(self) -> None:
-        """Periodically post to channel — 2 DIFFERENT posts per cycle.
+        """Periodically post to channel — 3 DIFFERENT posts per cycle.
         
-        Each 30-min cycle publishes 2 different posts:
+        Each 30-min cycle publishes 3 different posts:
         1st post: news or partner content
         2nd post: a DIFFERENT news item (different topic)
+        3rd post: another DIFFERENT news item (different topic)
         
-        Both posts go through full dedup pipeline to ensure no duplicates.
+        All posts go through full dedup pipeline to ensure no duplicates.
         """
         # Wait a bit after startup
         await asyncio.sleep(30)
@@ -253,14 +254,14 @@ class BackgroundTasks:
         while self._running:
             posts_this_cycle = 0
             logger.info(f"Channel poster: starting new cycle (consecutive_empty={consecutive_empty_cycles})")
-            for post_num in range(2):  # Try to post 2 different items per cycle
+            for post_num in range(3):  # Try to post 3 different items per cycle
                 try:
                     posted = await channel_manager.run_scheduled_post()
                     if posted:
                         posts_this_cycle += 1
-                        logger.info(f"Channel poster: post {post_num + 1}/2 published successfully")
-                        # Gap between posts (1-2 minutes) — shorter to ensure both fit in cycle
-                        if post_num == 0:
+                        logger.info(f"Channel poster: post {post_num + 1}/3 published successfully")
+                        # Gap between posts (1-2 minutes) — ensures all 3 fit in 30-min cycle
+                        if post_num < 2:  # Pause after 1st and 2nd post (not after 3rd)
                             gap = random.randint(60, 120)  # 1-2 minutes
                             logger.info(f"Waiting {gap}s before next post in this cycle")
                             for _ in range(gap):
@@ -268,7 +269,7 @@ class BackgroundTasks:
                                     break
                                 await asyncio.sleep(1)
                     else:
-                        logger.info(f"Channel poster: post {post_num + 1}/2 returned False (no content available or blocked by dedup)")
+                        logger.info(f"Channel poster: post {post_num + 1}/3 returned False (no content available or blocked by dedup)")
                 except Exception as e:
                     logger.error(f"Channel poster error (post {post_num + 1}): {e}", exc_info=True)
             

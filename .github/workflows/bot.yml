@@ -103,7 +103,7 @@ jobs:
           echo "VISION: Pollinations vision models"
           echo "CONTENT ENGINE: Web-search-first, RSS fallback, AI topic selection"
           echo "STRATEGY: Pollinations-only, dual-key=KEY1+KEY2, circuit-break=5min"
-          echo "SCHEDULE: 30 min intervals, 2 posts/cycle + partner posts"
+          echo "SCHEDULE: 30 min intervals, 3 posts/cycle + partner posts"
           echo "NEW: Editorial jokes, translation/uniquification, improved image pipeline"
           echo ""
 
