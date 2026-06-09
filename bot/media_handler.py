@@ -13,7 +13,7 @@ import re
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
-import aiohttp
+import httpx
 
 logger = logging.getLogger("asya.media_handler")
 
@@ -96,9 +96,9 @@ class MediaHandler:
         
         # Score each image
         scored_images = []
-        async with aiohttp.ClientSession() as session:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
             for url in candidates[:10]:  # Limit to 10 candidates
-                scored = await self._score_image(session, url, article_data)
+                scored = await self._score_image(client, url, article_data)
                 if scored and scored.quality != ImageQuality.REJECT:
                     scored_images.append(scored)
         
@@ -207,7 +207,7 @@ class MediaHandler:
     
     async def _score_image(
         self, 
-        session: aiohttp.ClientSession, 
+        client: httpx.AsyncClient, 
         url: str, 
         article_data: Dict
     ) -> Optional[ScoredImage]:
@@ -223,25 +223,25 @@ class MediaHandler:
             
             # Try to get image info via HEAD request
             try:
-                async with session.head(url, timeout=5) as resp:
-                    if resp.status != 200:
-                        return None
-                    
-                    content_type = resp.headers.get('Content-Type', '')
-                    if not content_type.startswith('image/'):
-                        return None
-                    
-                    content_length = int(resp.headers.get('Content-Length', 0))
-                    size_kb = content_length // 1024
-                    
-                    # Size check
-                    if size_kb > 0 and size_kb < self.MIN_SIZE_KB:
-                        logger.debug(f"❌ Too small: {size_kb}KB")
-                        return ScoredImage(url=url, quality=ImageQuality.REJECT, score=0)
-                    
-                    if size_kb > self.MAX_SIZE_KB:
-                        logger.debug(f"⚠️ Too large: {size_kb}KB")
-                        # Still allow, but lower score
+                resp = await client.head(url)
+                if resp.status_code != 200:
+                    return None
+
+                content_type = resp.headers.get('content-type', '')
+                if not content_type.startswith('image/'):
+                    return None
+
+                content_length = int(resp.headers.get('content-length', 0))
+                size_kb = content_length // 1024
+
+                # Size check
+                if size_kb > 0 and size_kb < self.MIN_SIZE_KB:
+                    logger.debug(f"Too small: {size_kb}KB")
+                    return ScoredImage(url=url, quality=ImageQuality.REJECT, score=0)
+
+                if size_kb > self.MAX_SIZE_KB:
+                    logger.debug(f"Too large: {size_kb}KB")
+                    # Still allow, but lower score
             except Exception as e:
                 logger.debug(f"HEAD request failed: {e}")
                 size_kb = 0

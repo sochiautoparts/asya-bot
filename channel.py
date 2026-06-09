@@ -1,6 +1,5 @@
-from bot.media_handler import media_handler, ImageQuality
-
-Channel Manager - Posts to @sochiautoparts with proper formatting.
+"""
+Channel Manager -- Posts to @sochiautoparts with proper formatting.
 Handles news posts, partner posts, scheduled content, reactions,
 media, polls, and internet news search.
 Properly enforces Telegram character limits: 1024 with media, 4096 without.
@@ -97,8 +96,8 @@ def _is_semantically_duplicate(title: str) -> bool:
     """Check if 3+ significant words from title match a recently posted title.
     
     Uses a TWO-LEVEL check:
-    - Level 1: 3+ significant words overlap → DUPLICATE
-    - Level 2: 2+ CORE words (brand + model/event) overlap → DUPLICATE
+    - Level 1: 3+ significant words overlap -> DUPLICATE
+    - Level 2: 2+ CORE words (brand + model/event) overlap -> DUPLICATE
     
     This catches both obvious and subtle duplicates like:
     - "BMW X5 получил новый двигатель" vs "Новый мотор для BMW X5"
