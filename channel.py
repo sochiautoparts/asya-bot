@@ -1,4 +1,4 @@
-"""
+from bot.media_handler import media_handler, ImageQuality\n\n"""
 Channel Manager — Posts to @sochiautoparts with proper formatting.
 Handles news posts, partner posts, scheduled content, reactions,
 media, polls, and internet news search.
@@ -1258,6 +1258,26 @@ class ChannelManager:
                 "AI-иллюстрации только если фото нет. "
             )
 
+        # ── TONE ANALYSIS — Determine appropriate tone for this news ──
+        try:
+            from bot.content_engine import analyze_news_tone, get_tone_specific_joke, validate_facts_in_text
+            facts = await analyze_news_tone(
+                news_item.get("title", ""),
+                news_item.get("summary", ""),
+                source_text
+            )
+            logger.info(f"📊 Tone analysis: {facts.tone.value}, brand={facts.brand}, model={facts.model}")
+            
+            # Add tone-specific joke if appropriate (NOT for serious news)
+            if facts.tone.value != "serious" and not news_item.get("is_partner"):
+                tone_joke = get_tone_specific_joke(facts.tone)
+                if tone_joke and tone_joke not in post_text:
+                    post_text = post_text.rstrip() + f"\\n\\n✏️ {tone_joke}"
+                    logger.info(f"✅ Added tone joke for {facts.tone.value}")
+        except Exception as e:
+            logger.warning(f"Tone analysis failed: {e}")
+            facts = None
+        
         response = await ai_router.generate_channel_post(
             topic=news_item["title"],
             source_text=source_text,
