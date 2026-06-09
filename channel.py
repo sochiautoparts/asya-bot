@@ -1201,6 +1201,9 @@ class ChannelManager:
             "7. НЕ ДОБАВЛЯЙ никаких редакционных заметок, пометок, внутренних комментариев, "
             "обсуждений темы, пояснений почему тема подходит или не подходит. "
             "ТОЛЬКО чистый текст поста для читателей канала.\n"
+            "8. БУДЬ КОМПАКТЕН: 400-800 символов — оптимально. До 1000 если есть что сказать. "
+            "НЕ раздувай текст водой — каждый абзац несёт смысл. "
+            "МАКСИМУМ ОДИН персонаж редакции за пост — не перечисляй всех!\n"
         )
         # Channel context removed — was causing AI to discuss editorial decisions
         # in the post text instead of just picking a different topic.
@@ -1313,6 +1316,24 @@ class ChannelManager:
         # Post-gen checks were redundant and caused false blocks when AI rewrote
         # the same news differently (which is the desired behavior).
 
+        # ── SMART MEDIA DECISION: keep full text for valuable posts ──
+        # If post text is long and valuable (>1024 chars), publish WITHOUT media
+        # to use the 4096-char text-only limit instead of the 1024-char caption limit.
+        # This ensures editorial content is never truncated.
+        # Short posts (<1024 chars) get media normally.
+        _CAPTION_LIMIT = config.TELEGRAM_CAPTION_LIMIT  # 1024
+        _TEXT_LIMIT = config.TELEGRAM_TEXT_LIMIT  # 4096
+
+        if has_media and len(post_text) > _CAPTION_LIMIT:
+            # Post is too long for caption — check if it's worth keeping full text
+            # Always prefer full text over media — editorial content is king
+            logger.info(
+                f"Post text {len(post_text)} chars > caption limit {_CAPTION_LIMIT}. "
+                f"Publishing WITHOUT media to preserve full text (limit {_TEXT_LIMIT})."
+            )
+            has_media = False
+            image_list = []
+
         # Smart character limit enforcement — always preserve footer
         post_text = _enforce_char_limit(post_text, has_media)
 
@@ -1362,12 +1383,12 @@ class ChannelManager:
                     tmp_paths.append(tmp_path)
 
                 if len(tmp_paths) == 1:
-                    # Single image — use send_photo
+                    # Single image — use send_photo (caption already enforced by _enforce_char_limit)
                     photo = FSInputFile(tmp_paths[0], filename="asya_post.png")
                     sent = await self._bot.send_photo(
                         chat_id=config.CHANNEL_ID,
                         photo=photo,
-                        caption=post_text[:config.TELEGRAM_CAPTION_LIMIT],
+                        caption=post_text,
                         parse_mode=ParseMode.HTML,
                         disable_notification=True,
                     )
@@ -1377,10 +1398,10 @@ class ChannelManager:
                     for i, tmp_path in enumerate(tmp_paths):
                         photo_file = FSInputFile(tmp_path, filename=f"asya_post_{i}.png")
                         if i == 0:
-                            # First image gets the caption
+                            # First image gets the caption (already enforced by _enforce_char_limit)
                             media_group.append(InputMediaPhoto(
                                 media=photo_file,
-                                caption=post_text[:config.TELEGRAM_CAPTION_LIMIT],
+                                caption=post_text,
                                 parse_mode=ParseMode.HTML,
                             ))
                         else:
@@ -1684,6 +1705,16 @@ class ChannelManager:
         if not _validate_post_text_partner(post_content):
             return False
 
+        # ── SMART MEDIA DECISION: keep full text for partner posts too ──
+        # If partner post text > 1024 chars, publish without media to preserve text
+        if has_media and len(post_content) > config.TELEGRAM_CAPTION_LIMIT:
+            logger.info(
+                f"Partner post {len(post_content)} chars > caption limit. "
+                f"Publishing WITHOUT media to preserve full text."
+            )
+            has_media = False
+            partner_image_data = None
+
         # Smart character limit — always preserve footer
         post_content = _enforce_char_limit(post_content, has_media)
 
@@ -1701,7 +1732,7 @@ class ChannelManager:
                 sent = await self._bot.send_photo(
                     chat_id=config.CHANNEL_ID,
                     photo=photo,
-                    caption=post_content[:config.TELEGRAM_CAPTION_LIMIT],
+                    caption=post_content,
                     parse_mode=ParseMode.HTML,
                     disable_notification=True,
                 )
