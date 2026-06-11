@@ -73,7 +73,8 @@ class LocalProvider(BaseAIProvider):
     def _download_model(self) -> bool:
         """Download the GGUF model from HuggingFace if auto-download is enabled.
 
-        Uses MODEL_DOWNLOAD_URL from config. Downloads with progress indication.
+        Uses MODEL_DOWNLOAD_URL from config. Supports authenticated downloads
+        via HF_TOKEN environment variable (required for gated models).
         Returns True if download succeeded or file already exists.
         """
         if not self._model_path:
@@ -91,36 +92,103 @@ class LocalProvider(BaseAIProvider):
             return False
 
         download_url = config.MODEL_DOWNLOAD_URL
-        if not download_url:
-            logger.warning("MODEL_DOWNLOAD_URL not set, cannot auto-download")
-            return False
+        hf_token = os.getenv("HF_TOKEN", "")
 
         try:
-            import urllib.request
-            import sys
-
             # Create models directory
             model_dir = os.path.dirname(self._model_path)
             if model_dir:
                 os.makedirs(model_dir, exist_ok=True)
 
+            # Method 1: Use huggingface_hub if available and HF_TOKEN is set
+            if hf_token:
+                try:
+                    from huggingface_hub import hf_hub_download
+                    logger.info("Downloading model via huggingface_hub (authenticated)...")
+
+                    # Parse repo and filename from URL
+                    # URL format: https://huggingface.co/{repo_id}/resolve/main/{filename}
+                    if "huggingface.co/" in download_url:
+                        parts = download_url.split("huggingface.co/")[1]
+                        # parts: Qwen/Qwen3-4B-Instruct-GGUF/resolve/main/Qwen3-4B-Instruct-Q4_K_M.gguf
+                        path_parts = parts.split("/resolve/")
+                        if len(path_parts) >= 2:
+                            repo_id = path_parts[0]  # Qwen/Qwen3-4B-Instruct-GGUF
+                            filename = path_parts[1].split("/", 1)[-1]  # Qwen3-4B-Instruct-Q4_K_M.gguf
+
+                            start_time = time.time()
+                            downloaded_path = hf_hub_download(
+                                repo_id=repo_id,
+                                filename=filename,
+                                token=hf_token,
+                                local_dir=model_dir or ".",
+                            )
+                            elapsed = time.time() - start_time
+
+                            # hf_hub_download may save to a different path — move if needed
+                            if downloaded_path != self._model_path and os.path.exists(downloaded_path):
+                                import shutil
+                                shutil.move(downloaded_path, self._model_path)
+
+                            if os.path.exists(self._model_path):
+                                size_mb = os.path.getsize(self._model_path) / (1024 * 1024)
+                                if size_mb > 100:
+                                    logger.info(f"Model downloaded via HF hub: {size_mb:.1f} MB in {elapsed:.1f}s")
+                                    return True
+
+                    logger.warning("Could not parse HuggingFace URL, falling back to direct download")
+                except ImportError:
+                    logger.info("huggingface_hub not installed, falling back to direct download")
+                except Exception as e:
+                    logger.warning(f"HF hub download failed: {e}, falling back to direct download")
+
+            # Method 2: Direct download via urllib
+            if not download_url:
+                logger.warning("MODEL_DOWNLOAD_URL not set, cannot download")
+                return False
+
+            import urllib.request
+
             logger.info(f"Downloading model from {download_url}")
             logger.info(f"Target: {self._model_path}")
 
-            # Download with progress callback
-            def report_progress(block_num, block_size, total_size):
-                downloaded = block_num * block_size
-                if total_size > 0:
-                    percent = min(100, downloaded * 100 / total_size)
-                    size_mb = downloaded / (1024 * 1024)
-                    total_mb = total_size / (1024 * 1024)
-                    # Log every 10% or every 200MB
-                    if block_num % 50 == 0 or percent >= 100:
-                        logger.info(f"  Download progress: {percent:.0f}% ({size_mb:.0f}/{total_mb:.0f} MB)")
+            # Add HF token as authorization header if available
+            if hf_token:
+                logger.info("Using HF_TOKEN for authenticated download")
+                opener = urllib.request.build_opener()
+                request = urllib.request.Request(download_url)
+                request.add_header("Authorization", f"Bearer {hf_token}")
+                response = opener.open(request)
+                with open(self._model_path, 'wb') as f:
+                    # Download with progress
+                    total_size = int(response.headers.get('content-length', 0))
+                    downloaded = 0
+                    block_size = 8192
+                    last_report = 0
+                    while True:
+                        chunk = response.read(block_size)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        # Report every 10% or every 256MB
+                        now = time.time()
+                        if total_size > 0 and (downloaded * 100 // total_size > last_report + 10
+                                               or downloaded - last_report * total_size // 100 > 256 * 1024 * 1024):
+                            pct = downloaded * 100 // total_size
+                            logger.info(f"  Download: {pct}% ({downloaded // 1048576}/{total_size // 1048576} MB)")
+                            last_report = pct
+            else:
+                # No token — try unauthenticated download
+                def report_progress(block_num, block_size, total_size):
+                    downloaded = block_num * block_size
+                    if total_size > 0:
+                        percent = min(100, downloaded * 100 / total_size)
+                        if block_num % 50 == 0:
+                            logger.info(f"  Download: {percent:.0f}% ({downloaded // 1048576}/{total_size // 1048576} MB)")
 
-            start_time = time.time()
-            urllib.request.urlretrieve(download_url, self._model_path, reporthook=report_progress)
-            elapsed = time.time() - start_time
+                start_time = time.time()
+                urllib.request.urlretrieve(download_url, self._model_path, reporthook=report_progress)
 
             # Verify download
             if not os.path.exists(self._model_path):
@@ -133,7 +201,7 @@ class LocalProvider(BaseAIProvider):
                 os.remove(self._model_path)
                 return False
 
-            logger.info(f"Model downloaded: {size_mb:.1f} MB in {elapsed:.1f}s")
+            logger.info(f"Model downloaded: {size_mb:.1f} MB")
             return True
 
         except Exception as e:

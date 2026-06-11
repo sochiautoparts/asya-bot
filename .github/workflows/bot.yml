@@ -42,6 +42,7 @@ env:
   MODEL_MAX_TOKENS: "512"
   MODEL_AUTO_DOWNLOAD: "true"
   MODEL_DOWNLOAD_URL: "https://huggingface.co/Qwen/Qwen3-4B-Instruct-GGUF/resolve/main/Qwen3-4B-Instruct-Q4_K_M.gguf"
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
   # Schedule settings
   NEWS_INTERVAL_MINUTES: "30"
   CHANNEL_POST_INTERVAL_MINUTES: "30"
@@ -86,27 +87,43 @@ jobs:
         run: |
           mkdir -p models
           if [ -f "models/Qwen3-4B-Instruct-Q4_K_M.gguf" ]; then
-            SIZE=$(stat -c%s "models/Qwen3-4B-Instruct-Q4_K_M.gguf" 2>/dev/null || stat -f%z "models/Qwen3-4B-Instruct-Q4_K_M.gguf" 2>/dev/null || echo 0)
+            SIZE=$(stat -c%s "models/Qwen3-4B-Instruct-Q4_K_M.gguf" 2>/dev/null || echo 0)
             SIZE_MB=$((SIZE / 1048576))
             echo "Model file found in cache: ${SIZE_MB} MB"
             if [ "$SIZE_MB" -lt 100 ]; then
-              echo "Cached file too small, re-downloading..."
+              echo "Cached file too small, removing..."
               rm -f models/Qwen3-4B-Instruct-Q4_K_M.gguf
-              curl -L -o models/Qwen3-4B-Instruct-Q4_K_M.gguf \
+            fi
+          fi
+
+          if [ ! -f "models/Qwen3-4B-Instruct-Q4_K_M.gguf" ]; then
+            echo "Downloading Qwen3-4B-Instruct Q4_K_M (~2.5GB)..."
+            if [ -n "$HF_TOKEN" ]; then
+              echo "Using HuggingFace token for authenticated download..."
+              pip install huggingface_hub -q
+              huggingface-cli download --local-dir models --include "Qwen3-4B-Instruct-Q4_K_M.gguf" Qwen/Qwen3-4B-Instruct-GGUF --token "$HF_TOKEN"
+            else
+              echo "No HF_TOKEN set, trying unauthenticated download..."
+              curl -L --max-time 600 --retry 3 --retry-delay 10 \
+                -o models/Qwen3-4B-Instruct-Q4_K_M.gguf \
                 "https://huggingface.co/Qwen/Qwen3-4B-Instruct-GGUF/resolve/main/Qwen3-4B-Instruct-Q4_K_M.gguf"
             fi
-          else
-            echo "Model not cached, downloading Qwen3-4B-Instruct Q4_K_M (~2.5GB)..."
-            curl -L -o models/Qwen3-4B-Instruct-Q4_K_M.gguf \
-              "https://huggingface.co/Qwen/Qwen3-4B-Instruct-GGUF/resolve/main/Qwen3-4B-Instruct-Q4_K_M.gguf"
           fi
+
           # Verify
-          SIZE=$(stat -c%s "models/Qwen3-4B-Instruct-Q4_K_M.gguf" 2>/dev/null || stat -f%z "models/Qwen3-4B-Instruct-Q4_K_M.gguf" 2>/dev/null || echo 0)
-          SIZE_MB=$((SIZE / 1048576))
-          echo "Model file size: ${SIZE_MB} MB"
-          if [ "$SIZE_MB" -lt 100 ]; then
-            echo "ERROR: Model file too small or corrupted!"
-            exit 1
+          if [ -f "models/Qwen3-4B-Instruct-Q4_K_M.gguf" ]; then
+            SIZE=$(stat -c%s "models/Qwen3-4B-Instruct-Q4_K_M.gguf" 2>/dev/null || echo 0)
+            SIZE_MB=$((SIZE / 1048576))
+            echo "Model file size: ${SIZE_MB} MB"
+            if [ "$SIZE_MB" -lt 100 ]; then
+              echo "ERROR: Model file too small or corrupted!"
+              rm -f models/Qwen3-4B-Instruct-Q4_K_M.gguf
+              echo "WARNING: Model download failed — bot will run in cloud-only mode"
+              echo "ENABLE_LOCAL_MODEL=false" >> $GITHUB_ENV
+            fi
+          else
+            echo "WARNING: Model download failed — bot will run in cloud-only mode"
+            echo "ENABLE_LOCAL_MODEL=false" >> $GITHUB_ENV
           fi
 
       - name: Clean Python cache
