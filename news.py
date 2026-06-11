@@ -795,7 +795,7 @@ def _extract_entry_images(entry) -> List[str]:
         elif isinstance(content_value, str):
             _extract_img_urls(content_value, _add_image)
 
-    return images[:3]  # Max 3 candidate images per news item (further filtered on download)
+    return images[:10]  # Up to 10 candidate images per news item (Telegram mediagroup limit)
 
 
 def _has_image_ext(url: str) -> bool:
