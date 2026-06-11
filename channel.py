@@ -54,13 +54,13 @@ POST_REACTIONS = ["👍", "🔥", "🚗", "😍", "👏", "💯", "🤩", "⚡"]
 # Telegram allows up to 10 media per post.
 # We aim for rich visual posts with multiple relevant images from news sources.
 NEWS_IMAGES_MIN = 2
-NEWS_IMAGES_MAX = 3
-# Maximum total images in a channel post (hard limit)
+NEWS_IMAGES_MAX = 10
+# Maximum total images in a channel post (hard limit — Telegram allows 10)
 MAX_IMAGES_PER_POST = 10
 # Maximum real images to download from RSS (not the Telegram limit!)
-MAX_RSS_IMAGES = 5
+MAX_RSS_IMAGES = 10
 # Maximum images to scrape from article page
-MAX_SCRAPE_IMAGES = 5
+MAX_SCRAPE_IMAGES = 10
 # Maximum images from web search enrichment
 MAX_SEARCH_IMAGES = 5
 
@@ -626,11 +626,10 @@ class ChannelManager:
         if not image_urls:
             return images
 
-        # Max size for news images — filter out huge garbage
-        # 2MB limit: large images are usually full-page screenshots,
-        # data URIs, or high-res photos that Telegram compresses anyway.
-        # Partner images use a separate download method with relaxed limits.
-        MAX_IMAGE_SIZE = 2 * 1024 * 1024  # 2MB
+        # Max size for news images
+        # 5MB limit — some high-quality article photos are 2-4MB, that's fine.
+        # Telegram compresses anyway, and we want real photos not tiny thumbnails.
+        MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB
 
         for url in image_urls[:max_count * 3]:  # Try extra URLs in case some fail
             if len(images) >= max_count:
@@ -644,7 +643,7 @@ class ChannelManager:
             try:
                 async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
                     response = await client.get(url, headers={
-                        "User-Agent": "Mozilla/5.0 (compatible; AsyaBot/1.0; +https://t.me/asiaexp_bot)",
+                        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
                     })
                     if response.status_code != 200:
                         continue
@@ -694,37 +693,34 @@ class ChannelManager:
 
     @staticmethod
     def _is_junk_image_url(url: str) -> bool:
-        """Check if an image URL is likely a non-content image (logo, icon, banner, ad, etc.)."""
+        """Check if an image URL is likely non-content.
+        
+        NOTE: Intentionally NOT filtering 'crop', 'resize', 'scaled', 'preview',
+        'thumb' because WordPress and other CMS use these in URLs for full-size images too.
+        Many CDN URLs contain 'crop' or 'resize' but serve the actual article image.
+        """
         url_lower = url.lower()
-
-        # Skip common junk patterns in URL path
         junk_keywords = [
             "icon", "logo", "favicon", "avatar", "badge", "button", "btn",
-            "banner", "spinner", "loading", "placeholder", "pixel", "tracker",
-            "analytics", "social", "share", "facebook", "twitter", "vk.",
+            "spinner", "loading", "placeholder", "pixel", "tracker",
+            "analytics", "share", "facebook", "twitter", "vk.",
             "telegram", "whatsapp", "instagram", "youtube", "tiktok",
-            "ad.", "ads/", "advert", "sponsor", "promo",
+            "ad.", "ads/", "advert", "sponsor",
             "emoji", "smileys", "captcha", "recaptcha",
-            "1x1", "spacer", "blank", "transparent", "dot.", "clear",
-            "rss", "feed", "subscribe", "newsletter",
-            "watermark", "overlay", "frame", "border",
-            # Thumbnail/small image patterns — these are NOT content photos
-            "thumb", "small", "preview", "mini", "tiny", "crop",
-            "resize", "scaled", "lowres", "low-res",
-            "gallery-thumb", "list-thumb", "card-thumb",
+            "1x1", "spacer", "blank", "transparent", "dot.",
+            "watermark",
         ]
         for kw in junk_keywords:
             if kw in url_lower:
                 return True
 
-        # Skip URLs with very small size indicators (e.g., 16x16, 32x32, 48x48)
-        import re
+        # Skip URLs with very small size indicators
         size_pattern = re.compile(r'[/=_x](\d{1,3})x(\d{1,3})[/._]')
         size_match = size_pattern.search(url_lower)
         if size_match:
             w, h = int(size_match.group(1)), int(size_match.group(2))
             if w < 100 or h < 100:
-                return True  # Too small = icon/thumbnail
+                return True
 
         return False
 
@@ -779,70 +775,182 @@ class ChannelManager:
             logger.debug("Can't read image dimensions, accepting as-is (soft validation)")
             return True
 
-    async def _scrape_article_images(self, article_url: str, max_count: int = 5) -> List[bytes]:
+    async def _scrape_article_images(self, article_url: str, max_count: int = 10) -> List[bytes]:
         """Scrape images from a news article page.
         
-        Extracts og:image and twitter:image from the article HTML.
-        Only uses <img> tags as last resort, with strict filtering.
+        Extracts images from multiple sources in priority order:
+        1. og:image meta tags (usually the main article image)
+        2. twitter:image meta tags
+        3. JSON-LD structured data (schema.org image field)
+        4. <picture>/<source srcset> elements
+        5. <img> tags from article body areas (src + data-src for lazy loading)
+        
         Returns list of image data bytes (up to max_count).
         """
         images = []
         try:
-            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-                response = await client.get(article_url, headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                })
+            # Use a realistic browser User-Agent — many news sites block bot-like UAs
+            _SCRAPE_HEADERS = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Accept-Encoding": "gzip, deflate, br",
+                "DNT": "1",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+            }
+            async with httpx.AsyncClient(timeout=20.0, follow_redirects=True, max_redirects=5) as client:
+                response = await client.get(article_url, headers=_SCRAPE_HEADERS)
                 if response.status_code != 200:
+                    logger.debug(f"Scrape HTTP {response.status_code} for {article_url[:60]}")
                     return images
 
                 html = response.text
                 
-                # Extract og:image first (usually the main article image)
+                # 1. Extract og:image first (usually the main article image)
                 og_images = re.findall(r'<meta[^>]+property=["\x27]og:image["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]', html, re.IGNORECASE)
                 og_images += re.findall(r'<meta[^>]+content=["\x27]([^"\x27]+)["\x27][^>]+property=["\x27]og:image["\x27]', html, re.IGNORECASE)
+                # Also og:image:url and og:image:secure_url
+                og_images += re.findall(r'<meta[^>]+property=["\x27]og:image:url["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]', html, re.IGNORECASE)
+                og_images += re.findall(r'<meta[^>]+property=["\x27]og:image:secure_url["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]', html, re.IGNORECASE)
                 
-                # Extract twitter:image
+                # 2. Extract twitter:image
                 tw_images = re.findall(r'<meta[^>]+name=["\x27]twitter:image["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]', html, re.IGNORECASE)
                 tw_images += re.findall(r'<meta[^>]+content=["\x27]([^"\x27]+)["\x27][^>]+name=["\x27]twitter:image["\x27]', html, re.IGNORECASE)
                 
-                # Extract <img> tags with strict filtering — only from article body areas
-                # Look for images inside <article>, <main>, or with class containing 'content'/'article'
+                # 3. Extract images from JSON-LD structured data (schema.org)
+                jsonld_images = self._extract_jsonld_images(html)
+                
+                # 4. Extract from <picture>/<source srcset> elements
+                srcset_images = []
+                picture_blocks = re.findall(r'<picture[^>]*>(.*?)</picture>', html, re.IGNORECASE | re.DOTALL)
+                for block in picture_blocks:
+                    srcsets = re.findall(r'srcset=["\x27]([^"\x27]+)["\x27]', block, re.IGNORECASE)
+                    for srcset in srcsets:
+                        for part in srcset.split(','):
+                            url = part.strip().split()[0] if part.strip() else ''
+                            if url:
+                                srcset_images.append(url)
+                
+                # 5. Extract <img> tags — from article body areas
                 article_html = ""
                 for pattern in [r'<article[^>]*>(.*?)</article>', r'<main[^>]*>(.*?)</main>', r'<div[^>]+class=["\x27][^"\x27]*(?:content|article|post|entry)[^"\x27]*["\x27][^>]*>(.*?)</div>']:
                     matches = re.findall(pattern, html, re.IGNORECASE | re.DOTALL)
                     for match in matches:
                         article_html += match + "\n"
                 
-                # If no article body found, skip <img> tags entirely (too risky)
-                all_img_urls = []
-                if article_html:
-                    all_img_urls = re.findall(r'<img[^>]+src=["\x27]([^"\x27]+)["\x27]', article_html, re.IGNORECASE)
+                # If no article body found, try all <img> tags as fallback
+                search_html = article_html if article_html else html
+                all_img_urls = re.findall(r'<img[^>]+src=["\x27]([^"\x27]+)["\x27]', search_html, re.IGNORECASE)
+                # Also check data-src for lazy-loaded images
+                lazy_img_urls = re.findall(r'<img[^>]+data-src=["\x27]([^"\x27]+)["\x27]', search_html, re.IGNORECASE)
+                # And data-lazy-src
+                lazy_img_urls += re.findall(r'<img[^>]+data-lazy-src=["\x27]([^"\x27]+)["\x27]', search_html, re.IGNORECASE)
+                all_img_urls = lazy_img_urls + all_img_urls  # Lazy images first (often higher quality)
                 
-                # Prioritize: og:image > twitter:image > article body images
+                # Prioritize: og:image > twitter:image > JSON-LD > srcset > article body images
                 candidate_urls = []
                 seen = set()
-                for url_list in [og_images, tw_images, all_img_urls]:
+                for url_list in [og_images, tw_images, jsonld_images, srcset_images, all_img_urls]:
                     for url in url_list:
-                        if url and url not in seen and len(url) > 30:
+                        if url and url not in seen and len(url) > 10:
                             if url.startswith("//"):
                                 url = "https:" + url
-                            # Skip obvious junk even before downloading
-                            if self._is_junk_image_url(url):
-                                continue
-                            seen.add(url)
-                            candidate_urls.append(url)
+                            if not self._is_junk_image_url(url):
+                                seen.add(url)
+                                candidate_urls.append(url)
                 
-                # Download the images (max 2 from scraping)
+                logger.info(f"Scraped {len(candidate_urls)} candidate image URLs from {article_url[:60]}")
                 images = await self._download_news_images(candidate_urls, max_count=max_count)
 
         except Exception as e:
             logger.debug(f"Article scraping failed for {article_url[:50]}: {e}")
 
         return images
+    
+    @staticmethod
+    def _extract_jsonld_images(html: str) -> List[str]:
+        """Extract image URLs from JSON-LD structured data in HTML.
+        
+        Many modern news sites use schema.org JSON-LD with 'image' field
+        that contains high-quality article images.
+        """
+        images = []
+        try:
+            jsonld_blocks = re.findall(
+                r'<script[^>]+type=["\x27]application/ld\+json["\x27][^>]*>(.*?)</script>',
+                html, re.IGNORECASE | re.DOTALL
+            )
+            for block in jsonld_blocks:
+                try:
+                    import json
+                    data = json.loads(block)
+                    items = data if isinstance(data, list) else [data]
+                    for item in items:
+                        if not isinstance(item, dict):
+                            continue
+                        img_field = item.get("image") or item.get("images")
+                        if not img_field:
+                            continue
+                        if isinstance(img_field, str):
+                            images.append(img_field)
+                        elif isinstance(img_field, dict):
+                            url = img_field.get("url") or img_field.get("contentUrl") or img_field.get("@id", "")
+                            if url:
+                                images.append(url)
+                        elif isinstance(img_field, list):
+                            for img_item in img_field:
+                                if isinstance(img_item, str):
+                                    images.append(img_item)
+                                elif isinstance(img_item, dict):
+                                    url = img_item.get("url") or img_item.get("contentUrl") or img_item.get("@id", "")
+                                    if url:
+                                        images.append(url)
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return images
+
+    @staticmethod
+    def _ai_response_to_bytes(response) -> Optional[bytes]:
+        """Convert AIResponse from generate_image to raw bytes.
+        
+        generate_image() returns AIResponse with image_b64 (base64) or image_url,
+        NOT raw bytes. This helper extracts the actual image bytes.
+        """
+        if response is None:
+            return None
+        # If it's already bytes, return as-is
+        if isinstance(response, bytes):
+            return response
+        # AIResponse object — extract image data
+        try:
+            from ai.providers.base import AIResponse
+            if isinstance(response, AIResponse):
+                if response.image_b64:
+                    import base64
+                    return base64.b64decode(response.image_b64)
+                if response.image_url:
+                    # Download the image from URL
+                    try:
+                        r = httpx.get(response.image_url, timeout=30.0, follow_redirects=True)
+                        if r.status_code == 200 and len(r.content) > 1000:
+                            return r.content
+                    except Exception:
+                        pass
+                return None
+        except ImportError:
+            pass
+        # Fallback: if it has image_b64 attribute
+        if hasattr(response, 'image_b64') and response.image_b64:
+            import base64
+            return base64.b64decode(response.image_b64)
+        return None
 
     async def _generate_post_images(self, news_title: str, count: int = 1) -> List[bytes]:
         """Generate multiple images for a news post using AI (fallback).
-        Returns list of image data bytes, up to `count` images.
+        Returns list of image BYTES, up to `count` images.
 
         3-level failover: Pollinations (key) → Pollinations (free) → None
         LIMITED to max 2 model attempts to avoid timeout/OOM on GitHub Actions.
@@ -869,23 +977,13 @@ class ChannelManager:
                     logger.warning(f"Image generation: reached max {max_attempts} attempts, stopping")
                     break
                 try:
-                    # ── LEVEL 1: Pollinations with key ──
-                    image_data = await asyncio.wait_for(
+                    ai_response = await asyncio.wait_for(
                         ai_router._primary.generate_image(prompt, model=img_model),
                         timeout=60.0
                     )
-                    if image_data:
-                        images.append(image_data)
-                        break  # Got image, no need to try next model
-
-                    # ── LEVEL 2: Pollinations FREE API (no auth) ──
-                    logger.info(f"Image gen Level 1 returned None, trying free API with {img_model}")
-                    image_data = await asyncio.wait_for(
-                        ai_router._primary.generate_image_free(prompt, model=img_model),
-                        timeout=60.0
-                    )
-                    if image_data:
-                        images.append(image_data)
+                    img_bytes = self._ai_response_to_bytes(ai_response)
+                    if img_bytes:
+                        images.append(img_bytes)
                         break
 
                 except asyncio.TimeoutError:
@@ -893,17 +991,6 @@ class ChannelManager:
                     continue
                 except Exception as e:
                     logger.debug(f"Image generation #{i+1} with model {img_model} failed: {e}")
-                    # Try free API on exception
-                    try:
-                        image_data = await asyncio.wait_for(
-                            ai_router._primary.generate_image_free(prompt, model=img_model),
-                            timeout=60.0
-                        )
-                        if image_data:
-                            images.append(image_data)
-                            break
-                    except Exception as e2:
-                        logger.debug(f"Free image gen also failed: {e2}")
                     continue
             if images:
                 break  # Got enough, don't try more prompts
@@ -994,7 +1081,7 @@ class ChannelManager:
                 else:
                     # Specific prompts failed — try ONE generic prompt with ONE model
                     try:
-                        img_data = await asyncio.wait_for(
+                        ai_resp = await asyncio.wait_for(
                             ai_router._primary.generate_image(
                                 "Beautiful modern car on a scenic road, professional automotive "
                                 "photography, golden hour, no text.",
@@ -1002,8 +1089,9 @@ class ChannelManager:
                             ),
                             timeout=60.0,
                         )
-                        if img_data:
-                            image_list = [img_data]
+                        img_bytes = self._ai_response_to_bytes(ai_resp)
+                        if img_bytes:
+                            image_list = [img_bytes]
                             source = "ai-generic"
                             logger.info("Generated generic AI image with flux")
                     except (asyncio.TimeoutError, Exception) as e:
@@ -1413,7 +1501,7 @@ class ChannelManager:
                 else:
                     # Try ONE generic prompt with ONE model (fast, 60s max)
                     try:
-                        img_data = await asyncio.wait_for(
+                        ai_resp = await asyncio.wait_for(
                             ai_router._primary.generate_image(
                                 "Car on a road, professional automotive photography, "
                                 "vibrant colors, dramatic lighting, high quality, no text.",
@@ -1421,8 +1509,9 @@ class ChannelManager:
                             ),
                             timeout=60.0,
                         )
-                        if img_data:
-                            image_list = [img_data]
+                        img_bytes = self._ai_response_to_bytes(ai_resp)
+                        if img_bytes:
+                            image_list = [img_bytes]
                             has_media = True
                             logger.info("Generic AI image SUCCEEDED with flux")
                     except (asyncio.TimeoutError, Exception) as e:
@@ -1911,15 +2000,16 @@ class ChannelManager:
                 else:
                     # Try ONE generic prompt with ONE model (fast)
                     try:
-                        img_data = await asyncio.wait_for(
+                        ai_resp = await asyncio.wait_for(
                             ai_router._primary.generate_image(
                                 f"Auto service {program.name}, professional logo, clean design, no text.",
                                 model="flux",
                             ),
                             timeout=60.0,
                         )
-                        if img_data:
-                            partner_image_data = img_data
+                        img_bytes = self._ai_response_to_bytes(ai_resp)
+                        if img_bytes:
+                            partner_image_data = img_bytes
                             has_media = True
                             logger.info("Generic partner image SUCCEEDED with flux")
                     except (asyncio.TimeoutError, Exception) as e:
