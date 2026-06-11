@@ -36,6 +36,9 @@ env/
 .cache/
 *.log
 
+# Local LLM model files (too large for Git — ~2.5GB)
+models/*.gguf
+
 # Partner data (contains affiliate links)
 admitad_ads.json
 

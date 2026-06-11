@@ -1,4 +1,4 @@
-name: Asya Bot — MULTI-PROVIDER v9 — Ася + Редакция
+name: Asya Bot — LOCAL-FIRST v10 — Ася + Редакция
 
 on:
   schedule:
@@ -34,8 +34,14 @@ env:
   DB_PATH: asya_bot.db
   PYTHONUNBUFFERED: "1"
   LOG_LEVEL: INFO
-  # Local model — DISABLED (Pollinations-only mode, restorable)
-  ENABLE_LOCAL_MODEL: "false"
+  # Local model — ENABLED (Qwen3-4B Q4_K_M, ~2.5GB)
+  ENABLE_LOCAL_MODEL: "true"
+  MODEL_PATH: "models/Qwen3-4B-Instruct-Q4_K_M.gguf"
+  MODEL_N_CTX: "4096"
+  MODEL_N_THREADS: "4"
+  MODEL_MAX_TOKENS: "512"
+  MODEL_AUTO_DOWNLOAD: "true"
+  MODEL_DOWNLOAD_URL: "https://huggingface.co/Qwen/Qwen3-4B-Instruct-GGUF/resolve/main/Qwen3-4B-Instruct-Q4_K_M.gguf"
   # Schedule settings
   NEWS_INTERVAL_MINUTES: "30"
   CHANNEL_POST_INTERVAL_MINUTES: "30"
@@ -61,7 +67,45 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          # Install llama-cpp-python with CPU optimizations (OpenBLAS for fast inference)
+          CMAKE_ARGS="-DGGML_BLAS=ON -DGGML_BLAS_VENDOR=OpenBLAS" pip install llama-cpp-python>=0.3.0 --no-cache-dir
+          # Install remaining dependencies
           pip install -r requirements.txt
+
+      - name: Cache local model
+        uses: actions/cache@v4
+        with:
+          path: models/Qwen3-4B-Instruct-Q4_K_M.gguf
+          key: qwen3-4b-q4km-gguf-v1
+          restore-keys: |
+            qwen3-4b-q4km-gguf-
+
+      - name: Download local model (if not cached)
+        run: |
+          mkdir -p models
+          if [ -f "models/Qwen3-4B-Instruct-Q4_K_M.gguf" ]; then
+            SIZE=$(stat -c%s "models/Qwen3-4B-Instruct-Q4_K_M.gguf" 2>/dev/null || stat -f%z "models/Qwen3-4B-Instruct-Q4_K_M.gguf" 2>/dev/null || echo 0)
+            SIZE_MB=$((SIZE / 1048576))
+            echo "Model file found in cache: ${SIZE_MB} MB"
+            if [ "$SIZE_MB" -lt 100 ]; then
+              echo "Cached file too small, re-downloading..."
+              rm -f models/Qwen3-4B-Instruct-Q4_K_M.gguf
+              curl -L -o models/Qwen3-4B-Instruct-Q4_K_M.gguf \
+                "https://huggingface.co/Qwen/Qwen3-4B-Instruct-GGUF/resolve/main/Qwen3-4B-Instruct-Q4_K_M.gguf"
+            fi
+          else
+            echo "Model not cached, downloading Qwen3-4B-Instruct Q4_K_M (~2.5GB)..."
+            curl -L -o models/Qwen3-4B-Instruct-Q4_K_M.gguf \
+              "https://huggingface.co/Qwen/Qwen3-4B-Instruct-GGUF/resolve/main/Qwen3-4B-Instruct-Q4_K_M.gguf"
+          fi
+          # Verify
+          SIZE=$(stat -c%s "models/Qwen3-4B-Instruct-Q4_K_M.gguf" 2>/dev/null || stat -f%z "models/Qwen3-4B-Instruct-Q4_K_M.gguf" 2>/dev/null || echo 0)
+          SIZE_MB=$((SIZE / 1048576))
+          echo "Model file size: ${SIZE_MB} MB"
+          if [ "$SIZE_MB" -lt 100 ]; then
+            echo "ERROR: Model file too small or corrupted!"
+            exit 1
+          fi
 
       - name: Clean Python cache
         run: |
@@ -98,24 +142,34 @@ jobs:
 
       - name: Run Asya Bot with auto-restart
         run: |
-          echo "=== Starting Asya Bot v9.0 — MULTI-PROVIDER ==="
-          echo "FAILOVER CHAIN: Pollinations(key) → Pollinations(free) → Cloudflare → Static"
-          echo "POLLINATIONS: 61 models, dual-key failover + free API fallback"
-          echo "CLOUDFLARE: Mistral Small 3.1, 2 accounts, 20K req/day total"
-          echo "FREE API: text.pollinations.ai / image.pollinations.ai (no auth)"
+          echo "=== Starting Asya Bot v10.0 — LOCAL-FIRST ==="
+          echo "ARCHITECTURE: Local-First 4-Level Failover"
+          echo "  Level 0: LOCAL Qwen3-4B (4B params, Q4_K_M, CPU) — chat & comments"
+          echo "  Level 1: Pollinations (key) — all routes, 60+ models"
+          echo "  Level 2: Pollinations FREE — fallback, no auth"
+          echo "  Level 3: Cloudflare Workers AI — Mistral Small 3.1, 20K req/day"
+          echo "  Last resort: Static fallback"
+          echo "LOCAL MODEL USAGE:"
+          echo "  CHAT route: Local → Cloud (saves balance!)"
+          echo "  COMMENT route: Local → Cloud (saves balance!)"
+          echo "  FUNCTION route (posts, VIN, diagnostics): Cloud → Local (fallback)"
+          echo "  VISION: Cloud only (local can't do vision)"
+          echo "  IMAGE GEN: Cloud only"
+          echo "ROUTING: Local(chat/comment) → Pollinations(key) → Pollinations(free) → Cloudflare → Static"
           echo "EDITORIAL TEAM: Ася + Лёха + Димон + Марина + Кеша(попугай) + Сеньор Помидор(кот)"
           echo "CONTENT: RSS-first (22+ sources), Google News RSS, Reddit, AI Discovery"
-          echo "AUDIENCE: Global (RU/KZ/DE/IL/CY), not just Moscow"
           echo "FORMATS: 16 content types for 24/7 diverse schedule"
-          echo "CHAT: Pollinations → Free API → Cloudflare → Static fallback"
-          echo "FUNCTION (posts, VIN, diagnostics): Same 3-level failover"
-          echo "COMMENT: Same 3-level failover"
-          echo "VISION: Pollinations → Free → Cloudflare (image_url) → Static"
-          echo "IMAGE GEN: Pollinations (key) → Free API → None"
-          echo "VOICE: Pollinations (key) → Key2 → Free API → None"
-          echo "STRATEGY: 3-level failover, circuit-break=5min, key-cooldown=10min"
           echo "SCHEDULE: 30 min intervals, 3 posts/cycle + partner posts"
           echo ""
+
+          # Verify model file before starting
+          if [ -f "models/Qwen3-4B-Instruct-Q4_K_M.gguf" ]; then
+            SIZE=$(stat -c%s "models/Qwen3-4B-Instruct-Q4_K_M.gguf" 2>/dev/null || echo 0)
+            SIZE_MB=$((SIZE / 1048576))
+            echo "LOCAL MODEL: Available (${SIZE_MB}K)"
+          else
+            echo "LOCAL MODEL: NOT FOUND — will auto-download on first use"
+          fi
 
           MAX_RESTARTS=10
           RESTART_COUNT=0

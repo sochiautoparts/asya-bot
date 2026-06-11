@@ -1,16 +1,17 @@
 """
-AI Router v7.0 — MULTI-PROVIDER FAILOVER with MODEL TIERING.
+AI Router v8.0 — LOCAL-FIRST MULTI-PROVIDER FAILOVER with MODEL TIERING.
 
-FAILOVER CHAIN (3 levels before static fallback):
+FAILOVER CHAIN (4 levels before static fallback):
+  Level 0: Local Model (Qwen3-4B GGUF, CPU) — CHAT & COMMENT routes only
   Level 1: Pollinations (with API key) → KEY1 → KEY2
   Level 2: Pollinations FREE API (text.pollinations.ai, no auth)
   Level 3: Cloudflare Workers AI (@cf/mistralai/mistral-small-3.1-24b-instruct)
   Last resort: Static fallback responses
 
-Route strategy (v7.0):
-  CHAT route_type (user chats) → Pollinations key → Pollinations free → Cloudflare → Static
-  FUNCTION route_type (posts, VIN, diagnostics, parts) → Pollinations key → Pollinations free → Cloudflare → Static
-  COMMENT route_type (comments) → Pollinations key → Pollinations free → Cloudflare → Static
+Route strategy (v8.0 — LOCAL-FIRST for simple tasks):
+  CHAT route_type (user chats) → Local → Pollinations key → Pollinations free → Cloudflare → Static
+  FUNCTION route_type (posts, VIN, diagnostics, parts) → Pollinations key → Pollinations free → Cloudflare → Local(fallback) → Static
+  COMMENT route_type (comments) → Local → Pollinations key → Pollinations free → Cloudflare → Static
   VISION tasks (photos) → Pollinations vision (key) → Pollinations vision (free) → Cloudflare vision → Static
   IMAGE generation → Pollinations (key) → Pollinations free → None
   AUDIO transcription → Pollinations (key) → Pollinations free → None
@@ -25,6 +26,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from ai.providers.base import BaseAIProvider, AIResponse
+from ai.providers.local_provider import LocalProvider
 from ai.providers.pollinations_provider import (
     PollinationsProvider, POLLINATIONS_MODELS,
     CHAT_MODELS, REASONING_MODELS, VISION_MODELS,
@@ -92,9 +94,10 @@ FUNCTION_MODELS = ["openai-large", "gpt-5.5", "deepseek"]
 
 
 class AIRouter:
-    """Routes AI requests through multiple providers with 3-level failover.
+    """Routes AI requests through multiple providers with 4-level failover.
 
-    v7.0 MULTI-PROVIDER strategy:
+    v8.0 LOCAL-FIRST strategy:
+    - Level 0: Local Model (Qwen3-4B GGUF) — CHAT & COMMENT routes
     - Level 1: Pollinations with API key (best quality, 60+ models)
     - Level 2: Pollinations FREE API (no auth, rate-limited)
     - Level 3: Cloudflare Workers AI (Mistral Small 3.1, 20K req/day)
@@ -103,33 +106,50 @@ class AIRouter:
 
     def __init__(self):
         self.providers: List[BaseAIProvider] = []
+        self._local: Optional[LocalProvider] = None
         self._primary: Optional[PollinationsProvider] = None
         self._cloudflare: Optional[CloudflareProvider] = None
         self._total_fallbacks: int = 0
         self._total_requests: int = 0
         # Track which fallback level we're on for monitoring
+        self._level0_count: int = 0  # Local model
         self._level1_count: int = 0  # Pollinations with key
         self._level2_count: int = 0  # Pollinations free
         self._level3_count: int = 0  # Cloudflare
         self._static_count: int = 0  # Static fallback
 
     async def initialize(self) -> None:
-        """Initialize all providers."""
+        """Initialize all providers and pre-load local model if enabled."""
+        # Initialize local model provider (Level 0)
+        self._local = LocalProvider()
+
         pollinations = PollinationsProvider()
         self._primary = pollinations
 
         # Initialize Cloudflare provider
         self._cloudflare = CloudflareProvider()
 
-        self.providers = [pollinations]
+        self.providers = [self._local, pollinations]
         if self._cloudflare._accounts:
             self.providers.append(self._cloudflare)
 
+        # Pre-load local model if enabled — this triggers auto-download if needed
+        local_loaded = False
+        if config.ENABLE_LOCAL_MODEL:
+            try:
+                import asyncio
+                loop = asyncio.get_event_loop()
+                local_loaded = await loop.run_in_executor(None, self._local._load_model)
+            except Exception as e:
+                logger.warning(f"Local model pre-load failed: {e}")
+
+        local_status = self._local.get_status()
         cf_status = "active" if self._cloudflare._accounts else "not_configured"
         logger.info(
-            f"AI Router v7.0 MULTI-PROVIDER initialized: "
+            f"AI Router v10.0 LOCAL-FIRST initialized: "
+            f"local={local_status}, "
             f"pollinations=active (key+free), cloudflare={cf_status}, "
-            f"failover: Pollinations(key) → Pollinations(free) → Cloudflare → Static, "
+            f"failover: Local → Pollinations(key) → Pollinations(free) → Cloudflare → Static, "
             f"{len(POLLINATIONS_MODELS)} models: "
             f"{len(CHAT_MODELS)} chat, {len(VISION_MODELS)} vision, "
             f"{len(CONTENT_MODELS)} content, {len(SEARCH_MODELS)} search)"
@@ -174,12 +194,12 @@ class AIRouter:
         route_type: str = "chat",
     ) -> AIResponse:
         """
-        Send a chat message through the AI router with 3-level failover.
+        Send a chat message through the AI router with 4-level failover.
 
-        v7.0 ROUTING via route_type:
-        - "chat" (default): Pollinations key → free → Cloudflare → Static
-        - "function": Same chain but starts with best quality models
-        - "comment": Same chain but starts with fast/cheap models
+        v8.0 ROUTING via route_type:
+        - "chat" (default): Local → Pollinations key → free → Cloudflare → Static
+        - "function": Pollinations key → free → Cloudflare → Local(fallback) → Static
+        - "comment": Local → Pollinations key → free → Cloudflare → Static
         """
         temperature = temperature or config.CHAT_TEMPERATURE
         max_tokens = max_tokens or config.CHAT_MAX_TOKENS
@@ -213,6 +233,23 @@ class AIRouter:
             # CHAT (default): use provided model or let provider handle weighted selection
             model = model or ""
 
+        # ── LEVEL 0: Local Model (Qwen3-4B) — CHAT & COMMENT routes ──
+        # Local model is primary for simple chat and comments (saves cloud balance)
+        # Skip for function routes (need cloud quality) and when explicitly disabled
+        use_local_first = route_type in ("chat", "comment") and config.ENABLE_LOCAL_MODEL
+
+        if use_local_first:
+            response = await self._try_local(
+                user_id, message, history, sys_prompt, temperature, max_tokens
+            )
+
+            if not response.error:
+                self._level0_count += 1
+                self._total_requests += 1
+                return await self._save_response(user_id, message, response, sys_prompt, use_cache, save_history)
+
+            logger.debug(f"Level 0 (local) failed for route={route_type}: {response.error_message}")
+
         # ── LEVEL 1: Pollinations with API key ──
         response = await self._try_pollinations(
             user_id, message, history, sys_prompt, temperature, max_tokens, model
@@ -245,13 +282,26 @@ class AIRouter:
             self._total_requests += 1
             return await self._save_response(user_id, message, response, sys_prompt, use_cache, save_history)
 
+        # ── LEVEL 0 FALLBACK: Local model for FUNCTION routes ──
+        # If all cloud providers failed, try local model as last resort before static
+        if route_type == "function" and config.ENABLE_LOCAL_MODEL:
+            logger.warning(f"Level 3 failed (route=function), trying Level 0 fallback (local): {response.error_message}")
+            response = await self._try_local(
+                user_id, message, history, sys_prompt, temperature, max_tokens
+            )
+
+            if not response.error:
+                self._level0_count += 1
+                self._total_requests += 1
+                return await self._save_response(user_id, message, response, sys_prompt, use_cache, save_history)
+
         # ── LAST RESORT: Static fallback ──
         self._static_count += 1
         self._total_fallbacks += 1
         logger.error(
-            f"ALL 3 LEVELS FAILED for route_type={route_type}. "
-            f"Level1={self._level1_count}, Level2={self._level2_count}, "
-            f"Level3={self._level3_count}, Static={self._static_count}"
+            f"ALL LEVELS FAILED for route_type={route_type}. "
+            f"Level0(local)={self._level0_count}, Level1={self._level1_count}, "
+            f"Level2={self._level2_count}, Level3={self._level3_count}, Static={self._static_count}"
         )
         return AIResponse(
             text=random.choice(FALLBACK_RESPONSES),
@@ -378,6 +428,50 @@ class AIRouter:
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
+        )
+
+    async def _try_local(self, user_id: int, message: str, history: list,
+                          sys_prompt: str, temperature: float, max_tokens: int) -> AIResponse:
+        """Level 0: Try Local Model (Qwen3-4B).
+
+        Uses ChatML format for Qwen3 with /no_think for fast responses.
+        Primary for CHAT and COMMENT routes, fallback for FUNCTION routes.
+        """
+        if not self._local:
+            return AIResponse(
+                text="",
+                model="local-qwen3-4b",
+                provider="local",
+                error=True,
+                error_message="Local provider not initialized",
+            )
+
+        if not config.ENABLE_LOCAL_MODEL:
+            return AIResponse(
+                text="",
+                model="local-qwen3-4b",
+                provider="local",
+                error=True,
+                error_message="Local model disabled (ENABLE_LOCAL_MODEL=false)",
+            )
+
+        # Build messages for local model using its own ChatML format
+        messages = [{"role": "system", "content": sys_prompt}]
+
+        # Add limited history for local model (saves context window)
+        limited_history = history[-config.MODEL_HISTORY_LIMIT:] if history else []
+        for msg in limited_history:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
+
+        messages.append({"role": "user", "content": message})
+
+        return await self._local.chat(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=min(max_tokens, config.MODEL_MAX_TOKENS),
         )
 
     async def analyze_image(
@@ -882,6 +976,11 @@ class AIRouter:
     def get_status(self) -> Dict[str, str]:
         """Get current status of all providers."""
         status = {}
+        # Local model
+        if self._local:
+            status["local"] = self._local.get_status()
+        else:
+            status["local"] = "not_initialized"
         # Pollinations
         status["pollinations_keys"] = self._primary._get_key_status_summary()
         status["pollinations_free"] = "available" if self._primary._is_free_api_available() else "cooldown"
@@ -892,6 +991,7 @@ class AIRouter:
             status["cloudflare"] = "not_configured"
         # Stats
         status["stats"] = (
+            f"L0(local)={self._level0_count} "
             f"L1(poll-key)={self._level1_count} "
             f"L2(poll-free)={self._level2_count} "
             f"L3(cloudflare)={self._level3_count} "

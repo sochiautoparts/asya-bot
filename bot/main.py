@@ -396,7 +396,10 @@ async def main():
     dp.shutdown.register(on_shutdown)
 
     # Run polling
-    logger.info("=== Asya Bot Starting (Pollinations-Only v7) ===")
+    logger.info("=== Asya Bot Starting (Local-First v10) ===")
+    local_status = "enabled" if config.ENABLE_LOCAL_MODEL else "disabled"
+    model_info = f", model={config.MODEL_PATH}" if config.ENABLE_LOCAL_MODEL and config.MODEL_PATH else ""
+    logger.info(f"Local model: {local_status}{model_info}, Cloud: Pollinations + Cloudflare")
     try:
         await dp.start_polling(bot)
     except KeyboardInterrupt:
