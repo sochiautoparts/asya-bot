@@ -36,12 +36,12 @@ env:
   LOG_LEVEL: INFO
   # Local model — ENABLED (Qwen3-4B Q4_K_M, ~2.5GB)
   ENABLE_LOCAL_MODEL: "true"
-  MODEL_PATH: "models/Qwen3-4B-Instruct-Q4_K_M.gguf"
+  MODEL_PATH: "models/Qwen3-4B-Q4_K_M.gguf"
   MODEL_N_CTX: "4096"
   MODEL_N_THREADS: "4"
   MODEL_MAX_TOKENS: "512"
   MODEL_AUTO_DOWNLOAD: "true"
-  MODEL_DOWNLOAD_URL: "https://huggingface.co/Qwen/Qwen3-4B-Instruct-GGUF/resolve/main/Qwen3-4B-Instruct-Q4_K_M.gguf"
+  MODEL_DOWNLOAD_URL: "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf"
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
   # Schedule settings
   NEWS_INTERVAL_MINUTES: "30"
@@ -78,46 +78,46 @@ jobs:
       - name: Cache local model
         uses: actions/cache@v4
         with:
-          path: models/Qwen3-4B-Instruct-Q4_K_M.gguf
-          key: qwen3-4b-q4km-gguf-v1
+          path: models/Qwen3-4B-Q4_K_M.gguf
+          key: qwen3-4b-q4km-gguf-v2
           restore-keys: |
             qwen3-4b-q4km-gguf-
 
       - name: Download local model (if not cached)
         run: |
           mkdir -p models
-          if [ -f "models/Qwen3-4B-Instruct-Q4_K_M.gguf" ]; then
-            SIZE=$(stat -c%s "models/Qwen3-4B-Instruct-Q4_K_M.gguf" 2>/dev/null || echo 0)
+          if [ -f "models/Qwen3-4B-Q4_K_M.gguf" ]; then
+            SIZE=$(stat -c%s "models/Qwen3-4B-Q4_K_M.gguf" 2>/dev/null || echo 0)
             SIZE_MB=$((SIZE / 1048576))
             echo "Model file found in cache: ${SIZE_MB} MB"
             if [ "$SIZE_MB" -lt 100 ]; then
               echo "Cached file too small, removing..."
-              rm -f models/Qwen3-4B-Instruct-Q4_K_M.gguf
+              rm -f models/Qwen3-4B-Q4_K_M.gguf
             fi
           fi
 
-          if [ ! -f "models/Qwen3-4B-Instruct-Q4_K_M.gguf" ]; then
-            echo "Downloading Qwen3-4B-Instruct Q4_K_M (~2.5GB)..."
+          if [ ! -f "models/Qwen3-4B-Q4_K_M.gguf" ]; then
+            echo "Downloading Qwen3-4B Q4_K_M (~2.3GB)..."
             if [ -n "$HF_TOKEN" ]; then
               echo "Using HuggingFace token for authenticated download..."
               pip install huggingface_hub -q
-              huggingface-cli download --local-dir models --include "Qwen3-4B-Instruct-Q4_K_M.gguf" Qwen/Qwen3-4B-Instruct-GGUF --token "$HF_TOKEN"
+              huggingface-cli download --local-dir models --include "Qwen3-4B-Q4_K_M.gguf" Qwen/Qwen3-4B-GGUF --token "$HF_TOKEN"
             else
               echo "No HF_TOKEN set, trying unauthenticated download..."
               curl -L --max-time 600 --retry 3 --retry-delay 10 \
-                -o models/Qwen3-4B-Instruct-Q4_K_M.gguf \
-                "https://huggingface.co/Qwen/Qwen3-4B-Instruct-GGUF/resolve/main/Qwen3-4B-Instruct-Q4_K_M.gguf"
+                -o models/Qwen3-4B-Q4_K_M.gguf \
+                "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf"
             fi
           fi
 
           # Verify
-          if [ -f "models/Qwen3-4B-Instruct-Q4_K_M.gguf" ]; then
-            SIZE=$(stat -c%s "models/Qwen3-4B-Instruct-Q4_K_M.gguf" 2>/dev/null || echo 0)
+          if [ -f "models/Qwen3-4B-Q4_K_M.gguf" ]; then
+            SIZE=$(stat -c%s "models/Qwen3-4B-Q4_K_M.gguf" 2>/dev/null || echo 0)
             SIZE_MB=$((SIZE / 1048576))
             echo "Model file size: ${SIZE_MB} MB"
             if [ "$SIZE_MB" -lt 100 ]; then
               echo "ERROR: Model file too small or corrupted!"
-              rm -f models/Qwen3-4B-Instruct-Q4_K_M.gguf
+              rm -f models/Qwen3-4B-Q4_K_M.gguf
               echo "WARNING: Model download failed — bot will run in cloud-only mode"
               echo "ENABLE_LOCAL_MODEL=false" >> $GITHUB_ENV
             fi
@@ -182,12 +182,13 @@ jobs:
           echo ""
 
           # Verify model file before starting
-          if [ -f "models/Qwen3-4B-Instruct-Q4_K_M.gguf" ]; then
-            SIZE=$(stat -c%s "models/Qwen3-4B-Instruct-Q4_K_M.gguf" 2>/dev/null || echo 0)
+          if [ -f "models/Qwen3-4B-Q4_K_M.gguf" ]; then
+            SIZE=$(stat -c%s "models/Qwen3-4B-Q4_K_M.gguf" 2>/dev/null || echo 0)
             SIZE_MB=$((SIZE / 1048576))
-            echo "LOCAL MODEL: Available (${SIZE_MB}K)"
+            echo "LOCAL MODEL: Available (${SIZE_MB} MB)"
           else
-            echo "LOCAL MODEL: NOT FOUND — will auto-download on first use"
+            echo "LOCAL MODEL: NOT FOUND — running in cloud-only mode"
+            echo "ENABLE_LOCAL_MODEL=false" >> $GITHUB_ENV
           fi
 
           MAX_RESTARTS=10

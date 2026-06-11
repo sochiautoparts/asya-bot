@@ -110,11 +110,11 @@ class LocalProvider(BaseAIProvider):
                     # URL format: https://huggingface.co/{repo_id}/resolve/main/{filename}
                     if "huggingface.co/" in download_url:
                         parts = download_url.split("huggingface.co/")[1]
-                        # parts: Qwen/Qwen3-4B-Instruct-GGUF/resolve/main/Qwen3-4B-Instruct-Q4_K_M.gguf
+                        # parts: Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf
                         path_parts = parts.split("/resolve/")
                         if len(path_parts) >= 2:
-                            repo_id = path_parts[0]  # Qwen/Qwen3-4B-Instruct-GGUF
-                            filename = path_parts[1].split("/", 1)[-1]  # Qwen3-4B-Instruct-Q4_K_M.gguf
+                            repo_id = path_parts[0]  # Qwen/Qwen3-4B-GGUF
+                            filename = path_parts[1].split("/", 1)[-1]  # Qwen3-4B-Q4_K_M.gguf
 
                             start_time = time.time()
                             downloaded_path = hf_hub_download(
