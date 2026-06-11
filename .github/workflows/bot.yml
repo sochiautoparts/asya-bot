@@ -67,6 +67,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          # Install system dependencies for llama-cpp-python (OpenBLAS for fast CPU inference)
+          sudo apt-get update -qq && sudo apt-get install -y -qq libopenblas-dev
           # Install llama-cpp-python with CPU optimizations (OpenBLAS for fast inference)
           CMAKE_ARGS="-DGGML_BLAS=ON -DGGML_BLAS_VENDOR=OpenBLAS" pip install llama-cpp-python>=0.3.0 --no-cache-dir
           # Install remaining dependencies
