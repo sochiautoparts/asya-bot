@@ -101,7 +101,7 @@ jobs:
             if [ -n "$HF_TOKEN" ]; then
               echo "Using HuggingFace token for authenticated download..."
               pip install huggingface_hub -q
-              huggingface-cli download --local-dir models --include "Qwen3-4B-Q4_K_M.gguf" Qwen/Qwen3-4B-GGUF --token "$HF_TOKEN"
+              hf download --local-dir models --include "Qwen3-4B-Q4_K_M.gguf" Qwen/Qwen3-4B-GGUF --token "$HF_TOKEN"
             else
               echo "No HF_TOKEN set, trying unauthenticated download..."
               curl -L --max-time 600 --retry 3 --retry-delay 10 \
