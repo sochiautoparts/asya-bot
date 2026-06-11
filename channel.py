@@ -1006,80 +1006,85 @@ class ChannelManager:
         return images[0] if images else None
 
     async def _get_post_images(self, news_item: Dict) -> tuple:
-        """Get images for a news post with smart strategy.
+        """Get images for a news post with ORIGINAL-FIRST strategy.
         
-        Strategy:
-        1. Try real images from RSS feed (image_urls field)
-        2. Scrape article page for images (og:image, twitter:image, article body)
-        3. Web search for images related to the news topic
-        4. If still no images, generate AI images as fallback
+        v2.0: Uses ImageFetcher with priority pipeline:
+        1. RSS image URLs (image_urls field from feed)
+        2. RSS enclosures (media:content, enclosures)
+        3. Article page images (og:image, twitter:image, JSON-LD)
+        4. Image search (SearXNG)
+        5. AI generation — LAST RESORT ONLY
         
         Returns (image_list: List[bytes], source: str)
-        source is 'real', 'scraped', 'search', or 'ai' for logging.
+        source is 'rss', 'article', 'search', 'cache', or 'ai' for logging.
         """
+        title = news_item.get("title", "")
+        article_url = news_item.get("url", "")
+        rss_image_urls = news_item.get("image_urls", [])
+        
+        # ── Steps 1-4: Try ImageFetcher for REAL images ──────────────────
+        try:
+            from bot.image_fetcher import ImageFetcher
+            if not hasattr(self, '_image_fetcher'):
+                self._image_fetcher = ImageFetcher()
+            
+            real_images, real_source = await self._image_fetcher.fetch(
+                topic=title,
+                article_url=article_url,
+                image_urls=rss_image_urls,
+                max_images=MAX_IMAGES_PER_POST,
+            )
+            if real_images:
+                logger.info(f"Got {len(real_images)} REAL images for '{title[:50]}' (source={real_source})")
+                return real_images[:MAX_IMAGES_PER_POST], real_source
+        except Exception as e:
+            logger.warning(f"ImageFetcher failed, falling back to legacy pipeline: {e}")
+            # Fall through to legacy + AI generation below
+        
+        # ── Legacy fallback: try scraping directly ────────────────────────
         image_list = []
         source = "none"
         
-        # Strategy 1: Use real images from RSS feed
-        rss_image_urls = news_item.get("image_urls", [])
+        # Try RSS images directly
         if rss_image_urls:
             try:
-                rss_images = await self._download_news_images(
-                    rss_image_urls, 
-                    max_count=MAX_RSS_IMAGES
-                )
+                rss_images = await self._download_news_images(rss_image_urls, max_count=MAX_RSS_IMAGES)
                 if rss_images:
                     image_list.extend(rss_images)
                     source = "real"
-                    logger.info(f"Using {len(rss_images)} real images from RSS for: {news_item.get('title', '')[:50]}")
-            except Exception as e:
-                logger.warning(f"Failed to download RSS images: {e}")
+            except Exception:
+                pass
         
-        # Strategy 2: Scrape article page for images (ALWAYS try if URL exists)
-        if news_item.get("url") and len(image_list) < MAX_IMAGES_PER_POST:
+        # Try article scraping
+        if article_url and len(image_list) < MAX_IMAGES_PER_POST:
             try:
-                scraped = await self._scrape_article_images(
-                    news_item["url"], 
-                    max_count=MAX_SCRAPE_IMAGES
-                )
+                scraped = await self._scrape_article_images(article_url, max_count=MAX_SCRAPE_IMAGES)
                 if scraped:
-                    # Deduplicate by not adding images we already have
-                    for img in scraped:
-                        if len(image_list) >= MAX_IMAGES_PER_POST:
-                            break
-                        image_list.append(img)
+                    image_list.extend(scraped[:MAX_IMAGES_PER_POST - len(image_list)])
                     source = "scraped" if source == "none" else source + "+scraped"
-                    logger.info(f"Scraped {len(scraped)} images for: {news_item.get('title', '')[:50]}")
-            except Exception as e:
-                logger.debug(f"Article scraping skipped: {e}")
+            except Exception:
+                pass
         
-        # Strategy 3: Web search for images related to the topic
-        if len(image_list) < 3 and news_item.get("title"):
+        # Try search
+        if len(image_list) < 3 and title:
             try:
                 search_image_urls = await enrich_with_search_images(news_item)
                 if search_image_urls:
                     searched = await self._download_news_images(search_image_urls, max_count=MAX_SEARCH_IMAGES)
                     if searched:
-                        for img in searched:
-                            if len(image_list) >= MAX_IMAGES_PER_POST:
-                                break
-                            image_list.append(img)
+                        image_list.extend(searched[:MAX_IMAGES_PER_POST - len(image_list)])
                         source = "search" if source == "none" else source + "+search"
-                        logger.info(f"Found {len(searched)} images via web search for: {news_item.get('title', '')[:50]}")
-            except Exception as e:
-                logger.debug(f"Web search image enrichment skipped: {e}")
+            except Exception:
+                pass
         
-        # Strategy 4: AI generation as fallback — try once with _generate_post_images (limited attempts)
+        # ── Step 5: AI generation — LAST RESORT ──────────────────────────
         if not image_list:
             try:
-                image_list = await self._generate_post_images(
-                    news_item.get("title", ""), count=1
-                )
+                image_list = await self._generate_post_images(title, count=1)
                 if image_list:
                     source = "ai"
                     logger.info(f"Generated {len(image_list)} AI images (no real images found)")
                 else:
-                    # Specific prompts failed — try ONE generic prompt with ONE model
                     try:
                         ai_resp = await asyncio.wait_for(
                             ai_router._primary.generate_image(
@@ -1093,18 +1098,14 @@ class ChannelManager:
                         if img_bytes:
                             image_list = [img_bytes]
                             source = "ai-generic"
-                            logger.info("Generated generic AI image with flux")
-                    except (asyncio.TimeoutError, Exception) as e:
-                        logger.warning(f"Generic image generation failed: {e}")
+                    except (asyncio.TimeoutError, Exception):
+                        pass
                     if not image_list:
-                        logger.warning("ALL image generation strategies failed — post may be text-only")
+                        logger.warning("ALL image strategies failed — post may be text-only")
             except Exception as e:
                 logger.warning(f"AI image generation skipped: {e}")
         
-        # HARD LIMIT: never more than MAX_IMAGES_PER_POST (10 max — Telegram limit)
-        image_list = image_list[:MAX_IMAGES_PER_POST]
-        
-        return image_list, source
+        return image_list[:MAX_IMAGES_PER_POST], source
 
     async def _download_partner_image(self, image_url: str) -> Optional[bytes]:
         """Download a partner program image (logo/banner).

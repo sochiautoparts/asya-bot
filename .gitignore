@@ -36,6 +36,9 @@ env/
 .cache/
 *.log
 
+# Image cache (downloaded original photos)
+data/image_cache/
+
 # Local LLM model files (too large for Git — ~2.5GB)
 models/*.gguf
 
