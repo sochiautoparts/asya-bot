@@ -319,6 +319,7 @@ async def fetch_rss(source: NewsSource) -> List[Dict]:
                     "category": source.category,
                     "lang": source.lang,
                     "image_urls": image_urls,
+                    "rss_entry": entry,  # Raw feedparser entry for content:encoded image extraction
                 })
 
             logger.info(f"Fetched {len(items)} items from {source.name}")

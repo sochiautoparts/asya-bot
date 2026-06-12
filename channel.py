@@ -1083,6 +1083,7 @@ class ChannelManager:
         title = news_item.get("title", "")
         article_url = news_item.get("url", "")
         rss_image_urls = news_item.get("image_urls", [])
+        rss_entry = news_item.get("rss_entry")  # Raw feedparser entry for content:encoded parsing
         
         # ── Steps 1-4: Try ImageFetcher for REAL images ──────────────────
         # ImageFetcher now includes hash-based deduplication built-in
@@ -1094,6 +1095,7 @@ class ChannelManager:
             real_images, real_source = await self._image_fetcher.fetch(
                 topic=title,
                 article_url=article_url,
+                rss_entry=rss_entry,
                 image_urls=rss_image_urls,
                 max_images=MAX_IMAGES_PER_POST,
             )
@@ -1112,6 +1114,7 @@ class ChannelManager:
                 real_images, real_source = await self._image_fetcher.fetch(
                     topic=title,
                     article_url=article_url,
+                    rss_entry=rss_entry,
                     image_urls=rss_image_urls,
                     max_images=MAX_IMAGES_PER_POST,
                 )

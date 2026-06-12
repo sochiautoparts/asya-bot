@@ -356,16 +356,45 @@ class LocalProvider(BaseAIProvider):
             prompt = self._format_messages_chatml(messages)
 
             # Check prompt length vs context window
-            # Rough estimate: 1 token ≈ 4 chars for Russian text
-            estimated_tokens = len(prompt) // 3  # Conservative for Russian/CJK
-            if estimated_tokens > self._n_ctx - max_tokens:
+            # FIX: Previous estimation used len(prompt) // 3 which grossly underestimates
+            # Russian text token count. Qwen3's BPE tokenizer produces ~1.4-2 chars/token
+            # for Russian, not 3-4 as for English. Use // 2 as a safe middle ground.
+            # This prevents "Requested tokens (9894) exceed context window of 4096" errors.
+            estimated_tokens = len(prompt) // 2  # Safe estimate for Russian text
+            max_input_tokens = self._n_ctx - max_tokens
+            
+            if estimated_tokens > max_input_tokens:
                 logger.warning(
-                    f"Prompt too long ({estimated_tokens} est. tokens vs {self._n_ctx} ctx), "
+                    f"Prompt too long ({estimated_tokens} est. tokens, "
+                    f"max_input={max_input_tokens}, ctx={self._n_ctx}), "
                     f"truncating history"
                 )
-                # Reduce history and try again
-                truncated_messages = [messages[0]] + messages[-3:]  # System + last 3
-                prompt = self._format_messages_chatml(truncated_messages)
+                # Progressive truncation: try keeping fewer messages each time
+                # Start with system + last 2, then system + last 1, then system only
+                for keep_count in [2, 1, 0]:
+                    if keep_count == 0:
+                        truncated_messages = [messages[0]]  # System only
+                    else:
+                        truncated_messages = [messages[0]] + messages[-keep_count:]
+                    prompt = self._format_messages_chatml(truncated_messages)
+                    new_est = len(prompt) // 2
+                    if new_est <= max_input_tokens:
+                        logger.info(f"Truncated to {keep_count} history messages ({new_est} est. tokens)")
+                        break
+                
+                # Final safety check — if even system-only prompt is too long,
+                # truncate the system message itself to fit
+                final_est = len(prompt) // 2
+                if final_est > max_input_tokens:
+                    # System message alone is too long — hard truncate it
+                    max_system_chars = max_input_tokens * 2  # Rough reverse estimate
+                    system_content = messages[0].get("content", "")[:max_system_chars]
+                    truncated_messages = [{"role": "system", "content": system_content}]
+                    prompt = self._format_messages_chatml(truncated_messages)
+                    logger.warning(
+                        f"System prompt truncated to {max_system_chars} chars "
+                        f"({len(prompt) // 2} est. tokens) to fit context"
+                    )
 
             start_time = time.time()
 

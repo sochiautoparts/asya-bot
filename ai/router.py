@@ -436,6 +436,10 @@ class AIRouter:
 
         Uses ChatML format for Qwen3 with /no_think for fast responses.
         Primary for CHAT and COMMENT routes, fallback for FUNCTION routes.
+        
+        CRITICAL: Uses COMPACT system prompt (persona.local_system_prompt) instead
+        of the full 12K-char prompt which exceeds the 4096 token context window.
+        The full prompt is ~9000 tokens — impossible to fit in 4096 ctx even alone.
         """
         if not self._local:
             return AIResponse(
@@ -455,16 +459,24 @@ class AIRouter:
                 error_message="Local model disabled (ENABLE_LOCAL_MODEL=false)",
             )
 
+        # Use COMPACT system prompt for local model — the full 12K-char prompt
+        # (~9000 tokens) does NOT fit in the 4096 token context window.
+        # Compact prompt is ~500 chars (~350 tokens) — leaves room for conversation.
+        compact_prompt = persona.local_system_prompt
+
         # Build messages for local model using its own ChatML format
-        messages = [{"role": "system", "content": sys_prompt}]
+        messages = [{"role": "system", "content": compact_prompt}]
 
         # Add limited history for local model (saves context window)
-        limited_history = history[-config.MODEL_HISTORY_LIMIT:] if history else []
+        # Further limit to 4 turns to stay well within 4096 ctx
+        history_limit = min(config.MODEL_HISTORY_LIMIT, 4)
+        limited_history = history[-history_limit:] if history else []
         for msg in limited_history:
             role = msg.get("role", "user")
             content = msg.get("content", "")
+            # Truncate long history messages to save context tokens
             if role in ("user", "assistant") and content:
-                messages.append({"role": role, "content": content})
+                messages.append({"role": role, "content": content[:300]})
 
         messages.append({"role": "user", "content": message})
 
