@@ -800,49 +800,49 @@ class AIRouter:
         response = self._finalize_channel_post(response, has_media)
         return response
 
-
-def _router_smart_truncate(text: str, max_len: int) -> str:
-    """Smart truncation for AI router — cuts at sentence/paragraph boundary.
-    
-    Same logic as channel.py's _smart_truncate to avoid mid-word cuts.
-    """
-    if len(text) <= max_len:
-        return text
-    
-    target = max_len - 3
-    if target < 50:
-        return text[:target] + "..."
-    
-    search_zone = text[:target + 1]
-    
-    # 1. Paragraph break
-    last_para = search_zone.rfind("\n\n")
-    if last_para > target * 0.5:
-        return text[:last_para].rstrip() + "..."
-    
-    # 2. Sentence end
-    sentence_end_chars = ['. ', '! ', '? ', '… ', '.\n', '!\n', '?\n', '…\n']
-    best_sentence_end = -1
-    for end_char in sentence_end_chars:
-        pos = search_zone.rfind(end_char)
-        if pos > best_sentence_end and pos > target * 0.5:
-            best_sentence_end = pos + len(end_char) - 1
-    
-    if best_sentence_end > target * 0.5:
-        return text[:best_sentence_end + 1].rstrip() + "..."
-    
-    # 3. Newline
-    last_newline = search_zone.rfind("\n")
-    if last_newline > target * 0.5:
-        return text[:last_newline].rstrip() + "..."
-    
-    # 4. Space
-    last_space = search_zone.rfind(" ")
-    if last_space > target * 0.5:
-        return text[:last_space].rstrip() + "..."
-    
-    # 5. Hard cut
-    return text[:target].rstrip() + "..."
+    @staticmethod
+    def _router_smart_truncate(text: str, max_len: int) -> str:
+        """Smart truncation for AI router — cuts at sentence/paragraph boundary.
+        
+        Same logic as channel.py's _smart_truncate to avoid mid-word cuts.
+        """
+        if len(text) <= max_len:
+            return text
+        
+        target = max_len - 3
+        if target < 50:
+            return text[:target] + "..."
+        
+        search_zone = text[:target + 1]
+        
+        # 1. Paragraph break
+        last_para = search_zone.rfind("\n\n")
+        if last_para > target * 0.5:
+            return text[:last_para].rstrip() + "..."
+        
+        # 2. Sentence end
+        sentence_end_chars = ['. ', '! ', '? ', '… ', '.\n', '!\n', '?\n', '…\n']
+        best_sentence_end = -1
+        for end_char in sentence_end_chars:
+            pos = search_zone.rfind(end_char)
+            if pos > best_sentence_end and pos > target * 0.5:
+                best_sentence_end = pos + len(end_char) - 1
+        
+        if best_sentence_end > target * 0.5:
+            return text[:best_sentence_end + 1].rstrip() + "..."
+        
+        # 3. Newline
+        last_newline = search_zone.rfind("\n")
+        if last_newline > target * 0.5:
+            return text[:last_newline].rstrip() + "..."
+        
+        # 4. Space
+        last_space = search_zone.rfind(" ")
+        if last_space > target * 0.5:
+            return text[:last_space].rstrip() + "..."
+        
+        # 5. Hard cut
+        return text[:target].rstrip() + "..."
 
 
 
@@ -871,7 +871,7 @@ def _router_smart_truncate(text: str, max_len: int) -> str:
                 max_content = config.TELEGRAM_CAPTION_LIMIT - len(footer)
                 if len(text) > max_content:
                     # Smart truncation — find last sentence/paragraph boundary
-                    text = _router_smart_truncate(text, max_content)
+                    text = self._router_smart_truncate(text, max_content)
                 text += footer
             elif not has_media and len(text) > config.TELEGRAM_TEXT_LIMIT:
                 for foot_part in ["\n\nАвтор @asiaexp_bot", "\n@sochiautoparts", "\n#sochiautoparts"]:
@@ -879,7 +879,7 @@ def _router_smart_truncate(text: str, max_len: int) -> str:
                 text = text.rstrip()
                 max_content = config.TELEGRAM_TEXT_LIMIT - len(footer)
                 if len(text) > max_content:
-                    text = _router_smart_truncate(text, max_content)
+                    text = self._router_smart_truncate(text, max_content)
                 text += footer
 
             response.text = text

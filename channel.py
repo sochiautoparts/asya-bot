@@ -764,21 +764,23 @@ class ChannelManager:
             "spinner", "loading", "placeholder", "pixel", "tracker",
             "analytics", "share", "facebook", "twitter", "vk.",
             "telegram", "whatsapp", "instagram", "youtube", "tiktok",
-            "ad.", "ads/", "advert", "sponsor",
+            # NOTE: "ads/" removed — was blocking /uploads/ in WordPress URLs!
+            "advert", "sponsor", "ad_banner", "ad_image",
             "emoji", "smileys", "captcha", "recaptcha",
             "1x1", "spacer", "blank", "transparent", "dot.",
-            "watermark",
+            # NOTE: "watermark" removed — real photos with watermarks are OK
         ]
         for kw in junk_keywords:
             if kw in url_lower:
                 return True
 
         # Skip URLs with very small size indicators
-        size_pattern = re.compile(r'[/=_x](\d{1,3})x(\d{1,3})[/._]')
+        # NOTE: h=0 means "auto height" (proportional) — do NOT block
+        size_pattern = re.compile(r'[/=_x](\d{1,4})x(\d{1,4})[/._]')
         size_match = size_pattern.search(url_lower)
         if size_match:
             w, h = int(size_match.group(1)), int(size_match.group(2))
-            if w < 100 or h < 100:
+            if w < 100 or (0 < h < 100):
                 return True
 
         return False

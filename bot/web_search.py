@@ -246,7 +246,14 @@ async def search_searxng(query: str, max_results: int = 5, language: str = "ru",
     async def _try_instance(instance: str) -> List[SearchResult]:
         """Try a single SearXNG instance."""
         try:
-            async with httpx.AsyncClient(timeout=PER_INSTANCE_TIMEOUT) as client:
+            async with httpx.AsyncClient(
+                timeout=PER_INSTANCE_TIMEOUT,
+                follow_redirects=True,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                    "Accept": "application/json, text/html, */*",
+                },
+            ) as client:
                 params = {
                     "q": query,
                     "format": "json",
@@ -257,6 +264,9 @@ async def search_searxng(query: str, max_results: int = 5, language: str = "ru",
                     params["categories"] = categories
                 response = await client.get(f"{instance}/search", params=params)
                 if response.status_code == 200:
+                    content_type = response.headers.get("content-type", "")
+                    if "json" not in content_type and "javascript" not in content_type:
+                        return []
                     data = response.json()
                     instance_results = []
                     for item in data.get("results", [])[:max_results]:

@@ -42,8 +42,8 @@ IMAGE_CACHE_DIR = Path("data/image_cache")
 IMAGE_CACHE_TTL_DAYS = 7
 IMAGE_MIN_SIZE_BYTES = 3_000         # 3 KB — lower threshold for news images
 IMAGE_MAX_SIZE_BYTES = 5_242_880     # 5 MB — matching channel.py limit
-IMAGE_MIN_WIDTH = 400
-IMAGE_MIN_HEIGHT = 300
+IMAGE_MIN_WIDTH = 320
+IMAGE_MIN_HEIGHT = 240
 IMAGE_FETCH_TIMEOUT = 15.0
 ARTICLE_FETCH_TIMEOUT = 20.0
 MAX_IMAGES_PER_SOURCE = 10           # Telegram mediagroup limit
@@ -78,10 +78,13 @@ JUNK_KEYWORDS = [
     "spinner", "loading", "placeholder", "pixel", "tracker",
     "analytics", "share", "facebook", "twitter", "vk.",
     "telegram", "whatsapp", "instagram", "youtube", "tiktok",
-    "ad.", "ads/", "advert", "sponsor",
+    # NOTE: "ads/" removed — was blocking /uploads/ in WordPress URLs!
+    # Use JUNK_DOMAINS for ad-specific domains instead.
+    "advert", "sponsor", "ad_banner", "ad_image",
     "emoji", "smileys", "captcha", "recaptcha",
     "1x1", "spacer", "blank", "transparent", "dot.",
-    "watermark",
+    # NOTE: "watermark" removed — many real news photos have watermarks
+    # It's better to use a real photo with a watermark than no photo at all.
 ]
 
 JUNK_EXTENSIONS = {".gif", ".svg"}
@@ -216,11 +219,14 @@ def _is_junk_url(url: str) -> bool:
             return True
 
     # Skip URLs with very small size indicators
-    size_pattern = re.compile(r'[/=_x](\d{1,3})x(\d{1,3})[/._]')
+    # NOTE: h=0 means "auto height" (proportional) — common in image CDNs
+    # like TopSpeed (_800x0.webp = width 800, height auto). Do NOT block these.
+    size_pattern = re.compile(r'[/=_x](\d{1,4})x(\d{1,4})[/._]')
     size_match = size_pattern.search(url_lower)
     if size_match:
         w, h = int(size_match.group(1)), int(size_match.group(2))
-        if w < 100 or h < 100:
+        # 0 = auto/proportional height — valid image size indicator
+        if w < 100 or (0 < h < 100):
             return True
 
     return False
@@ -248,7 +254,7 @@ def _is_content_image(image_data: bytes) -> bool:
             return False
         if height / max(width, 1) > 3.0:
             return False
-        if width * height < 120000:
+        if width * height < 76800:  # 320*240 = 76800
             return False
 
         return True
