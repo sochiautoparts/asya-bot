@@ -77,6 +77,10 @@ class BotConfig:
     SEARCH_MAX_RESULTS: int = 5
     SEARCH_TIMEOUT_SECONDS: int = 15
 
+    # Image search providers (v4.0 — multi-provider pipeline)
+    UNSPLASH_ACCESS_KEY: str = os.getenv("UNSPLASH_ACCESS_KEY", "")
+    PEXELS_API_KEY: str = os.getenv("PEXELS_API_KEY", "")
+
     # Local model toggle — Qwen3-4B as PRIMARY for simple chat (saves cloud balance!)
     ENABLE_LOCAL_MODEL: bool = os.getenv("ENABLE_LOCAL_MODEL", "true").lower() in ("true", "1", "yes")
     MODEL_PATH: str = os.getenv("MODEL_PATH", "models/Qwen3-4B-Q4_K_M.gguf") if ENABLE_LOCAL_MODEL else ""

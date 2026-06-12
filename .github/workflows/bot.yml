@@ -30,6 +30,9 @@ env:
   CF_API_TOKEN_2: ${{ secrets.CF_API_TOKEN_2 }}
   GH_PAT_TOKEN: ${{ secrets.GH_PAT_TOKEN }}
   GH_REPO: sochiautoparts/asya-bot
+  # Image search providers (v4.0 — multi-provider pipeline)
+  UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
+  PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
   ADMITAD_ADS_FILE: data/admitad_ads.json
   DB_PATH: asya_bot.db
   PYTHONUNBUFFERED: "1"

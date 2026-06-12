@@ -1559,8 +1559,8 @@ def get_translation_uniquification_hint(lang: str) -> str:
 async def enrich_with_search_images(news_item: Dict) -> List[str]:
     """Enrich a news item with images found via web search.
 
-    v3.0: Delegates to bot.image_fetcher.search_images which implements
-    the ORIGINAL-FIRST pipeline with SearXNG image search + deduplication.
+    v4.0: Delegates to bot.image_fetcher.search_images which implements
+    the MULTI-PROVIDER pipeline (Unsplash → Pexels → Bing → Google → SearXNG).
     Reduced max_images from 5 to 3 — quality over quantity.
     Falls back to legacy search_news_images if ImageFetcher unavailable.
     """

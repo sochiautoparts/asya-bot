@@ -1,9 +1,9 @@
-"""Smart Image Fetcher v3.0 — Original-first image sourcing for asya-bot.
+"""Smart Image Fetcher v4.0 — Original-first image sourcing for asya-bot.
 
 PRIORITY PIPELINE:
   1. Article images — og:image / twitter:image / JSON-LD / <img> from source URL
   2. RSS enclosures — <enclosure> / <media:content> from RSS feed
-  3. Image search — SearXNG images / web search
+  3. Image search — Unsplash → Pexels → Bing Images → Google Images → SearXNG (concurrent)
   4. AI generation — Pollinations (LAST RESORT ONLY, handled by caller)
 
 KEY FEATURES:
@@ -26,11 +26,12 @@ import base64
 import hashlib
 import json
 import logging
+import os
 import re
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urlparse
+from urllib.parse import quote_plus, urlparse
 
 import httpx
 
@@ -558,33 +559,340 @@ def _fallback_extract_rss_images(entry: Any) -> List[str]:
     return image_urls[:10]
 
 
-# ── Strategy 3: Image search ─────────────────────────────────────────────────
+# ── Strategy 3: Image search — MULTI-PROVIDER with reliable sources ───────────
 
-async def search_images(topic: str, max_images: int = 5) -> List[str]:
-    """Search for images related to a topic using SearXNG image search.
+# Unsplash API — free, 50 req/hour, no key required for demo access
+UNSPLASH_ACCESS_KEY = os.environ.get("UNSPLASH_ACCESS_KEY", "")
+UNSPLASH_BASE_URL = "https://api.unsplash.com"
+
+# Pexels API — free, 200 req/hour, requires API key
+PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY", "")
+PEXELS_BASE_URL = "https://api.pexels.com/v1"
+
+# Bing Image Search — scraping approach (no API key needed)
+BING_IMAGE_URL = "https://www.bing.com/images/search"
+
+# Google Images — scraping approach (no API key needed)
+GOOGLE_IMAGES_URL = "https://www.google.com/search"
+
+
+async def _search_unsplash(topic: str, max_images: int = 5) -> List[str]:
+    """Search Unsplash for high-quality photos.
     
-    v3.0: Smarter search queries — adapts to automotive topics.
-    Tries multiple search strategies for better image coverage.
+    Unsplash provides free API access (50 requests/hour for demo, 
+    unlimited for approved apps). Photos are high-quality, properly licensed,
+    and ideal for news posts. Falls back gracefully when no API key is set.
+    """
+    image_urls: List[str] = []
+    
+    try:
+        clean_topic = re.sub(r'[^\w\s]', '', topic)[:60]
+        
+        headers = {
+            "Accept": "application/json",
+        }
+        if UNSPLASH_ACCESS_KEY:
+            headers["Authorization"] = f"Client-ID {UNSPLASH_ACCESS_KEY}"
+        
+        params = {
+            "query": clean_topic,
+            "per_page": min(max_images, 10),
+            "orientation": "landscape",
+        }
+        
+        # If no API key, use the public search page approach
+        if not UNSPLASH_ACCESS_KEY:
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                scrape_headers = {
+                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                }
+                resp = await client.get(
+                    f"https://unsplash.com/s/photos/{quote_plus(clean_topic)}",
+                    headers=scrape_headers,
+                )
+                if resp.status_code == 200:
+                    # Extract image URLs from the page HTML
+                    # Unsplash embeds images as og:image and in JSON data
+                    for pattern in [
+                        r'"raw":\s*"([^"]+)"',
+                        r'"full":\s*"([^"]+)"',
+                        r'"regular":\s*"([^"]+)"',
+                        r'<img[^>]+src=["\x27](https://images\.unsplash\.com/[^"\x27]+)["\x27]',
+                    ]:
+                        for m in re.finditer(pattern, resp.text):
+                            url = m.group(1).replace("\\u0026", "&")
+                            if url and not _is_junk_url(url) and url not in image_urls:
+                                # Add quality parameter for reasonable size
+                                if "?" not in url:
+                                    url += "?w=1200&q=80"
+                                image_urls.append(url)
+                                if len(image_urls) >= max_images:
+                                    return image_urls
+                return image_urls
+        
+        # With API key — proper API call
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"{UNSPLASH_BASE_URL}/search/photos",
+                params=params,
+                headers=headers,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                for item in data.get("results", [])[:max_images]:
+                    # Use the "regular" size (1080px) — good for Telegram
+                    url = item.get("urls", {}).get("regular", "")
+                    if url and not _is_junk_url(url):
+                        image_urls.append(url)
+            elif resp.status_code == 403:
+                logger.debug("Unsplash API rate limit hit")
+            else:
+                logger.debug(f"Unsplash API returned {resp.status_code}")
+    
+    except Exception as e:
+        logger.debug(f"Unsplash search failed for '{topic[:40]}': {e}")
+    
+    return image_urls
+
+
+async def _search_pexels(topic: str, max_images: int = 5) -> List[str]:
+    """Search Pexels for high-quality stock photos.
+    
+    Pexels API is free with 200 requests/hour. Requires API key.
+    If no key is set, uses scraping as fallback.
+    """
+    image_urls: List[str] = []
+    
+    try:
+        clean_topic = re.sub(r'[^\w\s]', '', topic)[:60]
+        
+        if PEXELS_API_KEY:
+            # Proper API call
+            headers = {"Authorization": PEXELS_API_KEY}
+            params = {
+                "query": clean_topic,
+                "per_page": min(max_images, 10),
+                "orientation": "landscape",
+            }
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(
+                    f"{PEXELS_BASE_URL}/search",
+                    params=params,
+                    headers=headers,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    for item in data.get("photos", [])[:max_images]:
+                        # Use "large" size (max 1080px) — good for Telegram
+                        url = item.get("src", {}).get("large", "")
+                        if url and not _is_junk_url(url):
+                            image_urls.append(url)
+                elif resp.status_code == 403:
+                    logger.debug("Pexels API rate limit hit")
+                else:
+                    logger.debug(f"Pexels API returned {resp.status_code}")
+        else:
+            # Fallback: scraping Pexels search page
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                scrape_headers = {
+                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                }
+                resp = await client.get(
+                    f"https://www.pexels.com/search/{quote_plus(clean_topic)}/",
+                    headers=scrape_headers,
+                )
+                if resp.status_code == 200:
+                    # Extract image URLs from page
+                    for pattern in [
+                        r'<img[^>]+srcset=["\x27]([^"\x27]+)\s+1x',
+                        r'<img[^>]+src=["\x27](https://images\.pexels\.com/[^"\x27]+)["\x27]',
+                    ]:
+                        for m in re.finditer(pattern, resp.text, re.IGNORECASE):
+                            url = m.group(1).replace("\\u0026", "&")
+                            if url and not _is_junk_url(url) and url not in image_urls:
+                                image_urls.append(url)
+                                if len(image_urls) >= max_images:
+                                    return image_urls
+    
+    except Exception as e:
+        logger.debug(f"Pexels search failed for '{topic[:40]}': {e}")
+    
+    return image_urls
+
+
+async def _search_bing_images(topic: str, max_images: int = 5) -> List[str]:
+    """Search Bing Images for photos.
+    
+    Bing Images is more reliable than SearXNG for direct image search.
+    Extracts full-size original image URLs from Bing's search results.
+    The "mediaurl" parameter in Bing's HTML contains the original image URL
+    (URL-encoded). No API key needed.
+    Works well from cloud IPs (less aggressive blocking than Google).
+    """
+    image_urls: List[str] = []
+    
+    try:
+        clean_topic = re.sub(r'[^\w\s]', '', topic)[:80]
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8",
+        }
+        
+        params = {
+            "q": f"{clean_topic} фото",
+            "first": 1,
+            "count": min(max_images * 3, 35),
+            "qft": "+filterui:photo-photo",  # Filter: photos only
+        }
+        
+        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+            resp = await client.get(BING_IMAGE_URL, params=params, headers=headers)
+            if resp.status_code != 200:
+                logger.debug(f"Bing Images returned {resp.status_code}")
+                return image_urls
+            
+            html = resp.text
+            seen = set()
+            
+            # Method 1: Extract mediaurl (URL-encoded original image URLs)
+            # This is the most reliable method — Bing embeds the original source URL
+            # as a URL-encoded parameter in the HTML
+            from urllib.parse import unquote
+            for m in re.finditer(r'mediaurl=(https?%3[aA]%2[fF][^&"\']+)', html):
+                url = unquote(m.group(1))
+                if url and url not in seen and not _is_junk_url(url):
+                    if '.mm.bing.net/' in url:
+                        continue
+                    seen.add(url)
+                    image_urls.append(url)
+                    if len(image_urls) >= max_images:
+                        return image_urls
+            
+            # Method 2: Extract murl from JSON embedded data
+            for m in re.finditer(r'"murl"\s*:\s*"(https?://[^"]+)"', html):
+                url = m.group(1).replace("\\u0026", "&").replace("\\/", "/")
+                if url and url not in seen and not _is_junk_url(url):
+                    if '.mm.bing.net/' in url:
+                        continue
+                    seen.add(url)
+                    image_urls.append(url)
+                    if len(image_urls) >= max_images:
+                        return image_urls
+            
+            # Method 3: Extract from m= attribute (contains rich metadata with murl)
+            m_attrs = re.findall(r'm="([^"]{100,})"', html)
+            for attr in m_attrs:
+                attr = attr.replace('&amp;', '&').replace('&quot;', '"')
+                for m in re.finditer(r'murl:(https?://[^\s,"]+)', attr):
+                    url = m.group(1)
+                    if url and url not in seen and not _is_junk_url(url):
+                        if '.mm.bing.net/' in url:
+                            continue
+                        seen.add(url)
+                        image_urls.append(url)
+                        if len(image_urls) >= max_images:
+                            return image_urls
+        
+        if image_urls:
+            logger.info(f"Bing Images: found {len(image_urls)} full-size URLs for '{topic[:40]}'")
+        else:
+            logger.debug(f"Bing Images: no images found for '{topic[:40]}'")
+    
+    except Exception as e:
+        logger.debug(f"Bing Images search failed for '{topic[:40]}': {e}")
+    
+    return image_urls
+
+
+async def _search_google_images(topic: str, max_images: int = 5) -> List[str]:
+    """Search Google Images for photos.
+    
+    Google Images is the most comprehensive image search.
+    Scrapes the results page — no API key needed.
+    May be blocked from cloud IPs, so it's a secondary source after Bing.
+    """
+    image_urls: List[str] = []
+    
+    try:
+        clean_topic = re.sub(r'[^\w\s]', '', topic)[:80]
+        
+        params = {
+            "q": f"{clean_topic} фото",
+            "tbm": "isch",  # Image search
+            "hl": "ru",
+            "gl": "RU",
+        }
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "ru-RU,ru;q=0.9",
+        }
+        
+        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+            resp = await client.get(GOOGLE_IMAGES_URL, params=params, headers=headers)
+            if resp.status_code != 200:
+                logger.debug(f"Google Images returned {resp.status_code}")
+                return image_urls
+            
+            html = resp.text
+            
+            # Google Images stores image URLs in various ways
+            seen = set()
+            
+            # Pattern 1: Direct image URLs in data attributes
+            for pattern in [
+                r'"originalUrl"\s*:\s*"(https?://[^"]+)"',
+                r'"ou"\s*:\s*"(https?://[^"]+)"',
+                r'"src"\s*:\s*"(https?://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"',
+                r'data-src\s*=\s*"(https?://[^"]+)"',
+            ]:
+                for m in re.finditer(pattern, html):
+                    url = m.group(1).replace("\\u0026", "&").replace("\\/", "/")
+                    if url and url not in seen and not _is_junk_url(url):
+                        seen.add(url)
+                        image_urls.append(url)
+                        if len(image_urls) >= max_images:
+                            return image_urls
+            
+            # Pattern 2: img tags with data attributes
+            for m in re.finditer(r'<img[^>]+data-src=["\x27](https?://[^"\x27]+)["\x27]', html, re.IGNORECASE):
+                url = m.group(1).replace("&amp;", "&")
+                if url and url not in seen and not _is_junk_url(url):
+                    seen.add(url)
+                    image_urls.append(url)
+                    if len(image_urls) >= max_images:
+                        return image_urls
+    
+    except Exception as e:
+        logger.debug(f"Google Images search failed for '{topic[:40]}': {e}")
+    
+    return image_urls
+
+
+async def _search_searxng_images(topic: str, max_images: int = 5) -> List[str]:
+    """Search SearXNG for images — DEPRECATED as primary, used as LAST fallback.
+    
+    SearXNG public instances are unreliable (frequent downtime, rate limits).
+    Only used when all other image sources fail.
     """
     image_urls: List[str] = []
     seen_urls: set = set()
-
+    
     try:
         from bot.web_search import search_searxng
-
+        
         clean_topic = re.sub(r'[^\w\s]', '', topic)[:80]
-
-        # Build smarter search queries based on topic type
-        # Not all news is about cars — adapt the query
-        search_queries = []
         
-        # Primary: topic + photo (works for any news)
-        search_queries.append(f"{clean_topic} фото")
+        search_queries = [
+            f"{clean_topic} фото",
+            f"{clean_topic} photo",
+        ]
         
-        # Secondary: English query for international sources
-        search_queries.append(f"{clean_topic} photo")
-        
-        # Try SearXNG image search with each query
         for query in search_queries:
             if len(image_urls) >= max_images:
                 break
@@ -598,7 +906,6 @@ async def search_images(topic: str, max_images: int = 5) -> List[str]:
                 for r in results:
                     if r.url and r.url not in seen_urls:
                         url_lower = r.url.lower()
-                        # Accept image URLs
                         is_image_url = any(ext in url_lower for ext in ['.jpg', '.jpeg', '.png', '.webp'])
                         is_image_host = any(domain in url_lower for domain in [
                             'imgur.com', 'flickr.com', 'unsplash.com',
@@ -609,24 +916,89 @@ async def search_images(topic: str, max_images: int = 5) -> List[str]:
                             image_urls.append(r.url)
             except Exception as e:
                 logger.debug(f"SearXNG image search failed for query '{query[:40]}': {e}")
-
-        # Fallback: regular web search for images
-        if not image_urls:
-            try:
-                from bot.web_search import web_search
-                results = await web_search(f"{clean_topic} фото image", max_results=5)
-                for r in results:
-                    url = r.get("url", "") if isinstance(r, dict) else getattr(r, "url", "")
-                    if url and url not in seen_urls and not _is_junk_url(url):
-                        seen_urls.add(url)
-                        image_urls.append(url)
-            except Exception as e:
-                logger.debug(f"Web search image fallback failed for '{topic[:40]}': {e}")
-
+    
     except Exception as e:
-        logger.debug(f"Image search failed for '{topic}': {e}")
+        logger.debug(f"SearXNG image search failed for '{topic[:40]}': {e}")
+    
+    return image_urls
 
-    logger.info(f"Image search found {len(image_urls)} URLs for '{topic[:50]}'")
+
+async def search_images(topic: str, max_images: int = 5) -> List[str]:
+    """Search for images using MULTI-PROVIDER pipeline with CONCURRENT fallback.
+    
+    v4.0: Multi-provider image search with reliable sources:
+      1. Unsplash — high-quality stock photos (free API or scraping)
+      2. Pexels — stock photos (free API or scraping)
+      3. Bing Images — comprehensive image search (scraping, cloud-friendly)
+      4. Google Images — most comprehensive (scraping, may be blocked from cloud)
+      5. SearXNG — LAST RESORT only (unreliable public instances)
+    
+    All providers (except SearXNG) are queried CONCURRENTLY for speed.
+    Results are merged and deduplicated.
+    """
+    image_urls: List[str] = []
+    seen_urls: set = set()
+    
+    clean_topic = re.sub(r'[^\w\s]', '', topic)[:80]
+    
+    # ── Phase 1: Concurrent search across reliable providers ──────────
+    # Run Unsplash, Pexels, and Bing Images in parallel for maximum speed
+    search_tasks = [
+        _search_unsplash(topic, max_images=max_images),
+        _search_pexels(topic, max_images=max_images),
+        _search_bing_images(topic, max_images=max_images),
+    ]
+    
+    results = await asyncio.gather(*search_tasks, return_exceptions=True)
+    
+    # Collect results from all providers (priority: Unsplash > Pexels > Bing)
+    for provider_results in results:
+        if isinstance(provider_results, list):
+            for url in provider_results:
+                if url and url not in seen_urls and not _is_junk_url(url):
+                    seen_urls.add(url)
+                    image_urls.append(url)
+    
+    # ── Phase 2: Google Images (secondary — may be blocked from cloud) ──
+    if len(image_urls) < 2:
+        try:
+            google_results = await _search_google_images(topic, max_images=max(3, max_images - len(image_urls)))
+            for url in google_results:
+                if url and url not in seen_urls and not _is_junk_url(url):
+                    seen_urls.add(url)
+                    image_urls.append(url)
+        except Exception as e:
+            logger.debug(f"Google Images fallback failed for '{topic[:40]}': {e}")
+    
+    # ── Phase 3: SearXNG — LAST RESORT (unreliable public instances) ──
+    if len(image_urls) < 2:
+        try:
+            searxng_results = await _search_searxng_images(topic, max_images=max(3, max_images - len(image_urls)))
+            for url in searxng_results:
+                if url and url not in seen_urls and not _is_junk_url(url):
+                    seen_urls.add(url)
+                    image_urls.append(url)
+        except Exception as e:
+            logger.debug(f"SearXNG last-resort fallback failed for '{topic[:40]}': {e}")
+    
+    # ── Phase 4: General web search for image pages ──
+    if not image_urls:
+        try:
+            from bot.web_search import web_search
+            results = await web_search(f"{clean_topic} фото image", max_results=5)
+            for r in results:
+                url = r.get("url", "") if isinstance(r, dict) else getattr(r, "url", "")
+                if url and url not in seen_urls and not _is_junk_url(url):
+                    seen_urls.add(url)
+                    image_urls.append(url)
+        except Exception as e:
+            logger.debug(f"Web search image fallback failed for '{topic[:40]}': {e}")
+    
+    if image_urls:
+        logger.info(f"Image search found {len(image_urls)} URLs for '{topic[:50]}' (multi-provider)")
+    else:
+        logger.warning(f"Image search found 0 URLs for '{topic[:50]}' — ALL providers failed!")
+    
     return image_urls[:max_images]
 
 
@@ -846,16 +1218,24 @@ class ImageFetcher:
             search_urls = await search_images(topic, max_images=max(3, max_images - len(all_images)))
             if search_urls:
                 client = self._get_client()
+                downloaded = 0
                 for url in search_urls:
                     if len(all_images) >= max_images:
                         break
                     img_bytes = await _validate_and_download(client, url)
                     if img_bytes and self._add_unique(img_bytes):
                         all_images.append(img_bytes)
-                if all_images and source == "none":
-                    source = "search"
-                elif all_images:
-                    source += "+search"
+                        downloaded += 1
+                if downloaded:
+                    if source == "none":
+                        source = "search"
+                    else:
+                        source += "+search"
+                    logger.info(f"Downloaded {downloaded} images from search providers for '{topic[:50]}'")
+                elif search_urls:
+                    logger.warning(f"Found {len(search_urls)} image URLs from search but 0 passed validation for '{topic[:50]}'")
+            else:
+                logger.warning(f"Image search returned 0 URLs for '{topic[:50]}' — all providers may be down")
 
         # ── Final deduplication pass (catches near-duplicates across sources) ──
         all_images = deduplicate_images(all_images)

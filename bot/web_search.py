@@ -194,8 +194,9 @@ async def search_yandex(query: str, max_results: int = 5) -> List[SearchResult]:
 # ── SearXNG search ─────────────────────────────────────────────────────────────
 
 SEARXNG_INSTANCES = [
-    # Most reliable instances (tested June 2026)
-    # Ordered by typical response speed and reliability from GitHub Actions IPs
+    # Curated reliable instances (tested June 2026)
+    # Reduced from 28 to 10 most reliable — avoids wasting time on dead instances
+    # These are verified to work from cloud IPs with reasonable response times
     "https://searx.be",
     "https://search.sapti.me",
     "https://searxng.ch",
@@ -206,24 +207,6 @@ SEARXNG_INSTANCES = [
     "https://searxng.site",
     "https://searxng.perennialte.ch",
     "https://search.0relay.com",
-    "https://searxng.au",
-    "https://searxng.shreven.org",
-    "https://search.privacyredirect.com",
-    "https://searxng.tordenskjold.one",
-    "https://search.cronobox.one",
-    "https://searx.fmac.xyz",
-    "https://search.mdosch.de",
-    "https://searx.prvcy.eu",
-    "https://search.bus-hit.me",
-    "https://search.rowie.at",
-    "https://searx.divided-by-zero.eu",
-    "https://search.sergioprado.blog",
-    "https://searx.work",
-    "https://searxng.bravefence.com",
-    "https://searx.no-logs.com",
-    "https://searx.datura.network",
-    "https://search.rhscze.cf",
-    "https://search.charleseroop.com",
 ]
 
 
