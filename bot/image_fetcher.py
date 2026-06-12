@@ -1,4 +1,4 @@
-"""Smart Image Fetcher v2.0 — Original-first image sourcing for asya-bot.
+"""Smart Image Fetcher v3.0 — Original-first image sourcing for asya-bot.
 
 PRIORITY PIPELINE:
   1. Article images — og:image / twitter:image / JSON-LD / <img> from source URL
@@ -10,6 +10,7 @@ KEY FEATURES:
   - Extracts original photos from article pages (og:image, twitter:image, JSON-LD)
   - Parses RSS enclosures and media:content (using news._extract_entry_images)
   - Validates images: min size, content-type, dimensions (PIL when available)
+  - **DEDUPLICATES images by SHA256 hash** — no duplicate photos in a post!
   - Caches images by topic/entity with 7-day TTL
   - Blacklist of junk image domains and patterns
   - Returns image bytes ready for Telegram (compatible with channel.py)
@@ -46,6 +47,8 @@ IMAGE_MIN_HEIGHT = 300
 IMAGE_FETCH_TIMEOUT = 15.0
 ARTICLE_FETCH_TIMEOUT = 20.0
 MAX_IMAGES_PER_SOURCE = 10           # Telegram mediagroup limit
+MAX_IMAGES_PER_POST = 4              # Optimal for news posts (2-4 unique images)
+IMAGE_HASH_THRESHOLD = 0.95          # Similarity threshold for near-duplicate detection
 
 # ── Blacklist — junk image URLs that should never be used ─────────────────────
 
@@ -552,52 +555,174 @@ def _fallback_extract_rss_images(entry: Any) -> List[str]:
 # ── Strategy 3: Image search ─────────────────────────────────────────────────
 
 async def search_images(topic: str, max_images: int = 5) -> List[str]:
-    """Search for images related to a topic using SearXNG image search."""
+    """Search for images related to a topic using SearXNG image search.
+    
+    v3.0: Smarter search queries — adapts to automotive topics.
+    Tries multiple search strategies for better image coverage.
+    """
     image_urls: List[str] = []
+    seen_urls: set = set()
 
     try:
         from bot.web_search import search_searxng
 
         clean_topic = re.sub(r'[^\w\s]', '', topic)[:80]
 
-        # Try SearXNG image search
-        results = await search_searxng(
-            f"{clean_topic} car photo",
-            max_results=8,
-            language="ru",
-            categories="images",
-        )
-        for r in results:
-            if r.url:
-                url_lower = r.url.lower()
-                if any(ext in url_lower for ext in ['.jpg', '.jpeg', '.png', '.webp']):
-                    if not _is_junk_url(r.url):
-                        image_urls.append(r.url)
-                elif any(domain in url_lower for domain in ['imgur.com', 'flickr.com', 'unsplash.com']):
-                    if not _is_junk_url(r.url):
-                        image_urls.append(r.url)
+        # Build smarter search queries based on topic type
+        # Not all news is about cars — adapt the query
+        search_queries = []
+        
+        # Primary: topic + photo (works for any news)
+        search_queries.append(f"{clean_topic} фото")
+        
+        # Secondary: English query for international sources
+        search_queries.append(f"{clean_topic} photo")
+        
+        # Try SearXNG image search with each query
+        for query in search_queries:
+            if len(image_urls) >= max_images:
+                break
+            try:
+                results = await search_searxng(
+                    query,
+                    max_results=8,
+                    language="ru",
+                    categories="images",
+                )
+                for r in results:
+                    if r.url and r.url not in seen_urls:
+                        url_lower = r.url.lower()
+                        # Accept image URLs
+                        is_image_url = any(ext in url_lower for ext in ['.jpg', '.jpeg', '.png', '.webp'])
+                        is_image_host = any(domain in url_lower for domain in [
+                            'imgur.com', 'flickr.com', 'unsplash.com',
+                            'pexels.com', 'shutterstock.com', 'istockphoto.com',
+                        ])
+                        if (is_image_url or is_image_host) and not _is_junk_url(r.url):
+                            seen_urls.add(r.url)
+                            image_urls.append(r.url)
+            except Exception as e:
+                logger.debug(f"SearXNG image search failed for query '{query[:40]}': {e}")
 
-        # Fallback: regular web search
+        # Fallback: regular web search for images
         if not image_urls:
-            from bot.web_search import web_search
-            results = await web_search(f"{clean_topic} car photo image", max_results=5)
-            for r in results:
-                url = r.get("url", "") if isinstance(r, dict) else getattr(r, "url", "")
-                if url and not _is_junk_url(url):
-                    image_urls.append(url)
+            try:
+                from bot.web_search import web_search
+                results = await web_search(f"{clean_topic} фото image", max_results=5)
+                for r in results:
+                    url = r.get("url", "") if isinstance(r, dict) else getattr(r, "url", "")
+                    if url and url not in seen_urls and not _is_junk_url(url):
+                        seen_urls.add(url)
+                        image_urls.append(url)
+            except Exception as e:
+                logger.debug(f"Web search image fallback failed for '{topic[:40]}': {e}")
 
     except Exception as e:
         logger.debug(f"Image search failed for '{topic}': {e}")
 
+    logger.info(f"Image search found {len(image_urls)} URLs for '{topic[:50]}'")
     return image_urls[:max_images]
 
 
 # ── Main fetcher class ───────────────────────────────────────────────────────
 
+def _image_hash(img_bytes: bytes) -> str:
+    """Compute SHA256 hash of image bytes for deduplication."""
+    return hashlib.sha256(img_bytes).hexdigest()
+
+
+def _images_are_similar(img1: bytes, img2: bytes) -> bool:
+    """Check if two images are identical or near-identical.
+
+    Uses SHA256 hash for exact match. For near-duplicates (resized/compressed
+    versions of the same photo), uses a simple pixel sampling heuristic.
+    Returns True if images are likely the same photo.
+    """
+    # Exact match — fastest check
+    if img1 == img2:
+        return True
+
+    h1, h2 = _image_hash(img1), _image_hash(img2)
+    if h1 == h2:
+        return True
+
+    # Size-based quick reject: if sizes differ by >3x, very unlikely same image
+    ratio = len(img1) / max(len(img2), 1)
+    if ratio < 0.3 or ratio > 3.3:
+        return False
+
+    # Try PIL-based comparison for near-duplicates (resized/recompressed same photo)
+    try:
+        from PIL import Image
+        import io
+
+        pil1 = Image.open(io.BytesIO(img1))
+        pil2 = Image.open(io.BytesIO(img2))
+
+        # If dimensions are very different, probably different images
+        w1, h1_dim = pil1.size
+        w2, h2_dim = pil2.size
+        if abs(w1 - w2) > max(w1, w2) * 0.3 or abs(h1_dim - h2_dim) > max(h1_dim, h2_dim) * 0.3:
+            return False
+
+        # Resize both to tiny thumbnail and compare pixel values
+        thumb_size = (16, 16)
+        t1 = pil1.convert("L").resize(thumb_size)
+        t2 = pil2.convert("L").resize(thumb_size)
+
+        pixels1 = list(t1.getdata())
+        pixels2 = list(t2.getdata())
+
+        # Compare average pixel difference
+        total_diff = sum(abs(p1 - p2) for p1, p2 in zip(pixels1, pixels2))
+        avg_diff = total_diff / len(pixels1)
+
+        # Low average difference = same image with different compression/resize
+        if avg_diff < 15:  # Threshold: very similar greyscale thumbnails
+            return True
+
+    except Exception:
+        pass  # If PIL comparison fails, only exact hash match counts
+
+    return False
+
+
+def deduplicate_images(images: List[bytes]) -> List[bytes]:
+    """Remove duplicate and near-duplicate images from a list.
+
+    Uses both exact SHA256 hash matching and PIL-based perceptual comparison
+    to catch resized/compressed versions of the same photo.
+    Returns deduplicated list preserving original order.
+    """
+    if not images:
+        return images
+
+    unique: List[bytes] = []
+    for img in images:
+        is_dup = False
+        for existing in unique:
+            if _images_are_similar(img, existing):
+                is_dup = True
+                break
+        if not is_dup:
+            unique.append(img)
+        else:
+            logger.debug(f"Dedup: removed duplicate image ({len(img)} bytes)")
+
+    removed = len(images) - len(unique)
+    if removed > 0:
+        logger.info(f"Image dedup: {len(images)} → {len(unique)} (removed {removed} duplicates)")
+
+    return unique
+
+
 class ImageFetcher:
     """Smart image fetcher with original-first priority pipeline.
 
     Returns image BYTES (not base64) for compatibility with channel.py.
+
+    v3.0: Includes image deduplication by hash + perceptual comparison
+    to prevent duplicate photos in Telegram posts.
 
     Usage:
         fetcher = ImageFetcher()
@@ -606,12 +731,13 @@ class ImageFetcher:
             article_url="https://bmwblog.com/...",
             rss_entry=feed_entry,
         )
-        # images = [bytes, bytes, ...] or []
+        # images = [bytes, bytes, ...] or [] (deduplicated!)
     """
 
     def __init__(self) -> None:
         self.cache = ImageCache()
         self._client: Optional[httpx.AsyncClient] = None
+        self._seen_hashes: set = set()  # Track hashes within a single fetch() call
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -625,24 +751,43 @@ class ImageFetcher:
             )
         return self._client
 
+    def _add_unique(self, img_bytes: bytes) -> bool:
+        """Add image to list only if it's not a duplicate. Returns True if added."""
+        img_hash = _image_hash(img_bytes)
+        if img_hash in self._seen_hashes:
+            logger.debug(f"Skipping exact duplicate image (hash={img_hash[:12]}...)")
+            return False
+        self._seen_hashes.add(img_hash)
+        return True
+
     async def fetch(
         self,
         topic: str,
         article_url: str = "",
         rss_entry: Any = None,
         image_urls: List[str] = None,
-        max_images: int = 10,
+        max_images: int = MAX_IMAGES_PER_POST,
     ) -> Tuple[List[bytes], str]:
-        """Fetch images using the priority pipeline.
+        """Fetch images using the priority pipeline with deduplication.
 
         Returns (image_list: List[bytes], source: str)
         source is 'rss', 'article', 'search', or 'cache' for logging.
+        Images are deduplicated by hash to prevent duplicates in posts.
         """
+        # Reset seen hashes for this fetch call
+        self._seen_hashes = set()
+
         # ── Step 0: Check cache ───────────────────────────────────────────
         cached = self.cache.get(topic)
         if cached:
-            logger.info(f"Image cache HIT for '{topic[:50]}' — {len(cached)} images")
-            return cached, "cache"
+            # Deduplicate cached images too (cache may have been polluted)
+            deduped = deduplicate_images(cached)
+            if deduped:
+                logger.info(f"Image cache HIT for '{topic[:50]}' — {len(deduped)} images (after dedup)")
+                return deduped, "cache"
+            else:
+                logger.warning(f"Image cache had only duplicates for '{topic[:50]}', re-fetching")
+                self.cache.delete(topic)
 
         all_images: List[bytes] = []
         source = "none"
@@ -650,15 +795,15 @@ class ImageFetcher:
         # ── Step 1: RSS image URLs (passed from news._extract_entry_images) ─
         if image_urls:
             client = self._get_client()
-            for url in image_urls[:max_images * 2]:
+            for url in image_urls[:max_images * 3]:
                 if len(all_images) >= max_images:
                     break
                 img_bytes = await _validate_and_download(client, url)
-                if img_bytes:
+                if img_bytes and self._add_unique(img_bytes):
                     all_images.append(img_bytes)
             if all_images:
                 source = "rss"
-                logger.info(f"Got {len(all_images)} images from RSS for '{topic[:50]}'")
+                logger.info(f"Got {len(all_images)} unique images from RSS for '{topic[:50]}'")
 
         # ── Step 2: RSS entry enclosures (if entry provided) ──────────────
         if rss_entry is not None and len(all_images) < max_images:
@@ -670,39 +815,49 @@ class ImageFetcher:
                         break
                     if url not in (image_urls or []):
                         img_bytes = await _validate_and_download(client, url)
-                        if img_bytes:
+                        if img_bytes and self._add_unique(img_bytes):
                             all_images.append(img_bytes)
                 if all_images and source == "none":
                     source = "rss"
 
         # ── Step 3: Article page images ───────────────────────────────────
         if article_url and len(all_images) < max_images:
-            article_images = await fetch_article_images(article_url, max_count=max_images - len(all_images))
+            article_images = await fetch_article_images(article_url, max_count=max_images - len(all_images) + 2)
             if article_images:
-                all_images.extend(article_images)
-                source = "article" if source == "none" else source + "+article"
-                logger.info(f"Scraped {len(article_images)} article images for '{topic[:50]}'")
+                added = 0
+                for img in article_images:
+                    if len(all_images) >= max_images:
+                        break
+                    if self._add_unique(img):
+                        all_images.append(img)
+                        added += 1
+                if added:
+                    source = "article" if source == "none" else source + "+article"
+                    logger.info(f"Scraped {added} unique article images for '{topic[:50]}'")
 
-        # ── Step 4: Image search ──────────────────────────────────────────
-        if len(all_images) < 3:
-            search_urls = await search_images(topic)
+        # ── Step 4: Image search (if we still need more images) ───────────
+        if len(all_images) < 2:
+            search_urls = await search_images(topic, max_images=max(3, max_images - len(all_images)))
             if search_urls:
                 client = self._get_client()
                 for url in search_urls:
                     if len(all_images) >= max_images:
                         break
                     img_bytes = await _validate_and_download(client, url)
-                    if img_bytes:
+                    if img_bytes and self._add_unique(img_bytes):
                         all_images.append(img_bytes)
                 if all_images and source == "none":
                     source = "search"
                 elif all_images:
                     source += "+search"
 
+        # ── Final deduplication pass (catches near-duplicates across sources) ──
+        all_images = deduplicate_images(all_images)
+
         # ── Cache result ──────────────────────────────────────────────────
         if all_images:
             self.cache.put(topic, all_images, source=source)
-            logger.info(f"ImageFetcher: {len(all_images)} images for '{topic[:50]}' (source={source})")
+            logger.info(f"ImageFetcher: {len(all_images)} unique images for '{topic[:50]}' (source={source})")
         else:
             logger.info(f"No real images found for '{topic[:50]}' — AI generation will be fallback")
 
@@ -724,9 +879,13 @@ async def fetch_images_for_post(
     article_url: str = "",
     rss_entry: Any = None,
     image_urls: List[str] = None,
-    max_images: int = 10,
+    max_images: int = MAX_IMAGES_PER_POST,
 ) -> Tuple[List[bytes], str]:
-    """Module-level convenience function to fetch images for a post."""
+    """Module-level convenience function to fetch images for a post.
+
+    Images are automatically deduplicated by hash to prevent duplicates.
+    Default max_images=4 (optimal for news posts — 2-4 unique images).
+    """
     global _fetcher
     if _fetcher is None:
         _fetcher = ImageFetcher()

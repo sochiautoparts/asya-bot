@@ -51,18 +51,21 @@ logger = logging.getLogger("asya.channel")
 POST_REACTIONS = ["👍", "🔥", "🚗", "😍", "👏", "💯", "🤩", "⚡"]
 
 # ── How many images per news post ───────────────────────────────────────────
-# Telegram allows up to 10 media per post.
-# We aim for rich visual posts with multiple relevant images from news sources.
-NEWS_IMAGES_MIN = 2
-NEWS_IMAGES_MAX = 10
-# Maximum total images in a channel post (hard limit — Telegram allows 10)
-MAX_IMAGES_PER_POST = 10
-# Maximum real images to download from RSS (not the Telegram limit!)
-MAX_RSS_IMAGES = 10
+# Telegram allows up to 10 media per post, but we aim for QUALITY over quantity.
+# 2-4 unique real images per post is optimal. Too many images:
+#   - Clutters the post, makes it hard to read
+#   - Often leads to duplicate/similar photos from same source
+#   - Slower to load and post
+NEWS_IMAGES_MIN = 1
+NEWS_IMAGES_MAX = 4
+# Maximum total images in a channel post (reduced from 10 — too many was cluttering)
+MAX_IMAGES_PER_POST = 4
+# Maximum real images to download from RSS (don't need all 10 from feed)
+MAX_RSS_IMAGES = 4
 # Maximum images to scrape from article page
-MAX_SCRAPE_IMAGES = 10
+MAX_SCRAPE_IMAGES = 3
 # Maximum images from web search enrichment
-MAX_SEARCH_IMAGES = 5
+MAX_SEARCH_IMAGES = 2
 
 # ── Poll topics for channel engagement ──────────────────────────────────────
 
@@ -1008,23 +1011,25 @@ class ChannelManager:
     async def _get_post_images(self, news_item: Dict) -> tuple:
         """Get images for a news post with ORIGINAL-FIRST strategy.
         
-        v2.0: Uses ImageFetcher with priority pipeline:
-        1. RSS image URLs (image_urls field from feed)
-        2. RSS enclosures (media:content, enclosures)
-        3. Article page images (og:image, twitter:image, JSON-LD)
-        4. Image search (SearXNG)
-        5. AI generation — LAST RESORT ONLY
+        v3.0: Uses ImageFetcher with deduplication pipeline:
+        1. RSS image URLs (image_urls field from feed) — DEDUPLICATED by hash
+        2. RSS enclosures (media:content, enclosures) — DEDUPLICATED by hash
+        3. Article page images (og:image, twitter:image, JSON-LD) — DEDUPLICATED
+        4. Image search (SearXNG) — DEDUPLICATED
+        5. AI generation — VERY LAST RESORT, only 1 image
         
         Returns (image_list: List[bytes], source: str)
         source is 'rss', 'article', 'search', 'cache', or 'ai' for logging.
+        Images are deduplicated by SHA256 hash to prevent duplicate photos.
         """
         title = news_item.get("title", "")
         article_url = news_item.get("url", "")
         rss_image_urls = news_item.get("image_urls", [])
         
         # ── Steps 1-4: Try ImageFetcher for REAL images ──────────────────
+        # ImageFetcher now includes hash-based deduplication built-in
         try:
-            from bot.image_fetcher import ImageFetcher
+            from bot.image_fetcher import ImageFetcher, deduplicate_images
             if not hasattr(self, '_image_fetcher'):
                 self._image_fetcher = ImageFetcher()
             
@@ -1035,22 +1040,54 @@ class ChannelManager:
                 max_images=MAX_IMAGES_PER_POST,
             )
             if real_images:
-                logger.info(f"Got {len(real_images)} REAL images for '{title[:50]}' (source={real_source})")
-                return real_images[:MAX_IMAGES_PER_POST], real_source
+                # Extra safety: deduplicate again at channel level
+                real_images = deduplicate_images(real_images)[:MAX_IMAGES_PER_POST]
+                logger.info(f"Got {len(real_images)} UNIQUE REAL images for '{title[:50]}' (source={real_source})")
+                return real_images, real_source
+        except ImportError:
+            # deduplicate_images not available — use ImageFetcher without extra dedup
+            try:
+                from bot.image_fetcher import ImageFetcher
+                if not hasattr(self, '_image_fetcher'):
+                    self._image_fetcher = ImageFetcher()
+                
+                real_images, real_source = await self._image_fetcher.fetch(
+                    topic=title,
+                    article_url=article_url,
+                    image_urls=rss_image_urls,
+                    max_images=MAX_IMAGES_PER_POST,
+                )
+                if real_images:
+                    logger.info(f"Got {len(real_images)} REAL images for '{title[:50]}' (source={real_source})")
+                    return real_images[:MAX_IMAGES_PER_POST], real_source
+            except Exception as e:
+                logger.warning(f"ImageFetcher failed, falling back to legacy pipeline: {e}")
         except Exception as e:
             logger.warning(f"ImageFetcher failed, falling back to legacy pipeline: {e}")
-            # Fall through to legacy + AI generation below
         
-        # ── Legacy fallback: try scraping directly ────────────────────────
+        # ── Legacy fallback: try scraping directly (with dedup) ────────────
         image_list = []
+        seen_hashes = set()
         source = "none"
+        
+        def _hash_dedup_add(img_bytes: bytes) -> bool:
+            """Add image only if not a duplicate. Returns True if added."""
+            import hashlib
+            h = hashlib.sha256(img_bytes).hexdigest()
+            if h in seen_hashes:
+                logger.debug(f"Legacy pipeline: skipping duplicate image (hash={h[:12]})")
+                return False
+            seen_hashes.add(h)
+            return True
         
         # Try RSS images directly
         if rss_image_urls:
             try:
                 rss_images = await self._download_news_images(rss_image_urls, max_count=MAX_RSS_IMAGES)
-                if rss_images:
-                    image_list.extend(rss_images)
+                for img in rss_images:
+                    if _hash_dedup_add(img):
+                        image_list.append(img)
+                if image_list:
                     source = "real"
             except Exception:
                 pass
@@ -1059,49 +1096,47 @@ class ChannelManager:
         if article_url and len(image_list) < MAX_IMAGES_PER_POST:
             try:
                 scraped = await self._scrape_article_images(article_url, max_count=MAX_SCRAPE_IMAGES)
-                if scraped:
-                    image_list.extend(scraped[:MAX_IMAGES_PER_POST - len(image_list)])
-                    source = "scraped" if source == "none" else source + "+scraped"
+                for img in scraped:
+                    if len(image_list) >= MAX_IMAGES_PER_POST:
+                        break
+                    if _hash_dedup_add(img):
+                        image_list.append(img)
+                if image_list and source == "none":
+                    source = "scraped"
+                elif image_list:
+                    source += "+scraped"
             except Exception:
                 pass
         
         # Try search
-        if len(image_list) < 3 and title:
+        if len(image_list) < 2 and title:
             try:
                 search_image_urls = await enrich_with_search_images(news_item)
                 if search_image_urls:
                     searched = await self._download_news_images(search_image_urls, max_count=MAX_SEARCH_IMAGES)
-                    if searched:
-                        image_list.extend(searched[:MAX_IMAGES_PER_POST - len(image_list)])
-                        source = "search" if source == "none" else source + "+search"
+                    for img in searched:
+                        if len(image_list) >= MAX_IMAGES_PER_POST:
+                            break
+                        if _hash_dedup_add(img):
+                            image_list.append(img)
+                    if image_list and source == "none":
+                        source = "search"
+                    elif image_list:
+                        source += "+search"
             except Exception:
                 pass
         
-        # ── Step 5: AI generation — LAST RESORT ──────────────────────────
+        # ── Step 5: AI generation — VERY LAST RESORT, only 1 image ───────
+        # Prefer real photos over AI-generated illustrations.
+        # Only generate when NO real images were found at all.
         if not image_list:
             try:
                 image_list = await self._generate_post_images(title, count=1)
                 if image_list:
                     source = "ai"
-                    logger.info(f"Generated {len(image_list)} AI images (no real images found)")
+                    logger.info(f"Generated 1 AI image (no real images found for '{title[:50]}')")
                 else:
-                    try:
-                        ai_resp = await asyncio.wait_for(
-                            ai_router._primary.generate_image(
-                                "Beautiful modern car on a scenic road, professional automotive "
-                                "photography, golden hour, no text.",
-                                model="flux",
-                            ),
-                            timeout=60.0,
-                        )
-                        img_bytes = self._ai_response_to_bytes(ai_resp)
-                        if img_bytes:
-                            image_list = [img_bytes]
-                            source = "ai-generic"
-                    except (asyncio.TimeoutError, Exception):
-                        pass
-                    if not image_list:
-                        logger.warning("ALL image strategies failed — post may be text-only")
+                    logger.warning("ALL image strategies failed — post may be text-only")
             except Exception as e:
                 logger.warning(f"AI image generation skipped: {e}")
         
@@ -1490,47 +1525,54 @@ class ChannelManager:
         _TEXT_LIMIT = config.TELEGRAM_TEXT_LIMIT          # 4096
         _MIN_CONTENT_FOR_TEXT_ONLY = 1025  # Must exceed caption limit to justify text-only
 
-        # ── CASE 1: No media + short text (≤1024) → try to get an image ──
-        # PREFER media, but DON'T block the post entirely — better to publish
-        # text-only than to leave the channel silent for hours.
+        # ── CASE 1: No media + short text (≤1024) → try to find a REAL image ──
+        # PREFER real photos over AI-generated. Only generate AI as VERY last resort.
+        # Better to post text-only than fake AI images.
         if not has_media and len(post_text) <= _CAPTION_LIMIT:
             logger.warning(
                 f"Post has NO media and text is {len(post_text)} chars (fits in caption). "
-                f"Attempting image generation — text-only allowed only as last resort."
+                f"Searching for real images first, AI generation as last resort."
             )
+
+            # Try 1: Search for real images via SearXNG image search
+            real_image_found = False
             try:
-                last_resort_images = await self._generate_post_images(
-                    news_item.get("title", ""), count=1
-                )
-                if last_resort_images:
-                    image_list = last_resort_images
-                    has_media = True
-                    logger.info("Mandatory image generation SUCCEEDED — post will have media")
-                else:
-                    # Try ONE generic prompt with ONE model (fast, 60s max)
-                    try:
-                        ai_resp = await asyncio.wait_for(
-                            ai_router._primary.generate_image(
-                                "Car on a road, professional automotive photography, "
-                                "vibrant colors, dramatic lighting, high quality, no text.",
-                                model="flux",
-                            ),
-                            timeout=60.0,
-                        )
-                        img_bytes = self._ai_response_to_bytes(ai_resp)
-                        if img_bytes:
-                            image_list = [img_bytes]
-                            has_media = True
-                            logger.info("Generic AI image SUCCEEDED with flux")
-                    except (asyncio.TimeoutError, Exception) as e:
-                        logger.warning(f"Generic image generation failed: {e}")
+                from bot.image_fetcher import ImageFetcher, deduplicate_images
+                if not hasattr(self, '_image_fetcher'):
+                    self._image_fetcher = ImageFetcher()
+
+                search_topic = news_item.get("title", "")
+                if search_topic:
+                    search_images, search_src = await self._image_fetcher.fetch(
+                        topic=search_topic,
+                        article_url=news_item.get("url", ""),
+                        image_urls=news_item.get("image_urls", []),
+                        max_images=2,  # Just need 1-2 images
+                    )
+                    if search_images:
+                        search_images = deduplicate_images(search_images)[:2]
+                        image_list = search_images
+                        has_media = True
+                        real_image_found = True
+                        logger.info(f"Found {len(search_images)} REAL images via search for text-only post (source={search_src})")
             except Exception as e:
-                logger.warning(f"Mandatory image generation failed: {e}")
+                logger.debug(f"Real image search for text-only post failed: {e}")
+
+            # Try 2: AI generation — ONLY if no real images found at all
+            if not real_image_found:
+                try:
+                    last_resort_images = await self._generate_post_images(
+                        news_item.get("title", ""), count=1
+                    )
+                    if last_resort_images:
+                        image_list = last_resort_images
+                        has_media = True
+                        logger.info("AI image generation SUCCEEDED (no real images found)")
+                except Exception as e:
+                    logger.warning(f"AI image generation failed: {e}")
 
             if not has_media:
                 # LAST RESORT: publish text-only rather than leaving channel silent.
-                # This is not ideal but better than no posts for hours.
-                # Log a warning so we can track how often this happens.
                 logger.warning(
                     f"POSTING TEXT-ONLY (last resort): No images available, text is "
                     f"{len(post_text)} chars. Channel silence is worse than no-photo post."

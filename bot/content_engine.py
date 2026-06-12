@@ -1559,16 +1559,17 @@ def get_translation_uniquification_hint(lang: str) -> str:
 async def enrich_with_search_images(news_item: Dict) -> List[str]:
     """Enrich a news item with images found via web search.
 
-    v2.0: Delegates to bot.image_fetcher.search_images which implements
-    the ORIGINAL-FIRST pipeline with SearXNG image search + junk filtering.
+    v3.0: Delegates to bot.image_fetcher.search_images which implements
+    the ORIGINAL-FIRST pipeline with SearXNG image search + deduplication.
+    Reduced max_images from 5 to 3 — quality over quantity.
     Falls back to legacy search_news_images if ImageFetcher unavailable.
     """
     title = news_item.get("title", "")
 
-    # Try new ImageFetcher first
+    # Try new ImageFetcher first (includes deduplication)
     try:
         from bot.image_fetcher import search_images
-        image_urls = await search_images(title, max_images=5)
+        image_urls = await search_images(title, max_images=3)
         if image_urls:
             logger.info(f"Found {len(image_urls)} images via ImageFetcher for: {title[:50]}")
             return image_urls
@@ -1581,7 +1582,7 @@ async def enrich_with_search_images(news_item: Dict) -> List[str]:
     query = query[:80]
 
     try:
-        image_urls = await search_news_images(query, max_count=5)
+        image_urls = await search_news_images(query, max_count=3)
         if image_urls:
             logger.info(f"Found {len(image_urls)} legacy search images for: {title[:50]}")
         return image_urls
