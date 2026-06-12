@@ -8,6 +8,7 @@ FEATURES:
 - Telegram limit compliance (1024 caption, 4096 message)
 """
 
+from bot import config
 import logging
 import re
 from typing import List, Dict, Optional, Tuple
@@ -318,7 +319,7 @@ class MediaHandler:
         for i, img in enumerate(images[:10]):  # Telegram limit: 10
             # For first image, add caption (limited to 1024 chars)
             if i == 0:
-                safe_caption = caption[:1024] if len(caption) > 1024 else caption
+                safe_caption = caption[:config.TELEGRAM_CAPTION_LIMIT] if len(caption) > config.TELEGRAM_CAPTION_LIMIT else caption
                 media = InputMediaPhoto(
                     media=img.url,
                     caption=safe_caption,
@@ -333,7 +334,7 @@ class MediaHandler:
     
     def prepare_single_photo(self, image: ScoredImage, caption: str) -> Dict:
         """Prepare single photo for Telegram send_photo"""
-        safe_caption = caption[:1024] if len(caption) > 1024 else caption
+        safe_caption = caption[:config.TELEGRAM_CAPTION_LIMIT] if len(caption) > config.TELEGRAM_CAPTION_LIMIT else caption
         
         return {
             "photo": image.url,

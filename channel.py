@@ -1451,13 +1451,20 @@ class ChannelManager:
 
         # ── Add tone-specific joke AFTER post generation (if applicable) ──
         if tone_joke and tone_joke not in post_text:
-            # Insert joke before footer
-            footer_marker = "\n\nАвтор @asiaexp_bot"
-            if footer_marker in post_text:
-                post_text = post_text.replace(footer_marker, f"\n\n{tone_joke}{footer_marker}")
+            # Pre-check: only add joke if post has room within Telegram limits
+            # Conservative: assume media post (1024 char limit) as worst case
+            joke_len = len(tone_joke) + 2  # joke text + \n\n separator
+            char_limit = config.TELEGRAM_CAPTION_LIMIT  # 1024 — worst case
+            if len(post_text) + joke_len <= char_limit:
+                # Insert joke before footer
+                footer_marker = "\n\nАвтор @asiaexp_bot"
+                if footer_marker in post_text:
+                    post_text = post_text.replace(footer_marker, f"\n\n{tone_joke}{footer_marker}")
+                else:
+                    post_text = post_text.rstrip() + f"\n\n{tone_joke}"
+                logger.info(f"Added tone joke for {tone_value}")
             else:
-                post_text = post_text.rstrip() + f"\n\n{tone_joke}"
-            logger.info(f"Added tone joke for {tone_value}")
+                logger.debug(f"Skipped tone joke — post already {len(post_text)} chars (limit {char_limit})")
 
         # Validate before posting
         if not _validate_post_text(post_text):
