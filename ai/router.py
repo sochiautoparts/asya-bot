@@ -468,17 +468,26 @@ class AIRouter:
         messages = [{"role": "system", "content": compact_prompt}]
 
         # Add limited history for local model (saves context window)
-        # Further limit to 4 turns to stay well within 4096 ctx
-        history_limit = min(config.MODEL_HISTORY_LIMIT, 4)
+        # CRITICAL: With 4096 ctx and ~1.3 chars/token for Russian, we have
+        # ~5300 chars total. System prompt ~500 chars, max_tokens output ~665 chars,
+        # leaving ~4135 chars for history + message. That's ~6 history turns at 300 chars.
+        # Use 3 turns to be safe and leave room for the user message.
+        history_limit = min(config.MODEL_HISTORY_LIMIT, 3)
         limited_history = history[-history_limit:] if history else []
         for msg in limited_history:
             role = msg.get("role", "user")
             content = msg.get("content", "")
             # Truncate long history messages to save context tokens
             if role in ("user", "assistant") and content:
-                messages.append({"role": role, "content": content[:300]})
+                messages.append({"role": role, "content": content[:200]})
 
-        messages.append({"role": "user", "content": message})
+        # CRITICAL: Truncate user message to prevent context overflow.
+        # With 4096 ctx, the user message should not exceed ~1500 chars
+        # (after system prompt + history are accounted for).
+        truncated_message = message[:1500] if len(message) > 1500 else message
+        if len(message) > 1500:
+            logger.debug(f"Truncated user message for local model: {len(message)} → 1500 chars")
+        messages.append({"role": "user", "content": truncated_message})
 
         return await self._local.chat(
             messages=messages,

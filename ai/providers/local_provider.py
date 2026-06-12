@@ -356,12 +356,14 @@ class LocalProvider(BaseAIProvider):
             prompt = self._format_messages_chatml(messages)
 
             # Check prompt length vs context window
-            # FIX: Previous estimation used len(prompt) // 3 which grossly underestimates
-            # Russian text token count. Qwen3's BPE tokenizer produces ~1.4-2 chars/token
-            # for Russian, not 3-4 as for English. Use // 2 as a safe middle ground.
-            # This prevents "Requested tokens (9894) exceed context window of 4096" errors.
-            estimated_tokens = len(prompt) // 2  # Safe estimate for Russian text
-            max_input_tokens = self._n_ctx - max_tokens
+            # FIX: Russian text in Qwen3 BPE tokenizes at ~1.2-1.5 chars/token,
+            # NOT 2-4 as for English. Using // 2 was too optimistic and caused
+            # "Requested tokens (9894) exceed context window of 4096" errors.
+            # Use a CONSERVATIVE ratio of 1.3 chars/token for Russian text.
+            CHARS_PER_TOKEN = 1.3
+            estimated_tokens = int(len(prompt) / CHARS_PER_TOKEN)
+            # Reserve tokens for the model's response + safety margin
+            max_input_tokens = self._n_ctx - max_tokens - 64  # 64 token safety margin
             
             if estimated_tokens > max_input_tokens:
                 logger.warning(
@@ -377,23 +379,41 @@ class LocalProvider(BaseAIProvider):
                     else:
                         truncated_messages = [messages[0]] + messages[-keep_count:]
                     prompt = self._format_messages_chatml(truncated_messages)
-                    new_est = len(prompt) // 2
+                    new_est = int(len(prompt) / CHARS_PER_TOKEN)
                     if new_est <= max_input_tokens:
                         logger.info(f"Truncated to {keep_count} history messages ({new_est} est. tokens)")
                         break
                 
                 # Final safety check — if even system-only prompt is too long,
                 # truncate the system message itself to fit
-                final_est = len(prompt) // 2
+                final_est = int(len(prompt) / CHARS_PER_TOKEN)
                 if final_est > max_input_tokens:
                     # System message alone is too long — hard truncate it
-                    max_system_chars = max_input_tokens * 2  # Rough reverse estimate
+                    max_system_chars = int(max_input_tokens * CHARS_PER_TOKEN)
                     system_content = messages[0].get("content", "")[:max_system_chars]
                     truncated_messages = [{"role": "system", "content": system_content}]
                     prompt = self._format_messages_chatml(truncated_messages)
                     logger.warning(
                         f"System prompt truncated to {max_system_chars} chars "
-                        f"({len(prompt) // 2} est. tokens) to fit context"
+                        f"({int(len(prompt) / CHARS_PER_TOKEN)} est. tokens) to fit context"
+                    )
+                
+                # ABSOLUTE SAFETY: After all truncation, if estimated tokens still exceed
+                # context window, hard-truncate the raw prompt string to guaranteed max chars.
+                # This is the last line of defense against llama.cpp context overflow.
+                max_prompt_chars = int(max_input_tokens * CHARS_PER_TOKEN)
+                if len(prompt) > max_prompt_chars:
+                    # Keep the ChatML structure — find last complete message
+                    prompt = prompt[:max_prompt_chars]
+                    # Ensure we don't cut in the middle of a ChatML tag
+                    last_end = prompt.rfind(QWEN3_END)
+                    if last_end > len(prompt) // 2:
+                        prompt = prompt[:last_end + len(QWEN3_END)]
+                    # Add assistant prefix for generation
+                    prompt += f"{QWEN3_ASSISTANT_START}/no_think\n"
+                    logger.warning(
+                        f"HARD TRUNCATION: prompt cut to {len(prompt)} chars "
+                        f"({int(len(prompt) / CHARS_PER_TOKEN)} est. tokens)"
                     )
 
             start_time = time.time()
@@ -540,11 +560,18 @@ class LocalProvider(BaseAIProvider):
             "До 1024 символов."
         )
 
-        user_content = f"Тема: {topic}"
+        # CRITICAL: Truncate source text to prevent context overflow.
+        # With 4096 ctx, we can afford ~2000 chars for user content
+        # (system prompt ~200 chars, max_tokens=800 ~1040 chars output, safety margin).
+        user_content = f"Тема: {topic[:200]}"
         if source_text:
-            user_content += f"\n\nИсходный текст:\n{source_text}"
+            user_content += f"\n\nИсходный текст:\n{source_text[:1500]}"
         if extra_instructions:
-            user_content += f"\n\nИнструкции: {extra_instructions}"
+            user_content += f"\n\nИнструкции: {extra_instructions[:300]}"
+
+        # Total user content must not exceed ~2000 chars for local model
+        if len(user_content) > 2000:
+            user_content = user_content[:2000]
 
         messages = [
             {"role": "system", "content": system_prompt},
