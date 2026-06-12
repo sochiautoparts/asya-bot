@@ -316,10 +316,12 @@ class MediaHandler:
         
         media_group = []
         
+        # Smart caption truncation — avoid mid-word cuts
+        safe_caption = self._safe_truncate_caption(caption)
+        
         for i, img in enumerate(images[:10]):  # Telegram limit: 10
             # For first image, add caption (limited to 1024 chars)
             if i == 0:
-                safe_caption = caption[:config.TELEGRAM_CAPTION_LIMIT] if len(caption) > config.TELEGRAM_CAPTION_LIMIT else caption
                 media = InputMediaPhoto(
                     media=img.url,
                     caption=safe_caption,
@@ -334,13 +336,54 @@ class MediaHandler:
     
     def prepare_single_photo(self, image: ScoredImage, caption: str) -> Dict:
         """Prepare single photo for Telegram send_photo"""
-        safe_caption = caption[:config.TELEGRAM_CAPTION_LIMIT] if len(caption) > config.TELEGRAM_CAPTION_LIMIT else caption
+        safe_caption = self._safe_truncate_caption(caption)
         
         return {
             "photo": image.url,
             "caption": safe_caption,
             "parse_mode": "HTML"
         }
+
+    def _safe_truncate_caption(self, caption: str) -> str:
+        """Smart caption truncation — never cut mid-word or mid-sentence.
+        
+        If caption exceeds Telegram limit, finds a natural break point
+        (sentence end, paragraph, newline, or word boundary) instead of
+        crude character-level truncation.
+        """
+        limit = config.TELEGRAM_CAPTION_LIMIT
+        if len(caption) <= limit:
+            return caption
+        
+        target = limit - 3  # Room for "..."
+        if target < 50:
+            return caption[:target] + "..."
+        
+        search_zone = caption[:target + 1]
+        
+        # 1. Paragraph break
+        last_para = search_zone.rfind("\n\n")
+        if last_para > target * 0.5:
+            return caption[:last_para].rstrip() + "..."
+        
+        # 2. Sentence end
+        for end_char in ['. ', '! ', '? ', '… ']:
+            pos = search_zone.rfind(end_char)
+            if pos > target * 0.5:
+                return caption[:pos + 1].rstrip() + "..."
+        
+        # 3. Newline
+        last_newline = search_zone.rfind("\n")
+        if last_newline > target * 0.5:
+            return caption[:last_newline].rstrip() + "..."
+        
+        # 4. Space (avoid mid-word)
+        last_space = search_zone.rfind(" ")
+        if last_space > target * 0.5:
+            return caption[:last_space].rstrip() + "..."
+        
+        # 5. Hard cut — very last resort
+        return caption[:target].rstrip() + "..."
 
 
 # Global instance

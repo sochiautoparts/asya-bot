@@ -533,8 +533,9 @@ def _enforce_char_limit(text: str, has_media: bool) -> str:
     
     This function:
     1. Separates footer from content
-    2. Truncates content if needed
+    2. Truncates content at sentence/paragraph boundary if needed
     3. Re-attaches footer (always intact)
+    4. NEVER cuts mid-word or mid-sentence — always truncates at a natural break point
     """
     footer = "\n\nАвтор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
     char_limit = config.TELEGRAM_CAPTION_LIMIT if has_media else config.TELEGRAM_TEXT_LIMIT
@@ -555,9 +556,64 @@ def _enforce_char_limit(text: str, has_media: bool) -> str:
         return footer.lstrip('\n')
     
     if len(content) > max_content:
-        content = content[:max_content - 3] + "..."
+        content = _smart_truncate(content, max_content)
     
     return content + footer
+
+
+def _smart_truncate(text: str, max_len: int) -> str:
+    """Truncate text at a natural sentence/paragraph boundary.
+    
+    Strategy (in priority order):
+    1. Find the last paragraph break (\n\n) before max_len
+    2. Find the last sentence end (. ! ? …) before max_len
+    3. Find the last newline (\n) before max_len
+    4. Find the last space before max_len (avoid mid-word cut)
+    5. Last resort: hard cut at max_len - 3 + "..."
+    
+    Always appends "..." to indicate truncation.
+    """
+    if len(text) <= max_len:
+        return text
+    
+    # We need room for "..." (3 chars)
+    target = max_len - 3
+    if target < 50:
+        return text[:target] + "..."
+    
+    # Look at the text up to target+50 chars — we want to find the BEST
+    # break point near the end, not just the very last one
+    search_zone = text[:target + 1]
+    
+    # 1. Try paragraph break (\n\n) — best break point
+    last_para = search_zone.rfind("\n\n")
+    if last_para > target * 0.5:  # Don't throw away more than half the text
+        return text[:last_para].rstrip() + "..."
+    
+    # 2. Try sentence end (. ! ? … followed by space or newline)
+    # Look for sentence endings in the last portion of the text
+    sentence_end_chars = ['. ', '! ', '? ', '… ', '.\n', '!\n', '?\n', '…\n']
+    best_sentence_end = -1
+    for end_char in sentence_end_chars:
+        pos = search_zone.rfind(end_char)
+        if pos > best_sentence_end and pos > target * 0.5:
+            best_sentence_end = pos + len(end_char) - 1  # Include the punctuation
+    
+    if best_sentence_end > target * 0.5:
+        return text[:best_sentence_end + 1].rstrip() + "..."
+    
+    # 3. Try newline (\n)
+    last_newline = search_zone.rfind("\n")
+    if last_newline > target * 0.5:
+        return text[:last_newline].rstrip() + "..."
+    
+    # 4. Try space (avoid mid-word cut)
+    last_space = search_zone.rfind(" ")
+    if last_space > target * 0.5:
+        return text[:last_space].rstrip() + "..."
+    
+    # 5. Hard cut — very last resort
+    return text[:target].rstrip() + "..."
 
 
 class ChannelManager:

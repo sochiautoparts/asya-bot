@@ -711,13 +711,13 @@ class AIRouter:
 
         if has_media:
             limit_instruction = (
-                f"\n\nКРИТИЧЕСКИ ВАЖНО — ЛИМИТ СИМВОЛОВ:\n"
-                f"Это пост С медиа. Максимум 1024 символа ВЕСЬ пост.\n"
+                f"\n\n⛔ КРИТИЧЕСКИ ВАЖНО — ЛИМИТ СИМВОЛОВ ⛔\n"
+                f"Это пост С ФОТО. Telegram обрезает подписи на 1024 символе.\n"
                 f"Подпись 'Автор @asiaexp_bot / @sochiautoparts / #sochiautoparts' занимает ~55 символов.\n"
-                f"Значит твой полезный текст — НЕ БОЛЕЕ {content_limit} символов.\n"
-                f"Пост ОБЯЗАТЕЛЬНО публикуется с фото — поэтому уложись в 1024!\n"
-                f"Пост БЕЗ фото — разрешён ТОЛЬКО если контент очень интересный и требует подробностей.\n"
-                f"Пиши КОМПАКТНО: 500-900 символов оптимально. До 970 если очень нужно.\n"
+                f"Значит твой текст — СТРОГО НЕ БОЛЕЕ {content_limit} символов.\n"
+                f"ЕСЛИ ТЫ НАПИШЕШЬ БОЛЬШЕ — ПОСТ ОБРЕЖЕТСЯ НА ПОЛУСЛОВЕ! Это выглядит ужасно.\n"
+                f"Пиши КОМПАКТНО и ЁМКО: 500-800 символов оптимально. Абсолютный максимум 950.\n"
+                f"НЕ ПИШИ длинных вступлений. Сразу к делу.\n"
                 f"Подпись в конце ОБЯЗАТЕЛЬНА — никогда не обрезай её."
             )
         else:
@@ -743,13 +743,18 @@ class AIRouter:
             {"role": "user", "content": user_content},
         ]
 
+        # ── Determine max_tokens based on has_media ──
+        # Media posts: 1024 char limit → ~400 tokens is plenty
+        # Text-only posts: 4096 char limit → ~1500 tokens for rich content
+        post_max_tokens = 600 if has_media else 1500
+
         # ── LEVEL 1: Pollinations with key ──
         post_model = model or "openai-large"
         response = await self._primary.chat(
             messages=messages,
             model=post_model,
             temperature=0.8,
-            max_tokens=1500,
+            max_tokens=post_max_tokens,
         )
 
         # If primary model failed, try a few quality fallback models
@@ -764,7 +769,7 @@ class AIRouter:
                     messages=messages,
                     model=fallback,
                     temperature=0.8,
-                    max_tokens=1500,
+                    max_tokens=post_max_tokens,
                 )
                 if not response.error:
                     break
@@ -777,7 +782,7 @@ class AIRouter:
                     messages=messages,
                     model=free_model,
                     temperature=0.8,
-                    max_tokens=1500,
+                    max_tokens=post_max_tokens,
                 )
                 if not result.error and result.text:
                     response = result
@@ -789,11 +794,57 @@ class AIRouter:
             response = await self._cloudflare.chat(
                 messages=messages,
                 temperature=0.8,
-                max_tokens=1500,
+                max_tokens=post_max_tokens,
             )
 
         response = self._finalize_channel_post(response, has_media)
         return response
+
+
+def _router_smart_truncate(text: str, max_len: int) -> str:
+    """Smart truncation for AI router — cuts at sentence/paragraph boundary.
+    
+    Same logic as channel.py's _smart_truncate to avoid mid-word cuts.
+    """
+    if len(text) <= max_len:
+        return text
+    
+    target = max_len - 3
+    if target < 50:
+        return text[:target] + "..."
+    
+    search_zone = text[:target + 1]
+    
+    # 1. Paragraph break
+    last_para = search_zone.rfind("\n\n")
+    if last_para > target * 0.5:
+        return text[:last_para].rstrip() + "..."
+    
+    # 2. Sentence end
+    sentence_end_chars = ['. ', '! ', '? ', '… ', '.\n', '!\n', '?\n', '…\n']
+    best_sentence_end = -1
+    for end_char in sentence_end_chars:
+        pos = search_zone.rfind(end_char)
+        if pos > best_sentence_end and pos > target * 0.5:
+            best_sentence_end = pos + len(end_char) - 1
+    
+    if best_sentence_end > target * 0.5:
+        return text[:best_sentence_end + 1].rstrip() + "..."
+    
+    # 3. Newline
+    last_newline = search_zone.rfind("\n")
+    if last_newline > target * 0.5:
+        return text[:last_newline].rstrip() + "..."
+    
+    # 4. Space
+    last_space = search_zone.rfind(" ")
+    if last_space > target * 0.5:
+        return text[:last_space].rstrip() + "..."
+    
+    # 5. Hard cut
+    return text[:target].rstrip() + "..."
+
+
 
     def _finalize_channel_post(self, response: AIResponse, has_media: bool) -> AIResponse:
         """Finalize channel post: add footer, enforce limits."""
@@ -811,7 +862,7 @@ class AIRouter:
             elif "@asiaexp_bot" not in text:
                 text = text.replace("@sochiautoparts", "Автор @asiaexp_bot\n@sochiautoparts")
 
-            # Enforce character limit
+            # Enforce character limit (use smart truncation from channel.py)
             footer = "\n\nАвтор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
             if has_media and len(text) > config.TELEGRAM_CAPTION_LIMIT:
                 for foot_part in ["\n\nАвтор @asiaexp_bot", "\n@sochiautoparts", "\n#sochiautoparts"]:
@@ -819,7 +870,8 @@ class AIRouter:
                 text = text.rstrip()
                 max_content = config.TELEGRAM_CAPTION_LIMIT - len(footer)
                 if len(text) > max_content:
-                    text = text[:max_content - 3] + "..."
+                    # Smart truncation — find last sentence/paragraph boundary
+                    text = _router_smart_truncate(text, max_content)
                 text += footer
             elif not has_media and len(text) > config.TELEGRAM_TEXT_LIMIT:
                 for foot_part in ["\n\nАвтор @asiaexp_bot", "\n@sochiautoparts", "\n#sochiautoparts"]:
@@ -827,7 +879,7 @@ class AIRouter:
                 text = text.rstrip()
                 max_content = config.TELEGRAM_TEXT_LIMIT - len(footer)
                 if len(text) > max_content:
-                    text = text[:max_content - 3] + "..."
+                    text = _router_smart_truncate(text, max_content)
                 text += footer
 
             response.text = text
