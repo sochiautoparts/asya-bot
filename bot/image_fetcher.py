@@ -62,6 +62,10 @@ JUNK_KEYWORDS = [
     "pixel", "tracker", "beacon", "counter", "analytics",
     "1x1", "spacer", "blank", "transparent",
     "recaptcha", "captcha",
+    # Common non-content images from RSS (icons, logos, social buttons)
+    "icon", "logo", "badge", "button", "btn",
+    "share", "facebook", "twitter", "vk.",
+    "telegram", "whatsapp", "instagram", "youtube", "tiktok",
 ]
 
 JUNK_EXTENSIONS = {".gif", ".svg"}
@@ -224,6 +228,23 @@ async def _download_image(client: httpx.AsyncClient, url: str) -> Optional[bytes
         # Skip SVG
         if b'<svg' in img_bytes[:500]:
             return None
+
+        # Dimension check — skip tiny icons/buttons (when PIL available)
+        try:
+            from PIL import Image
+            import io
+            img = Image.open(io.BytesIO(img_bytes))
+            w, h = img.size
+            # Skip icons, thumbnails, buttons — real article photos are at least 200x150
+            if w < 200 or h < 150:
+                return None
+            # Skip banners (extreme aspect ratios)
+            if w / max(h, 1) > 4.0 or h / max(w, 1) > 4.0:
+                return None
+        except ImportError:
+            pass  # PIL not available — accept without dimension check
+        except Exception:
+            pass  # Can't read dimensions — accept anyway
 
         return img_bytes
 
@@ -538,6 +559,14 @@ class ImageFetcher:
         client = self._get_client()
         all_images: List[bytes] = []
         source = "none"
+
+        # ── Check cache first ──────────────────────────────────────────
+        cached = self.cache.get(topic)
+        if cached:
+            cached = deduplicate_images(cached)[:max_images]
+            if cached:
+                logger.info(f"Image cache HIT for '{topic[:50]}' — {len(cached)} images")
+                return cached, "cache"
 
         # ── Step 1: RSS images ─────────────────────────────────────────
         # image_urls = already extracted by news._extract_entry_images()
