@@ -818,136 +818,165 @@
    818→    - Autosport/Motorsport.com: /s6/ → /s12/ in path
    819→    - Reddit: width=140 → width=640 in query
    820→    - Autocar: /car_review_image_190/ → /body-image/ (190×125 → 900×600)
-   821→    """
-   822→    # BBC: /240/cpsprodpb/ → /640/cpsprodpb/
-   823→    if "bbci.co.uk" in url or "bbc.co.uk" in url:
-   824→        url = re.sub(r'/240/', '/640/', url, count=1)
-   825→
-   826→    # Autosport / Motorsport.com: /s6/ → /s12/
-   827→    if "motorsport.com" in url or "autosport.com" in url:
-   828→        url = re.sub(r'/s6/', '/s12/', url, count=1)
+   821→    - TASS: /w_320/ → /w_1080/ or remove size suffix
+   822→    - Kommersant: small → large in path
+   823→    - Mail.ru: preview → original
+   824→    - 5Колесо: thumb → full
+   825→    """
+   826→    # BBC: /240/cpsprodpb/ → /640/cpsprodpb/
+   827→    if "bbci.co.uk" in url or "bbc.co.uk" in url:
+   828→        url = re.sub(r'/240/', '/640/', url, count=1)
    829→
-   830→    # Reddit preview: width=140 → width=640
-   831→    if "preview.redd.it" in url or "external-preview.redd.it" in url:
-   832→        url = re.sub(r'width=140', 'width=640', url, count=1)
-   833→        url = re.sub(r'height=140', 'height=640', url, count=1)
-   834→
-   835→    # Autocar UK: /styles/car_review_image_190/ → /styles/body-image/
-   836→    if "autocar.co.uk" in url:
-   837→        url = url.replace('/styles/car_review_image_190/', '/styles/body-image/')
+   830→    # Autosport / Motorsport.com: /s6/ → /s12/
+   831→    if "motorsport.com" in url or "autosport.com" in url:
+   832→        url = re.sub(r'/s6/', '/s12/', url, count=1)
+   833→
+   834→    # Reddit preview: width=140 → width=640
+   835→    if "preview.redd.it" in url or "external-preview.redd.it" in url:
+   836→        url = re.sub(r'width=140', 'width=640', url, count=1)
+   837→        url = re.sub(r'height=140', 'height=640', url, count=1)
    838→
-   839→    return url
-   840→
-   841→
-   842→def _extract_entry_images(entry) -> List[str]:
-   843→    """Extract image URLs from a feedparser entry.
-   844→
-   845→    Priority order (highest quality first):
-   846→    1. media_content (Media RSS — editors pick these, usually hero images)
-   847→    2. enclosures (often full-size article images)
-   848→    3. media_thumbnail (small but from structured metadata)
-   849→    4. links with image type
-   850→    5. <img> tags in content/summary HTML (last — often thumbnails + junk)
-   851→
-   852→    All URLs are HTML-entity-decoded, deduplicated (normalized),
-   853→    junk-filtered, and thumbnail-upgraded before returning.
-   854→    Returns list of clean image URLs (up to 10).
-   855→    """
-   856→    images = []
-   857→    seen_normalized = set()  # Dedup by normalized URL (after unescape)
-   858→
-   859→    def _add_image(raw_url: str):
-   860→        """Add image URL if valid and not already seen (after normalization)."""
-   861→        url = _normalize_image_url(raw_url)
-   862→        if not url or len(url) < _MIN_IMAGE_URL_LEN:
-   863→            return
-   864→        if _is_junk_image_url(url):
-   865→            return
-   866→        # Upgrade low-quality thumbnails to bigger versions
-   867→        url = _upgrade_thumbnail_url(url)
-   868→        # Dedup by normalized form (lowercase for comparison)
-   869→        norm_key = url.lower().rstrip("/")
-   870→        if norm_key in seen_normalized:
-   871→            return
-   872→        seen_normalized.add(norm_key)
-   873→        images.append(url)
-   874→
-   875→    # 1. media_content (Media RSS extension — most reliable, editor-chosen)
-   876→    for media in entry.get("media_content", []) or []:
-   877→        url = media.get("url", "")
-   878→        media_type = media.get("type", "").lower()
-   879→        medium = media.get("medium", "").lower()
-   880→        if url and (medium == "image" or "image" in media_type or _has_image_ext(url)):
-   881→            _add_image(url)
-   882→
-   883→    # 2. enclosures (often full-size article images)
-   884→    for enclosure in entry.get("enclosures", []) or []:
-   885→        url = enclosure.get("href", "") or enclosure.get("url", "")
-   886→        enc_type = enclosure.get("type", "").lower()
-   887→        if url and ("image" in enc_type or _has_image_ext(url)):
-   888→            _add_image(url)
-   889→
-   890→    # 3. media_thumbnail (small but structured metadata)
-   891→    for thumb in entry.get("media_thumbnail", []) or []:
-   892→        url = thumb.get("url", "")
-   893→        if url:
-   894→            _add_image(url)
-   895→
-   896→    # 4. links with image rel or type
-   897→    for link in entry.get("links", []) or []:
-   898→        link_type = link.get("type", "").lower()
-   899→        link_rel = link.get("rel", "").lower()
-   900→        url = link.get("href", "")
-   901→        if url and ("image" in link_type or link_rel == "enclosure"):
-   902→            _add_image(url)
+   839→    # Autocar UK: /styles/car_review_image_190/ → /styles/body-image/
+   840→    if "autocar.co.uk" in url:
+   841→        url = url.replace('/styles/car_review_image_190/', '/styles/body-image/')
+   842→
+   843→    # TASS: upgrade small thumbnails to full-size
+   844→    if "tass.ru" in url:
+   845→        # /w_320/ → /w_1080/ or /w_800/
+   846→        url = re.sub(r'/w_\d{2,3}/', '/w_1080/', url, count=1)
+   847→        # Remove size parameters in query
+   848→        url = re.sub(r'[?&](width|height|size)=\d+', '', url)
+   849→
+   850→    # Kommersant: upgrade thumbnails
+   851→    if "kommersant.ru" in url:
+   852→        url = url.replace('/small/', '/large/')
+   853→        url = url.replace('/thumb/', '/full/')
+   854→        url = re.sub(r'/\d+x\d+/', '/1200x800/', url, count=1)
+   855→
+   856→    # Mail.ru auto: upgrade previews
+   857→    if "mail.ru" in url or "img.imgsmail.ru" in url:
+   858→        url = url.replace('/preview/', '/original/')
+   859→        url = url.replace('/thumb/', '/original/')
+   860→        # Remove size restriction params
+   861→        url = re.sub(r'[?&]w=\d{2,3}', '', url)
+   862→
+   863→    # 5Колесо: upgrade thumbnails
+   864→    if "5koleso.ru" in url:
+   865→        url = url.replace('/thumb/', '/full/')
+   866→        url = url.replace('/preview/', '/full/')
+   867→
+   868→    return url
+   869→
+   870→
+   871→def _extract_entry_images(entry) -> List[str]:
+   872→    """Extract image URLs from a feedparser entry.
+   873→
+   874→    Priority order (highest quality first):
+   875→    1. media_content (Media RSS — editors pick these, usually hero images)
+   876→    2. enclosures (often full-size article images)
+   877→    3. media_thumbnail (small but from structured metadata)
+   878→    4. links with image type
+   879→    5. <img> tags in content/summary HTML (last — often thumbnails + junk)
+   880→
+   881→    All URLs are HTML-entity-decoded, deduplicated (normalized),
+   882→    junk-filtered, and thumbnail-upgraded before returning.
+   883→    Returns list of clean image URLs (up to 10).
+   884→    """
+   885→    images = []
+   886→    seen_normalized = set()  # Dedup by normalized URL (after unescape)
+   887→
+   888→    def _add_image(raw_url: str):
+   889→        """Add image URL if valid and not already seen (after normalization)."""
+   890→        url = _normalize_image_url(raw_url)
+   891→        if not url or len(url) < _MIN_IMAGE_URL_LEN:
+   892→            return
+   893→        if _is_junk_image_url(url):
+   894→            return
+   895→        # Upgrade low-quality thumbnails to bigger versions
+   896→        url = _upgrade_thumbnail_url(url)
+   897→        # Dedup by normalized form (lowercase for comparison)
+   898→        norm_key = url.lower().rstrip("/")
+   899→        if norm_key in seen_normalized:
+   900→            return
+   901→        seen_normalized.add(norm_key)
+   902→        images.append(url)
    903→
-   904→    # 5. Extract <img> tags from content/summary HTML (last resort — noisy)
-   905→    for field_name in ["content", "summary", "description"]:
-   906→        content_value = entry.get(field_name)
-   907→        if isinstance(content_value, list):
-   908→            for item in content_value:
-   909→                html = item.get("value", "") if isinstance(item, dict) else str(item)
-   910→                _extract_img_urls(html, _add_image)
-   911→        elif isinstance(content_value, str):
-   912→            _extract_img_urls(content_value, _add_image)
-   913→
-   914→    return images[:10]
-   915→
-   916→
-   917→def _has_image_ext(url: str) -> bool:
-   918→    """Check if URL ends with an image extension."""
-   919→    from urllib.parse import urlparse
-   920→    try:
-   921→        path = urlparse(url).path.lower().split("?")[0].split("#")[0]
-   922→        return any(path.endswith(ext) for ext in _VALID_IMAGE_EXTENSIONS)
-   923→    except Exception:
-   924→        return False
-   925→
-   926→
-   927→def _extract_img_urls(html: str, callback):
-   928→    """Extract src attributes from <img> tags in HTML.
-   929→
-   930→    Also checks data-src and data-lazy-src for lazy-loaded images.
-   931→    Decodes HTML entities before passing to callback.
-   932→    """
-   933→    if not html:
-   934→        return
-   935→    for attr in ["src", "data-src", "data-lazy-src"]:
-   936→        for match in re.finditer(
-   937→            rf'<img[^>]+{attr}=["\']([^"\']+)["\']', html, re.IGNORECASE
-   938→        ):
-   939→            url = match.group(1)
-   940→            if url and len(url) >= _MIN_IMAGE_URL_LEN:
-   941→                callback(url)
+   904→    # 1. media_content (Media RSS extension — most reliable, editor-chosen)
+   905→    for media in entry.get("media_content", []) or []:
+   906→        url = media.get("url", "")
+   907→        media_type = media.get("type", "").lower()
+   908→        medium = media.get("medium", "").lower()
+   909→        if url and (medium == "image" or "image" in media_type or _has_image_ext(url)):
+   910→            _add_image(url)
+   911→
+   912→    # 2. enclosures (often full-size article images)
+   913→    for enclosure in entry.get("enclosures", []) or []:
+   914→        url = enclosure.get("href", "") or enclosure.get("url", "")
+   915→        enc_type = enclosure.get("type", "").lower()
+   916→        if url and ("image" in enc_type or _has_image_ext(url)):
+   917→            _add_image(url)
+   918→
+   919→    # 3. media_thumbnail (small but structured metadata)
+   920→    for thumb in entry.get("media_thumbnail", []) or []:
+   921→        url = thumb.get("url", "")
+   922→        if url:
+   923→            _add_image(url)
+   924→
+   925→    # 4. links with image rel or type
+   926→    for link in entry.get("links", []) or []:
+   927→        link_type = link.get("type", "").lower()
+   928→        link_rel = link.get("rel", "").lower()
+   929→        url = link.get("href", "")
+   930→        if url and ("image" in link_type or link_rel == "enclosure"):
+   931→            _add_image(url)
+   932→
+   933→    # 5. Extract <img> tags from content/summary HTML (last resort — noisy)
+   934→    for field_name in ["content", "summary", "description"]:
+   935→        content_value = entry.get(field_name)
+   936→        if isinstance(content_value, list):
+   937→            for item in content_value:
+   938→                html = item.get("value", "") if isinstance(item, dict) else str(item)
+   939→                _extract_img_urls(html, _add_image)
+   940→        elif isinstance(content_value, str):
+   941→            _extract_img_urls(content_value, _add_image)
    942→
-   943→
-   944→# ── Utility ────────────────────────────────────────────────────────────────────
+   943→    return images[:10]
+   944→
    945→
-   946→def _clean_html(text: str) -> str:
-   947→    """Remove HTML tags and decode entities."""
-   948→    text = re.sub(r'<[^>]+>', '', text)
-   949→    text = text.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
-   950→    text = text.replace('&quot;', '"').replace('&#39;', "'").replace('&nbsp;', ' ')
-   951→    text = re.sub(r'\s+', ' ', text).strip()
-   952→    return text
-   953→
+   946→def _has_image_ext(url: str) -> bool:
+   947→    """Check if URL ends with an image extension."""
+   948→    from urllib.parse import urlparse
+   949→    try:
+   950→        path = urlparse(url).path.lower().split("?")[0].split("#")[0]
+   951→        return any(path.endswith(ext) for ext in _VALID_IMAGE_EXTENSIONS)
+   952→    except Exception:
+   953→        return False
+   954→
+   955→
+   956→def _extract_img_urls(html: str, callback):
+   957→    """Extract src attributes from <img> tags in HTML.
+   958→
+   959→    Also checks data-src and data-lazy-src for lazy-loaded images.
+   960→    Decodes HTML entities before passing to callback.
+   961→    """
+   962→    if not html:
+   963→        return
+   964→    for attr in ["src", "data-src", "data-lazy-src"]:
+   965→        for match in re.finditer(
+   966→            rf'<img[^>]+{attr}=["\']([^"\']+)["\']', html, re.IGNORECASE
+   967→        ):
+   968→            url = match.group(1)
+   969→            if url and len(url) >= _MIN_IMAGE_URL_LEN:
+   970→                callback(url)
+   971→
+   972→
+   973→# ── Utility ────────────────────────────────────────────────────────────────────
+   974→
+   975→def _clean_html(text: str) -> str:
+   976→    """Remove HTML tags and decode entities."""
+   977→    text = re.sub(r'<[^>]+>', '', text)
+   978→    text = text.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
+   979→    text = text.replace('&quot;', '"').replace('&#39;', "'").replace('&nbsp;', ' ')
+   980→    text = re.sub(r'\s+', ' ', text).strip()
+   981→    return text
+   982→

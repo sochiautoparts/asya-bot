@@ -1916,3 +1916,87 @@
   1916→
   1917→channel_manager = ChannelManager()
   1918→
+  1919→
+  1920→# ── Group Commenting System ────────────────────────────────────────────────────
+  1921→# Ася комментирует посты в автомобильных группах, привлекая подписчиков.
+  1922→
+  1923→# Groups where Asya is a member and can comment
+  1924→# Format: {"group_id": "group_name"} — populated from config or DB
+  1925→_AUTO_GROUPS = {
+  1926→    # Sochi auto groups — primary audience region
+  1927→    # Group IDs will be discovered dynamically via getUpdates
+  1928→}
+  1929→
+  1930→# Maximum comments per day per group (anti-spam)
+  1931→MAX_COMMENTS_PER_GROUP_PER_DAY = 3
+  1932→# Minimum interval between comments in same group (seconds)
+  1933→MIN_COMMENT_INTERVAL = 1800  # 30 minutes
+  1934→# Comment length limit (Telegram: 4096, but keep it short for engagement)
+  1935→MAX_COMMENT_LENGTH = 300
+  1936→
+  1937→
+  1938→async def comment_on_group_post(
+  1939→    bot: Bot,
+  1940→    chat_id: int,
+  1941→    message_id: int,
+  1942→    post_text: str,
+  1943→) -> bool:
+  1944→    """Comment on a post in a Telegram group as Ася.
+  1945→    
+  1946→    Generates a short, lively comment in Ася's voice that adds value
+  1947→    (expert opinion, question, or reaction) — not spam.
+  1948→    
+  1949→    Args:
+  1950→        bot: Bot instance
+  1951→        chat_id: Group/chat ID
+  1952→        message_id: Message ID to reply to
+  1953→        post_text: Original post text (for context)
+  1954→    
+  1955→    Returns True if comment was posted successfully.
+  1956→    """
+  1957→    if not bot:
+  1958→        return False
+  1959→    
+  1960→    try:
+  1961→        # Generate comment using LOCAL MODEL ONLY — no cloud API waste on group comments!
+  1962→        # User requirement: comments in groups MUST use local model only.
+  1963→        from ai.providers.local_provider import LocalProvider
+  1964→        
+  1965→        comment_prompt = (
+  1966→            "Ты Ася — автоэксперт, главред канала @sochiautoparts. "
+  1967→            "Ты видишь пост в автомобильной группе и хочешь оставить КОРОТКИЙ комментарий. "
+  1968→            "Правила:\n"
+  1969→            "1. Максимум 300 символов — кратко и живо\n"
+  1970→            "2. Добавь экспертное мнение, вопрос или реакцию\n"
+  1971→            "3. Пиши как живой человек — эмоционально и естественно\n"
+  1972→            "4. НЕ рекламируй свой канал — это спам\n"
+  1973→            "5. НЕ используй markdown, буллеты, жирный текст\n"
+  1974→            "6. Можно добавить юмор или иронию\n"
+  1975→            "7. Твой ответ — ТОЛЬКО текст комментария, без кавычек и пояснений\n"
+  1976→            "8. НИКАКОЙ политики и войны\n\n"
+  1977→            f"Пост в группе:\n{post_text[:500]}\n\n"
+  1978→            "Напиши короткий живой комментарий:"
+  1979→        )
+  1980→        
+  1981→        # LOCAL MODEL ONLY — no cloud fallback for group comments
+  1982→        local_provider = LocalProvider()
+  1983→        if not await local_provider.is_available():
+  1984→            logger.info("Local model not available for comment — skipping (no cloud)")
+  1985→            return False
+  1986→        
+  1987→        messages = [
+  1988→            {"role": "system", "content": "Ты Ася — автоэксперт. Пиши короткие живые комментарии до 300 символов. Без markdown. Без политики."},
+  1989→            {"role": "user", "content": comment_prompt},
+  1990→        ]
+  1991→        
+  1992→        response = await local_provider.chat(
+  1993→            messages=messages,
+  1994→            temperature=0.8,
+  1995→            max_tokens=150,
+  1996→        )
+  1997→        
+  1998→        if not response or response.error or not response.text:
+  1999→            logger.debug(f"Local model comment failed: {getattr(response, 'error_message', 'empty')}")
+  2000→            return False
+
+[showing lines 1-2000 of 2125; use offset=2001 with limit to continue reading]

@@ -54,3 +54,36 @@ Stage Summary:
 - 7 файлов изменено, 287 добавлений, 14 удалений
 - GitHub Actions Run #358 запущен успешно
 - Ключевые улучшения: больше русских источников, больше фото в постах, сильнее уникализация, новая функция комментариев в группах
+---
+Task ID: 1
+Agent: Main (Super Z)
+Task: Проверить источники, исправить мусорные фото, проверить уникализацию и комментарии, перезапустить Actions
+
+Work Log:
+- Изучил полную структуру проекта asya-bot (news.py, channel.py, image_fetcher.py, media_handler.py, ai/router.py, config.py)
+- Протестировал все 26 RSS-источников: 25 работают, 1 нет (Reddit r/Justrolledintotheshop — 429)
+- 6 источников не имеют фото в RSS (требуют скрапинга): Авто Mail.ru, Коммерсант, BBC Sport F1, CarNewsChina, Automotive World, Reddit r/cars
+- image_fetcher.py обновлён до v7.0: комплексная фильтрация мусорных фото
+  - Минимальные размеры: 300x200 (было 200x150)
+  - Минимальный файл: 5KB (было 1KB)
+  - Фильтр по соотношению сторон: баннеры (ratio>3:1) и кнопки
+  - Фильтр квадратных изображений: аватарки и иконки 300-500px
+  - Проверка площади: минимум 40000px
+  - JUNK_PATH_KEYWORDS расширен: 60+ паттернов
+- news.py: расширен фильтр _JUNK_IMAGE_STEMS и _is_junk_image_url()
+- ai/router.py: generate_comment() теперь LOCAL MODEL FIRST
+  - Local → Pollinations free → Pollinations key → Cloudflare → Static
+  - Добавлен import re
+  - Добавлен статический фаллбэк для комментариев
+- bot/config.py: удалены неработающие Reddit RSS (r/Justrolledintotheshop — 429, r/cars — 429+нет фото)
+- bot/media_handler.py: MIN_WIDTH=300, MIN_HEIGHT=200
+- Коммит 8c1bb15 запушен в GitHub
+- GitHub Actions Run #364 запущен с новым кодом
+
+Stage Summary:
+- 5 файлов изменено, 453 добавления, 53 удаления
+- Мусорные фото: жёсткая фильтрация (размеры, соотношение сторон, URL-паттерны, типы контента)
+- Комментарии: локальная модель ПЕРВОЙ, облачные API только как фаллбэк
+- RSS источники: 24 работающих (2 Reddit удалены)
+- Уникализация текста: проверена, работает (7-шаговый процесс)
+- GitHub Actions #364 запущен

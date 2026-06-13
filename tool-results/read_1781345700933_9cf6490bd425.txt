@@ -724,96 +724,101 @@
    724→    """All news sources for Asya bot — auto-focused."""
    725→
    726→    sources: List[NewsSource] = field(default_factory=lambda: [
-   727→        # ── Russian-language RSS sources ──
-   728→        # NOTE: "Китайские автомобили" removed — DNS failure
-   729→        NewsSource("Авто.Вести", "https://auto.vesti.ru/rss/", "ru", "auto"),
-   730→        # ── Working international RSS sources (verified June 2026) ──
-   731→        # UK auto magazines
-   732→        NewsSource("Autocar UK", "https://www.autocar.co.uk/rss/News", "en", "auto"),
-   733→        NewsSource("CAR Magazine", "https://www.carmagazine.co.uk/api/rss", "en", "auto"),
-   734→        # EV & Chinese auto
-   735→        NewsSource("CnEVPost", "https://cnevpost.com/feed/", "en", "auto"),
-   736→        # Asian auto
-   737→        NewsSource("PaulTan", "https://paultan.org/feed/", "en", "auto"),
-   738→        NewsSource("Autosport", "https://www.autosport.com/rss/f1/news/", "en", "auto"),
-   739→        # Australian auto
-   740→        NewsSource("CarExpert", "https://carexpert.com.au/feed/", "en", "auto"),
-   741→        # Automotive news & reviews
-   742→        NewsSource("TheDrive", "https://www.thedrive.com/feed", "en", "auto"),
-   743→        NewsSource("Jalopnik", "https://jalopnik.com/rss", "en", "auto"),
-   744→        NewsSource("AutoExpress", "https://www.autoexpress.co.uk/rss", "en", "auto"),
-   745→        NewsSource("The Autopian", "https://theautopian.com/feed/", "en", "auto"),
-   746→        # Additional international sources
-   747→        NewsSource("CarScoops", "https://www.carscoops.com/feed/", "en", "auto"),
-   748→        # Motorsport
-   749→        NewsSource("Motorsport.com", "https://www.motorsport.com/rss/all/news/", "en", "auto"),
-   750→        NewsSource("BBC Sport F1", "https://feeds.bbci.co.uk/sport/formula1/rss.xml", "en", "auto"),
-   751→        # ── New international RSS sources ──
-   752→        NewsSource("CarNewsChina", "https://carnewschina.com/feed/", "en", "auto"),
-   753→        NewsSource("Electrek", "https://electrek.co/feed/", "en", "auto"),
-   754→        # Hearst automotive — clean media_content images
-   755→        NewsSource("Car & Driver", "https://www.caranddriver.com/rss/news.xml", "en", "auto"),
-   756→        # Industry analysis (no RSS images — relies on article page scraping)
-   757→        NewsSource("Automotive World", "https://www.automotiveworld.com/feed/", "en", "auto"),
-   758→        # Reddit communities — user-generated automotive content
-   759→        NewsSource("Reddit r/cars", "https://www.reddit.com/r/cars/.rss", "en", "auto"),
-   760→        NewsSource("Reddit r/MechanicAdvice", "https://www.reddit.com/r/MechanicAdvice/.rss", "en", "auto"),
-   761→        NewsSource("Reddit r/Justrolledintotheshop", "https://www.reddit.com/r/Justrolledintotheshop/.rss", "en", "auto"),
-   762→    ])
-   763→
-   764→    # Google News RSS query strings for global automotive coverage
-   765→    google_news_queries: List[str] = field(default_factory=lambda: [
-   766→        # Russian-language queries
-   767→        "автомобили новости",
-   768→        "автозапчасти рынок",
-   769→        "китайские автомобили экспорт",
-   770→        "электромобили зарядные станции",
-   771→        "ПДД изменения штрафы",
-   772→        "автокредит страхование ОСАГО",
-   773→        # English-language queries — industry & technology
-   774→        "automotive industry news",
-   775→        "electric vehicles 2025",
-   776→        "autonomous driving self driving",
-   777→        "car recalls safety",
-   778→        "auto shows 2025",
-   779→        # English-language queries — advanced topics
-   780→        "hydrogen fuel cell vehicle",
-   781→        "EV battery technology solid state",
-   782→        "supply chain automotive chips",
-   783→        "used car market prices",
-   784→        # English-language queries — global trends
-   785→        "Chinese cars global expansion",
-   786→        "car sales market report",
-   787→    ])
-   788→
-   789→
-   790→@dataclass
-   791→class PartnerCategory:
-   792→    """Partner program category."""
-   793→    key: str
-   794→    label: str
-   795→    keywords: List[str]
-   796→
-   797→
-   798→@dataclass
-   799→class PartnerConfig:
-   800→    """Partner/admitad/Rossko configuration."""
+   727→        # ── Russian-language RSS sources (verified June 2026) ──
+   728→        # Dead sources removed: Авто.Вести (empty), РБК (401), За Рулем (404),
+   729→        # Колёса.ру (404), Дром (404) — all tested and confirmed broken.
+   730→        # Replaced with working: Коммерсант Авто (35 entries), 5Колесо (30 entries).
+   731→        NewsSource("ТАСС Авто", "https://tass.ru/rss/v2.xml?sections=%D0%90%D0%B2%D1%82%D0%BE", "ru", "auto"),
+   732→        NewsSource("Авто Mail.ru", "https://auto.mail.ru/rss/", "ru", "auto"),
+   733→        NewsSource("Коммерсант Авто", "https://www.kommersant.ru/RSS/auto.xml", "ru", "auto"),
+   734→        NewsSource("5Колесо", "https://5koleso.ru/rss/", "ru", "auto"),
+   735→        # ── Working international RSS sources (verified June 2026) ──
+   736→        # UK auto magazines
+   737→        NewsSource("Autocar UK", "https://www.autocar.co.uk/rss/News", "en", "auto"),
+   738→        NewsSource("CAR Magazine", "https://www.carmagazine.co.uk/api/rss", "en", "auto"),
+   739→        # EV & Chinese auto
+   740→        NewsSource("CnEVPost", "https://cnevpost.com/feed/", "en", "auto"),
+   741→        # Asian auto
+   742→        NewsSource("PaulTan", "https://paultan.org/feed/", "en", "auto"),
+   743→        NewsSource("Autosport", "https://www.autosport.com/rss/f1/news/", "en", "auto"),
+   744→        # Australian auto
+   745→        NewsSource("CarExpert", "https://carexpert.com.au/feed/", "en", "auto"),
+   746→        # Automotive news & reviews
+   747→        NewsSource("TheDrive", "https://www.thedrive.com/feed", "en", "auto"),
+   748→        NewsSource("Jalopnik", "https://jalopnik.com/rss", "en", "auto"),
+   749→        NewsSource("AutoExpress", "https://www.autoexpress.co.uk/rss", "en", "auto"),
+   750→        NewsSource("The Autopian", "https://theautopian.com/feed/", "en", "auto"),
+   751→        # Additional international sources
+   752→        NewsSource("CarScoops", "https://www.carscoops.com/feed/", "en", "auto"),
+   753→        # Motorsport
+   754→        NewsSource("Motorsport.com", "https://www.motorsport.com/rss/all/news/", "en", "auto"),
+   755→        NewsSource("BBC Sport F1", "https://feeds.bbci.co.uk/sport/formula1/rss.xml", "en", "auto"),
+   756→        # ── New international RSS sources ──
+   757→        NewsSource("CarNewsChina", "https://carnewschina.com/feed/", "en", "auto"),
+   758→        NewsSource("Electrek", "https://electrek.co/feed/", "en", "auto"),
+   759→        # Hearst automotive — clean media_content images
+   760→        NewsSource("Car & Driver", "https://www.caranddriver.com/rss/news.xml", "en", "auto"),
+   761→        # Industry analysis (no RSS images — relies on article page scraping)
+   762→        NewsSource("Automotive World", "https://www.automotiveworld.com/feed/", "en", "auto"),
+   763→        # Reddit communities — user-generated automotive content
+   764→        NewsSource("Reddit r/cars", "https://www.reddit.com/r/cars/.rss", "en", "auto"),
+   765→        NewsSource("Reddit r/MechanicAdvice", "https://www.reddit.com/r/MechanicAdvice/.rss", "en", "auto"),
+   766→        NewsSource("Reddit r/Justrolledintotheshop", "https://www.reddit.com/r/Justrolledintotheshop/.rss", "en", "auto"),
+   767→    ])
+   768→
+   769→    # Google News RSS query strings for global automotive coverage
+   770→    google_news_queries: List[str] = field(default_factory=lambda: [
+   771→        # Russian-language queries
+   772→        "автомобили новости",
+   773→        "автозапчасти рынок",
+   774→        "китайские автомобили экспорт",
+   775→        "электромобили зарядные станции",
+   776→        "ПДД изменения штрафы",
+   777→        "автокредит страхование ОСАГО",
+   778→        # English-language queries — industry & technology
+   779→        "automotive industry news",
+   780→        "electric vehicles 2025",
+   781→        "autonomous driving self driving",
+   782→        "car recalls safety",
+   783→        "auto shows 2025",
+   784→        # English-language queries — advanced topics
+   785→        "hydrogen fuel cell vehicle",
+   786→        "EV battery technology solid state",
+   787→        "supply chain automotive chips",
+   788→        "used car market prices",
+   789→        # English-language queries — global trends
+   790→        "Chinese cars global expansion",
+   791→        "car sales market report",
+   792→    ])
+   793→
+   794→
+   795→@dataclass
+   796→class PartnerCategory:
+   797→    """Partner program category."""
+   798→    key: str
+   799→    label: str
+   800→    keywords: List[str]
    801→
-   802→    categories: List[PartnerCategory] = field(default_factory=lambda: [
-   803→        PartnerCategory("autoparts", "Автозапчасти", ["запчасти", "детали", "артикул", "купить запчасть", "замена", "оригинал", "аналог", "подбор", "номер детали", "oem"]),
-   804→        PartnerCategory("tires", "Шины и диски", ["шины", "диски", "резина", "колёса", "зимняя", "летняя", "шипованные"]),
-   805→        PartnerCategory("tools", "Инструменты", ["инструмент", "ключ", "набор", "гараж", "домкрат", "подъёмник"]),
-   806→        PartnerCategory("autoinsurance", "Автострахование", ["страховка", "ОСАГО", "КАСКО", "страхование", "полис"]),
-   807→        PartnerCategory("checkauto", "Проверка авто", ["проверка", "вин", "VIN", "история", "автокод", "пробить"]),
-   808→        PartnerCategory("autorent", "Аренда авто", ["аренда", "прокат", "рент", "арендовать", "напрокат"]),
-   809→        PartnerCategory("coupons", "Промокоды", ["промокод", "скидка", "купон", "акция"]),
-   810→        PartnerCategory("rossko", "Росско Подбор", ["росско", "rossko", "профессиональный подбор", "подбор запчастей", "каталог запчастей"]),
-   811→    ])
-   812→
-   813→
-   814→# Global config instances
-   815→config = BotConfig()
-   816→persona = AsyaPersona()
-   817→news_config = NewsConfig()
-   818→partner_config = PartnerConfig()
-   819→
+   802→
+   803→@dataclass
+   804→class PartnerConfig:
+   805→    """Partner/admitad/Rossko configuration."""
+   806→
+   807→    categories: List[PartnerCategory] = field(default_factory=lambda: [
+   808→        PartnerCategory("autoparts", "Автозапчасти", ["запчасти", "детали", "артикул", "купить запчасть", "замена", "оригинал", "аналог", "подбор", "номер детали", "oem"]),
+   809→        PartnerCategory("tires", "Шины и диски", ["шины", "диски", "резина", "колёса", "зимняя", "летняя", "шипованные"]),
+   810→        PartnerCategory("tools", "Инструменты", ["инструмент", "ключ", "набор", "гараж", "домкрат", "подъёмник"]),
+   811→        PartnerCategory("autoinsurance", "Автострахование", ["страховка", "ОСАГО", "КАСКО", "страхование", "полис"]),
+   812→        PartnerCategory("checkauto", "Проверка авто", ["проверка", "вин", "VIN", "история", "автокод", "пробить"]),
+   813→        PartnerCategory("autorent", "Аренда авто", ["аренда", "прокат", "рент", "арендовать", "напрокат"]),
+   814→        PartnerCategory("coupons", "Промокоды", ["промокод", "скидка", "купон", "акция"]),
+   815→        PartnerCategory("rossko", "Росско Подбор", ["росско", "rossko", "профессиональный подбор", "подбор запчастей", "каталог запчастей"]),
+   816→    ])
+   817→
+   818→
+   819→# Global config instances
+   820→config = BotConfig()
+   821→persona = AsyaPersona()
+   822→news_config = NewsConfig()
+   823→partner_config = PartnerConfig()
+   824→

@@ -1,0 +1,982 @@
+     1→     1→"""
+     2→     2→News Engine — AUTO-FOCUSED RSS fetching, international news + translation.
+     3→     3→Fetches from multiple sources, deduplicates, stores in DB.
+     4→     4→Extracts real images from RSS feeds and article pages for channel posts.
+     5→     5→"""
+     6→     6→
+     7→     7→import feedparser
+     8→     8→import httpx
+     9→     9→import time
+    10→    10→import logging
+    11→    11→import re
+    12→    12→from typing import List, Dict, Optional
+    13→    13→from datetime import datetime
+    14→    14→
+    15→    15→from bot.config import config, news_config, NewsSource
+    16→    16→from bot.database import add_news_item, get_unposted_news, mark_news_posted, is_duplicate_post
+    17→    17→
+    18→    18→logger = logging.getLogger("asya.news")
+    19→    19→
+    20→    20→# ── Fingerprint-based deduplication ────────────────────────────────────────────
+    21→    21→# Stores simplified title fingerprints to prevent similar news from being added
+    22→    22→_recent_fingerprints: set = set()
+    23→    23→
+    24→    24→
+    25→    25→def _compute_fingerprint(title: str) -> str:
+    26→    26→    """Compute a simplified fingerprint for dedup.
+    27→    27→    Remove articles, lowercase, take first 5 words.
+    28→    28→    """
+    29→    29→    import re
+    30→    30→    # Remove common articles/prepositions
+    31→    31→    cleaned = re.sub(r'\b(в|на|с|о|у|по|из|за|от|до|к|не|и|но|а|что|как|это|тот|этот|для|при|через|между|после|перед|без|под|над|об|со|из-за|то|же|ли|бы|уже|ещё|еще|также|тоже|или|либо)\b', '', title.lower())
+    32→    32→    cleaned = re.sub(r'[^a-zа-яё0-9]', ' ', cleaned)
+    33→    33→    words = cleaned.split()
+    34→    34→    return ' '.join(words[:5])
+    35→    35→
+    36→    36→
+    37→    37→def _fingerprint_matches_existing(fingerprint: str) -> bool:
+    38→    38→    """Check if a fingerprint matches any recently used fingerprint (edit distance on first 4 words)."""
+    39→    39→    fp_words = fingerprint.split()[:4]
+    40→    40→    for existing in _recent_fingerprints:
+    41→    41→        ex_words = existing.split()[:4]
+    42→    42→        # Count matching words
+    43→    43→        matches = sum(1 for w in fp_words if w in ex_words)
+    44→    44→        if matches >= 3:
+    45→    45→            return True
+    46→    46→    return False
+    47→    47→
+    48→    48→
+    49→    49→def reset_fingerprints():
+    50→    50→    """Reset fingerprint set.
+    51→    51→    
+    52→    52→    NOTE: Do NOT call this at the start of each fetch cycle!
+    53→    53→    Previously, resetting fingerprints every cycle caused the same news to be
+    54→    54→    re-added across cycles. Now fingerprints persist within the process lifetime.
+    55→    55→    Only call this if you explicitly want to clear the in-memory cache.
+    56→    56→    """
+    57→    57→    global _recent_fingerprints
+    58→    58→    _recent_fingerprints = set()
+    59→    59→
+    60→    60→# ── Keywords for auto-relevance filtering ──────────────────────────────────────
+    61→    61→
+    62→    62→AUTO_KEYWORDS_RU = [
+    63→    63→    "авто", "автомобиль", "машина", "мотор", "двигатель", "кузов", "салон",
+    64→    64→    "шоссе", "дорог", "скорост", "транспорт", "запчас", "ремонт", "сервис",
+    65→    65→    "шин", "колес", "топлив", "бензин", "дизел", "электромобиль", "гибрид",
+    66→    66→    "тест-драйв", "обзор", "новинка", "модель", "бренд", "марка",
+    67→    67→    "продаж", "авторынок", "рынок авто", "рынок запчас", "стоимост", "цен", "акциз", "таможен",
+    68→    68→    "автошоу", "концепт", "прототип", "рестайлинг", "поколен",
+    69→    69→    "коробка", "коробк", "привод", "подвес", "тормоз", "рулев",
+    70→    70→    "пробег", "пробле", "поломк", "диагност", "VIN", "ОСАГО", "КАСКО",
+    71→    71→    "автосалон", "дилер", "кредит", "лизинг", "страхов",
+    72→    72→    "гонк", "ралли", "формул", "F1", "WRC", "Дакар",
+    73→    73→    "LADA", "ВАЗ", "KIA", "Hyundai", "Toyota", "BMW", "Mercedes", "Volkswagen",
+    74→    74→    "Audi", "Renault", "Skoda", "Nissan", "Mazda", "Honda", "Ford",
+    75→    75→    "Porsche", "Lexus", "Volvo", "Subaru", "Suzuki", "Mitsubishi",
+    76→    76→    "Chery", "Haval", "Geely", "Changan", "Exeed", "Tank",
+    77→    77→    "Tesla", "BYD", "Zeekr", "Li Auto", "NIO",
+    78→    78→    # ── Расширенные автомобильные ключевые слова ──
+    79→    79→    "эвакуац", "дтп", "авари", "дорожн", "перекрыт", "затор", "пробк",
+    80→    80→    "автозаправ", "азс ", "заправк", "бензоколонк",
+    81→    81→    "шиномонтаж", "автомойк", "автохим",
+    82→    82→    "перебои поставк", "дефицит запчас",
+    83→    83→    "логистик", "грузоперевозк", "автоперевозк",
+    84→    84→    "растаможк", "таможен оформл", "параллельн импорт",
+    85→    85→    "эвакуатор", "техпомощ", "техосмотр",
+    86→    86→    "автокредит", "автострахов", "каско", "осаго",
+    87→    87→]
+    88→    88→
+    89→    89→AUTO_KEYWORDS_EN = [
+    90→    90→    "car", "auto", "automobile", "vehicle", "motor", "engine", "drive",
+    91→    91→    "road", "speed", "transport", "spare", "repair", "service",
+    92→    92→    "tire", "wheel", "fuel", "gasoline", "diesel", "electric", "hybrid",
+    93→    93→    "test drive", "review", "new model", "brand", "launch",
+    94→    94→    "sale", "market", "price", "cost",
+    95→    95→    "auto show", "concept", "prototype", "redesign", "generation",
+    96→    96→    "transmission", "suspension", "brake", "steering",
+    97→    97→    "racing", "rally", "formula", "F1", "WRC", "dakar",
+    98→    98→    "EV", "BEV", "PHEV", "ICE", "autonomous", "self-driving",
+    99→    99→    "sedan", "SUV", "crossover", "hatchback", "coupe", "convertible",
+   100→   100→    "horsepower", "torque", "MPG", "range",
+   101→   101→    # ── Extended automotive keywords ──
+   102→   102→    "evacuation", "tow truck", "roadside assistance",
+   103→   103→    "gas station", "fuel station", "refueling",
+   104→   104→    "tire service", "car wash", "auto chemical",
+   105→   105→    "supply chain", "parts shortage", "logistics",
+   106→   106→    "customs clearance", "parallel import",
+   107→   107→    "car loan", "auto insurance",
+   108→   108→    "traffic", "road accident", "collision",
+   109→   109→    "road closure", "congestion", "jam",
+   110→   110→    "car fire", "vehicle fire", "car burned",
+   111→   111→    "auto transport", "car carrier", "vehicle shipping",
+   112→   112→]
+   113→   113→
+   114→   114→AUTO_KEYWORDS_DE = [
+   115→   115→    "Auto", "Automobil", "Fahrzeug", "Motor", "Antrieb", "Straße",
+   116→   116→    "Reparatur", "Service", "Reifen", "Benzin", "Diesel", "Elektro",
+   117→   117→    "Neuvorstellung", "Modell", "Marke", "Verkauf", "Preis",
+   118→   118→    "Getriebe", "Federung", "Bremse", "Lenkung",
+   119→   119→    "Renn", "Formel", "SUV", "Limousine",
+   120→   120→]
+   121→   121→
+   122→   122→# ── Blocklist: political/war keywords — news with these are REJECTED ───────────
+   123→   123→
+   124→   124→BLOCK_KEYWORDS_RU = [
+   125→   125→    # Политика
+   126→   126→    "путин", "кремль", "госдума", "едрос", "единая россия", "кпрф",
+   127→   127→    "навальн", "оппозиц", "протест", "митинг", "закон о", "законопроект",
+   128→   128→    "санкци", "эмбарго", "министр", "правительств", "президент",
+   129→   129→    "депутат", "сенатор", "губернатор", "мэр ", "выборы ", "голосован",
+   130→   130→    "политик", "парламент", "конституц", "референдум", "выборы президента", "выборы в парламент",
+   131→   131→    # Война / СВО
+   132→   132→    "сво ", "специальная военная", "вооруженн", "военные действ",
+   133→   133→    "мобилизац", "призывник", "окоп", "обстрел", "ракетн удар",
+   134→   134→    "террор", "б ое",
+   135→   135→    "украин", "крымск", "донбас", "луганск", "донецк", "херсонск", "запорожск",
+   136→   136→    "белорусс", "нато", "nato",
+   137→   137→    # Общие блокировки
+   138→   138→    "ковид", "коронавирус", "пандем", "вакцин",
+   139→   139→    # Российские автобренды — не интересны аудитории
+   140→   140→    "автоваз", "lada веста", "lada granta", "lada niva", "уаз патриот",
+   141→   141→    "камаз новости", "газель новости", "соллерс новости",
+   142→   142→    # ── РАСШИРЕННЫЙ БЛОК: неавтомобильные темы ──
+   143→   143→    # Автомобильная новость = ПРЯМАЯ связь с автотранспортом:
+   144→   144→    #   сгоревшие машины, перебои запчастей, рынок шин, логистика запчастей,
+   145→   145→    #   автосервис, эвакуация, ДТП с участием транспорта, дорожные происшествия
+   146→   146→    # ВСЁ ОСТАЛЬНОЕ — БЛОКИРУЕТСЯ:
+   147→   147→    "пожар на рынке", "пожар на базаре", "пожар в тц", "пожар в магазине",
+   148→   148→    "пожар в торгов", "пожар на складе", "загорелся рынок",
+   149→   149→    "возгорание на рынке", "возгорание в тц", "возгорание в торгов",
+   150→   150→    "пожар в торговом", "пожар в бизнес", "пожар в офис",
+   151→   151→    "пожар уничтожил", "пожар повредил", "пожар охватил",
+   152→   152→    "горящий рынок", "горящий тц", "горящий торговый",
+   153→   153→    "торговый центр пожар", "торговый центр загорел",
+   154→   154→    "рынок загорел", "рынок сгорел", "базар сгорел",
+   155→   155→    "убийств", "преступлен", "криминал", "грабёж", "грабеж", "разбой",
+   156→   156→    "насилие", "домашнее насили", "изнасилован", "педофил",
+   157→   157→    "кража", "воровств", "мошенничеств", "коррупци",
+   158→   158→    "наркотик", "наркобизнес", "драгдилер",
+   159→   159→    "пожар в квартире", "пожар в доме", "пожар в здании",
+   160→   160→    "пожар в жилом", "пожар в многоквартирн",
+   161→   161→    "обрушение здания", "обрушение крыши", "прорыв трубы",
+   162→   162→    "наводнен", "затоплен", "подтоплен", "паводок",
+   163→   163→    "землетрясен", "цунами", "ураган", "торнадо",
+   164→   164→    "температура воздуха", "погода в", "прогноз погоды",
+   165→   165→    "медицин", "больниц", "врач", "лечени", "операция пациент",
+   166→   166→    "образован", "школьник", "учитель", "экзамен", "егэ", "огэ",
+   167→   167→    "спорт ", "футбол", "хоккей", "олимпи", "чемпионат мир",
+   168→   168→    "культур", "театр", "кино ", "фильм", "сериал",
+   169→   169→    "ресторан", "кафе ", "рецепт ", "готовить",
+   170→   170→    "недвижимост", "квартир цена", "ипотек",
+   171→   171→    "криптовалю", "биткоин", "ethereum", "биржа ",
+   172→   172→    "квартирный вопрос", "жкх", "коммуналк",
+   173→   173→    "пожар на промышл", "взрыв на заводе", "взрыв газа",
+   174→   174→    "авиакатастроф", "крушение самолёт", "крушение самолет",
+   175→   175→    "железнодорожн", "поезд ", "метро ",
+   176→   176→    "утонул", "купаться", "пляж ", "море ",
+   177→   177→    "пожар в авто", "сгорел гараж",
+   178→   178→    "пожар на вещевом рынке", "горит рынок", "возгорание на рынке",
+   179→   179→    "рынок пылает", "торговые ряды пожар", "пожар на оптовом",
+   180→   180→    "пожар на вещевой базе", "рынок загорелся от",
+   181→   181→    "не автомобильная новость", "не автоновость",
+   182→   182→    "тему в канал не ставим", "в канал не ставим",
+   183→   183→    # Editorial/meta-commentary leakage — AI should never generate these as news
+   184→   184→    "отсеивать", "отсеять", "перепишу тему", "предложу свеж",
+   185→   185→    "не наш формат", "по вашим правилам", "прямая связь с автотранспорт",
+   186→   186→    "автоформат", "для редакции", "не для публикации",
+   187→   187→    # Дополнительные неавтомобильные темы
+   188→   188→    "пожар в павильон", "пожар в ларьк", "пожар в киоск",
+   189→   189→    "рынок пожар", "базар пожар", "торговый пожар",
+   190→   190→    "сгорел рынок", "сгорел магазин", "сгорел склад",
+   191→   191→    "торговый центр загор", "молл загорел", "молл пожар",
+   192→   192→    "шопинг ", "распродаж", "скидк", "акция магаз",
+   193→   193→    "звезд", "шоу-биз", "скандал звезд", "инстаграм",
+   194→   194→    "свадьб", "развод звезд", "беременност",
+   195→   195→    "диет", "фитнес", "похуден",
+   196→   196→    "курорт", "отдых", "туризм ", "виз ",
+   197→   197→    "банкрот", "компания обанкрот", "компания закрыл",
+   198→   198→    "увольнен", "сокращен", "забастовк",
+   199→   199→    "эпидеми", "вирус", "заражен",
+   200→   200→    # ── NSFW / Adult content — ABSOLUTE BLOCK ──
+   201→   201→    # These keywords trigger IMMEDIATE blocking — no exceptions.
+   202→   202→    # Prevents any possibility of pornographic content reaching the channel.
+   203→   203→    "порн", "секс", "эрот", "голая", "голые", "обнажён", "обнажен",
+   204→   204→    "интим", "проститут", "путан", "бордель",
+   205→   205→    "изнасилован", "насил", "педофил", "растлен",
+   206→   206→    "пикантн", "горячая дев", "горячие дев",
+   207→   207→    "письк", "хуй", "пизд", "ебать", "ебан", "ёбан",
+   208→   208→    "сосать", "кончить", "сперм", "оргазм",
+   209→   209→    "стриптиз", "камасутр", "ню фото",
+   210→   210→    "порно-", "секс-", "18+", "xxx",
+   211→   211→    "фистинг", "клизьм", "анальн", "оральн", "минет",
+   212→   212→    "ню фото", "обнажённ", "голое тел", "раздевает",
+   213→   213→    "сочные дев", "горячие babes",
+   214→   214→]
+   215→   215→
+   216→   216→BLOCK_KEYWORDS_EN = [
+   217→   217→    # ── Political/war — strict block ──
+   218→   218→    "putin", "kremlin", "war in ukraine", "russia-ukraine", "invasion",
+   219→   219→    "sanction", "embargo", "mobiliz", "military", "troop", "missile strike",
+   220→   220→    "nato expansion", "conflict zone", "battlefield", "casualt",
+   221→   221→    "navalny", "opposition leader",
+   222→   222→    "covid", "coronavirus", "pandemic", "vaccin",
+   223→   223→    # Boring Russian domestic auto brands
+   224→   224→    "lada", "avtovaz", "uaz", "kamaz", "soldis",
+   225→   225→    "vesta", "granta", "niva", "iskra",
+   226→   226→    # ── NON-AUTOMOTIVE hard block — USE COMPOUND PHRASES to avoid false positives ──
+   227→   227→    # NOTE: Removed standalone words that block legitimate auto content:
+   228→   228→    #   - "election" blocked car auction/collection stories
+   229→   229→    #   - "championship" blocked F1/MotoGP/WRC motorsport news
+   230→   230→    #   - "series" blocked BMW 7 Series, C-series SUVs, racing series
+   231→   231→    #   - "flood" blocked Mercedes Unimog off-road reviews
+   232→   232→    #   - "drug" blocked DUI/driving safety articles
+   233→   233→    #   - "theft" blocked stolen supercar stories (legitimate auto news)
+   234→   234→    #   - "school" blocked AMG driving school/tuning articles
+   235→   235→    #   - "exam" blocked car resale/evaluation articles
+   236→   236→    #   - "movie" blocked automotive industry CEO interviews
+   237→   237→    # Instead, use compound phrases that are clearly non-automotive:
+   238→   238→    "market fire", "mall fire", "building fire", "warehouse fire",
+   239→   239→    "shopping center fire", "store fire", "shop fire",
+   240→   240→    "market burned", "mall burned", "store burned",
+   241→   241→    "murder", "armed robbery", "violent crime",
+   242→   242→    "narcotic trafficking", "drug cartel",
+   243→   243→    "insurance fraud", "political corruption",
+   244→   244→    "apartment fire", "house fire", "roof collapse", "pipe burst",
+   245→   245→    "flood damage", "earthquake", "tsunami", "hurricane", "tornado warning",
+   246→   246→    "weather forecast", "temperature ",
+   247→   247→    "hospital", "doctor ", "surgery ", "patient ",
+   248→   248→    "school shooting", "teacher strike", "school board",
+   249→   249→    "football match", "soccer match", "hockey game", "olympic games",
+   250→   250→    "movie review", "film festival", "theater production",
+   251→   251→    "tv series", "streaming series",
+   252→   252→    "restaurant review", "recipe ", "cooking ",
+   253→   253→    "real estate market", "apartment price", "mortgage rate",
+   254→   254→    "cryptocurrency", "bitcoin", "ethereum", "stock exchange",
+   255→   255→    "plane crash", "airline crash", "train crash",
+   256→   256→    "drowned", "beach resort", "swimming pool",
+   257→   257→    "celebrity gossip", "celebrity scandal",
+   258→   258→    "diet plan", "fitness program", "weight loss",
+   259→   259→    "epidemic", "virus outbreak", "infection rate",
+   260→   260→    "political protest", "political election", "general election",
+   261→   261→    "parliament election", "presidential election",
+   262→   262→    # ── NSFW / Adult content — ABSOLUTE BLOCK ──
+   263→   263→    "porn", "pornography", "sex ", "erotic", "nude", "naked",
+   264→   264→    "nsfw", "xxx", "hentai", "milf", "slut", "whore",
+   265→   265→    "boob", "tit ", "pussy", "dick", "cock", "fuck",
+   266→   266→    "blowjob", "anal sex", "orgasm", "fetish", "bdsm",
+   267→   267→    "strip club", "brothel", "prostitut",
+   268→   268→    "genital", "penis", "vagina",
+   269→   269→    "onlyfans", "chaturbate", "livejasmin",
+   270→   270→    "adult content", "explicit photo", "explicit image",
+   271→   271→]
+   272→   272→
+   273→   273→
+   274→   274→# ── RSS Fetcher ────────────────────────────────────────────────────────────────
+   275→   275→
+   276→   276→async def fetch_rss(source: NewsSource) -> List[Dict]:
+   277→   277→    """
+   278→   278→    Fetch and parse an RSS feed.
+   279→   279→    Returns list of news items.
+   280→   280→    """
+   281→   281→    items = []
+   282→   282→    try:
+   283→   283→        async with httpx.AsyncClient(
+   284→   284→            timeout=20.0,
+   285→   285→            follow_redirects=True,
+   286→   286→            headers={
+   287→   287→                "User-Agent": "Mozilla/5.0 (compatible; AsyaBot/1.0; +https://t.me/asiaexp_bot)",
+   288→   288→                "Accept": "application/rss+xml, application/xml, text/xml, application/atom+xml, */*",
+   289→   289→            },
+   290→   290→        ) as client:
+   291→   291→            response = await client.get(source.url)
+   292→   292→
+   293→   293→            if response.status_code != 200:
+   294→   294→                logger.warning(f"RSS {source.name} returned {response.status_code}")
+   295→   295→                return items
+   296→   296→
+   297→   297→            # feedparser can parse from string
+   298→   298→            feed = feedparser.parse(response.text)
+   299→   299→
+   300→   300→            for entry in feed.entries[:20]:  # Limit per source
+   301→   301→                title = entry.get("title", "").strip()
+   302→   302→                url = entry.get("link", "").strip()
+   303→   303→
+   304→   304→                if not title or not url:
+   305→   305→                    continue
+   306→   306→
+   307→   307→                # Get summary/description
+   308→   308→                summary = ""
+   309→   309→                if entry.get("summary"):
+   310→   310→                    summary = _clean_html(entry["summary"])
+   311→   311→                elif entry.get("description"):
+   312→   312→                    summary = _clean_html(entry["description"])
+   313→   313→
+   314→   314→                # Truncate summary
+   315→   315→                if len(summary) > 500:
+   316→   316→                    summary = summary[:500] + "..."
+   317→   317→
+   318→   318→                # Get publish date
+   319→   319→                published = 0.0
+   320→   320→                if entry.get("published_parsed"):
+   321→   321→                    try:
+   322→   322→                        published = time.mktime(entry["published_parsed"])
+   323→   323→                    except (ValueError, TypeError, OverflowError):
+   324→   324→                        published = time.time()
+   325→   325→                elif entry.get("updated_parsed"):
+   326→   326→                    try:
+   327→   327→                        published = time.mktime(entry["updated_parsed"])
+   328→   328→                    except (ValueError, TypeError, OverflowError):
+   329→   329→                        published = time.time()
+   330→   330→                else:
+   331→   331→                    published = time.time()
+   332→   332→
+   333→   333→                # Extract image URLs from RSS entry
+   334→   334→                image_urls = _extract_entry_images(entry)
+   335→   335→
+   336→   336→                items.append({
+   337→   337→                    "source": source.name,
+   338→   338→                    "title": title,
+   339→   339→                    "url": url,
+   340→   340→                    "summary": summary,
+   341→   341→                    "published": published,
+   342→   342→                    "category": source.category,
+   343→   343→                    "lang": source.lang,
+   344→   344→                    "image_urls": image_urls,
+   345→   345→                })
+   346→   346→
+   347→   347→            logger.info(f"Fetched {len(items)} items from {source.name}")
+   348→   348→
+   349→   349→    except httpx.TimeoutException:
+   350→   350→        logger.warning(f"RSS timeout: {source.name}")
+   351→   351→    except Exception as e:
+   352→   352→        logger.error(f"RSS fetch error for {source.name}: {e}")
+   353→   353→
+   354→   354→    return items
+   355→   355→
+   356→   356→
+   357→   357→# ── News relevance filtering ───────────────────────────────────────────────────
+   358→   358→
+   359→   359→def is_auto_relevant(item: Dict, lang: str = "ru") -> bool:
+   360→   360→    """Check if a news item is relevant to the auto topic."""
+   361→   361→    text = f"{item.get('title', '')} {item.get('summary', '')}".lower()
+   362→   362→
+   363→   363→    if lang == "ru" or lang == "":
+   364→   364→        keywords = AUTO_KEYWORDS_RU
+   365→   365→    elif lang == "en":
+   366→   366→        keywords = AUTO_KEYWORDS_EN
+   367→   367→    elif lang == "de":
+   368→   368→        keywords = AUTO_KEYWORDS_DE
+   369→   369→    else:
+   370→   370→        keywords = AUTO_KEYWORDS_RU + AUTO_KEYWORDS_EN
+   371→   371→
+   372→   372→    # Check if any keyword matches
+   373→   373→    for kw in keywords:
+   374→   374→        if kw.lower() in text:
+   375→   375→            return True
+   376→   376→
+   377→   377→    return False
+   378→   378→
+   379→   379→
+   380→   380→def is_blocked_topic(item: Dict, lang: str = "ru") -> bool:
+   381→   381→    """Check if a news item contains blocked topics (politics, war, etc.).
+   382→   382→    
+   383→   383→    Returns True if the item should be REJECTED.
+   384→   384→    This is a hard filter — items matching these keywords never enter the DB.
+   385→   385→    """
+   386→   386→    text = f"{item.get('title', '')} {item.get('summary', '')}".lower()
+   387→   387→    
+   388→   388→    # Check Russian blocklist (always checked for Russian and general sources)
+   389→   389→    for kw in BLOCK_KEYWORDS_RU:
+   390→   390→        if kw.lower() in text:
+   391→   391→            logger.info(f"Blocked news (RU keyword '{kw}'): {item.get('title', '')[:60]}")
+   392→   392→            return True
+   393→   393→    
+   394→   394→    # Check English blocklist (for international sources)
+   395→   395→    if lang == "en":
+   396→   396→        for kw in BLOCK_KEYWORDS_EN:
+   397→   397→            if kw.lower() in text:
+   398→   398→                logger.info(f"Blocked news (EN keyword '{kw}'): {item.get('title', '')[:60]}")
+   399→   399→                return True
+   400→   400→    
+   401→   401→    return False
+   402→   402→
+   403→   403→
+   404→   404→# ── Additional global RSS sources ──────────────────────────────────────────────
+   405→   405→GLOBAL_RSS_SOURCES = [
+   406→   406→    # Sources NOT in NewsConfig — supplements the main source list
+   407→   407→    # Car & Driver additional feeds (news is in main config, these add reviews & features)
+   408→   408→    {"name": "Car & Driver Reviews", "url": "https://www.caranddriver.com/rss/reviews.xml", "lang": "en", "category": "auto"},
+   409→   409→    {"name": "Car & Driver Features", "url": "https://www.caranddriver.com/rss/features.xml", "lang": "en", "category": "auto"},
+   410→   410→]
+   411→   411→
+   412→   412→
+   413→   413→async def fetch_global_rss_sources() -> List[Dict]:
+   414→   414→    """Fetch news from additional global RSS sources.
+   415→   415→    
+   416→   416→    Returns list of news items with the same format as fetch_rss().
+   417→   417→    """
+   418→   418→    items = []
+   419→   419→    for source_data in GLOBAL_RSS_SOURCES:
+   420→   420→        source = NewsSource(
+   421→   421→            name=source_data["name"],
+   422→   422→            url=source_data["url"],
+   423→   423→            lang=source_data.get("lang", "en"),
+   424→   424→            category=source_data.get("category", "auto"),
+   425→   425→        )
+   426→   426→        try:
+   427→   427→            source_items = await fetch_rss(source)
+   428→   428→            for item in source_items:
+   429→   429→                # Apply same filters
+   430→   430→                if is_blocked_topic(item, source.lang):
+   431→   431→                    continue
+   432→   432→                if not is_auto_relevant(item, source.lang):
+   433→   433→                    continue
+   434→   434→                items.append(item)
+   435→   435→            logger.info(f"Global RSS {source.name}: {len(source_items)} items")
+   436→   436→        except Exception as e:
+   437→   437→            logger.debug(f"Global RSS fetch error for {source.name}: {e}")
+   438→   438→    return items
+   439→   439→
+   440→   440→
+   441→   441→async def fetch_google_news_rss_batch() -> List[Dict]:
+   442→   442→    """Fetch news from Google News RSS using multiple queries for broad coverage.
+   443→   443→    
+   444→   444→    Uses different queries and regional settings for global perspective.
+   445→   445→    """
+   446→   446→    items = []
+   447→   447→    seen_urls = set()
+   448→   448→    
+   449→   449→    # Google News RSS queries for global coverage
+   450→   450→    queries = [
+   451→   451→        # Russian
+   452→   452→        ("автомобили новости", "ru", "RU"),
+   453→   453→        ("автозапчасти рынок", "ru", "RU"),
+   454→   454→        ("китайские автомобили экспорт", "ru", "RU"),
+   455→   455→        ("электромобили зарядные станции", "ru", "RU"),
+   456→   456→        ("ПДД изменения штрафы", "ru", "RU"),
+   457→   457→        # English
+   458→   458→        ("automotive industry news", "en", "US"),
+   459→   459→        ("electric vehicles latest", "en", "US"),
+   460→   460→        ("autonomous driving self driving car", "en", "US"),
+   461→   461→        ("car recalls safety alert", "en", "US"),
+   462→   462→        ("auto show reveals 2025", "en", "US"),
+   463→   463→        ("hydrogen fuel cell vehicle news", "en", "US"),
+   464→   464→        ("EV battery technology", "en", "US"),
+   465→   465→        ("Chinese cars global expansion", "en", "US"),
+   466→   466→        ("used car market prices", "en", "US"),
+   467→   467→        # German
+   468→   468→        ("Auto Nachrichten Elektroauto", "de", "DE"),
+   469→   469→    ]
+   470→   470→    
+   471→   471→    # Pick 4 random queries per cycle (don't fetch all at once)
+   472→   472→    import random
+   473→   473→    selected = random.sample(queries, min(4, len(queries)))
+   474→   474→    
+   475→   475→    for query, lang, gl in selected:
+   476→   476→        try:
+   477→   477→            from urllib.parse import quote_plus
+   478→   478→            url = f"https://news.google.com/rss/search?q={quote_plus(query)}&hl={lang}&gl={gl}&ceid={gl}:{lang}"
+   479→   479→            source = NewsSource(name=f"GoogleNews_{lang}", url=url, lang=lang, category="auto")
+   480→   480→            source_items = await fetch_rss(source)
+   481→   481→            for item in source_items:
+   482→   482→                if item["url"] in seen_urls:
+   483→   483→                    continue
+   484→   484→                seen_urls.add(item["url"])
+   485→   485→                if is_blocked_topic(item, lang):
+   486→   486→                    continue
+   487→   487→                if not is_auto_relevant(item, lang):
+   488→   488→                    continue
+   489→   489→                items.append(item)
+   490→   490→        except Exception as e:
+   491→   491→            logger.debug(f"Google News RSS failed for query '{query}': {e}")
+   492→   492→    
+   493→   493→    logger.info(f"Google News RSS batch: {len(items)} items")
+   494→   494→    return items
+   495→   495→
+   496→   496→
+   497→   497→# ── Main news fetching cycle ───────────────────────────────────────────────────
+   498→   498→
+   499→   499→async def fetch_all_news() -> int:
+   500→   500→    """
+   501→   501→    Fetch news — WEB SEARCH FIRST, then RSS as fallback/supplement.
+   502→   502→    Returns the number of new items added.
+   503→   503→    
+   504→   504→    Phase 1: Web search for automotive news (broad queries, primary source)
+   505→   505→    Phase 2: RSS feeds (fallback/supplement)
+   506→   506→    Phase 3: Global RSS sources (additional international coverage)
+   507→   507→    Phase 4: Google News RSS batch (broad query-based coverage)
+   508→   508→    
+   509→   509→    All existing filtering is preserved (auto-relevance, political block, dedup).
+   510→   510→    """
+   511→   511→    total_new = 0
+   512→   512→
+   513→   513→    # DO NOT reset fingerprint set every cycle!
+   514→   514→    # Previously this caused the same news to be re-added across cycles.
+   515→   515→    # The _recent_fingerprints set now persists across fetch cycles within the process.
+   516→   516→    # DB-level dedup (is_duplicate_post) provides cross-restart protection.
+   517→   517→
+   518→   518→    # ── Phase 1: Web Search FIRST (primary source) ──
+   519→   519→    logger.info("Phase 1: Web search for automotive news")
+   520→   520→    web_search_queries = [
+   521→   521→        "automotive industry news today",
+   522→   522→        "new car models 2026",
+   523→   523→        "electric vehicle updates",
+   524→   524→        "автомобильные новости России",
+   525→   525→        "новые модели авто 2026",
+   526→   526→        "car recalls and safety",
+   527→   527→        "auto show reveals 2026",
+   528→   528→        "автоновости сегодня",
+   529→   529→        "electric vehicle news latest",
+   530→   530→        "car industry updates",
+   531→   531→    ]
+   532→   532→    try:
+   533→   533→        from bot.content_engine import search_auto_news
+   534→   534→        # search_auto_news already uses multiple rotated queries
+   535→   535→        search_items = await search_auto_news()
+   536→   536→        for item in search_items:
+   537→   537→            # Apply same filters as RSS
+   538→   538→            if is_blocked_topic(item, item.get("lang", "en")):
+   539→   539→                continue
+   540→   540→            if not is_auto_relevant(item, item.get("lang", "en")):
+   541→   541→                continue
+   542→   542→            if await is_duplicate_post(item["title"], hours=48):
+   543→   543→                continue
+   544→   544→            fp = _compute_fingerprint(item["title"])
+   545→   545→            if _fingerprint_matches_existing(fp):
+   546→   546→                continue
+   547→   547→
+   548→   548→            added = await add_news_item(
+   549→   549→                source=item["source"],
+   550→   550→                title=item["title"],
+   551→   551→                url=item["url"],
+   552→   552→                summary=item.get("summary", ""),
+   553→   553→                published=item.get("published", time.time()),
+   554→   554→                category=item.get("category", "auto"),
+   555→   555→                lang=item.get("lang", "en"),
+   556→   556→                image_urls=item.get("image_urls", []),
+   557→   557→            )
+   558→   558→            if added:
+   559→   559→                total_new += 1
+   560→   560→                _recent_fingerprints.add(fp)
+   561→   561→                logger.info(f"Web search added: {item['title'][:60]}")
+   562→   562→    except Exception as e:
+   563→   563→        logger.warning(f"Web search phase failed: {e}")
+   564→   564→
+   565→   565→    logger.info(f"Phase 1 (web search) complete: {total_new} new items")
+   566→   566→
+   567→   567→    # ── Phase 2: RSS Feeds (fallback/supplement) ──
+   568→   568→    logger.info("Phase 2: RSS feeds (fallback/supplement)")
+   569→   569→    for source in news_config.sources:
+   570→   570→        try:
+   571→   571→            items = await fetch_rss(source)
+   572→   572→
+   573→   573→            for item in items:
+   574→   574→                # Hard filter: block political/war topics FIRST
+   575→   575→                if is_blocked_topic(item, source.lang):
+   576→   576→                    continue
+   577→   577→
+   578→   578→                # Filter for auto relevance (ALL sources checked — even "auto" feeds can carry non-auto items)
+   579→   579→                if not is_auto_relevant(item, source.lang):
+   580→   580→                    continue
+   581→   581→
+   582→   582→                # Filter out news with titles similar to recently posted items
+   583→   583→                if await is_duplicate_post(item["title"], hours=48):
+   584→   584→                    logger.debug(f"Skipping duplicate news title: {item['title'][:60]}")
+   585→   585→                    continue
+   586→   586→
+   587→   587→                # Fingerprint-based dedup: skip if similar to recently added news
+   588→   588→                fp = _compute_fingerprint(item["title"])
+   589→   589→                if _fingerprint_matches_existing(fp):
+   590→   590→                    logger.debug(f"Skipping similar news (fingerprint match): {item['title'][:60]}")
+   591→   591→                    continue
+   592→   592→
+   593→   593→                # Add to database (dedup by URL)
+   594→   594→                added = await add_news_item(
+   595→   595→                    source=item["source"],
+   596→   596→                    title=item["title"],
+   597→   597→                    url=item["url"],
+   598→   598→                    summary=item["summary"],
+   599→   599→                    published=item["published"],
+   600→   600→                    category=item["category"],
+   601→   601→                    lang=item["lang"],
+   602→   602→                    image_urls=item.get("image_urls", []),
+   603→   603→                )
+   604→   604→                if added:
+   605→   605→                    total_new += 1
+   606→   606→                    _recent_fingerprints.add(fp)
+   607→   607→
+   608→   608→        except Exception as e:
+   609→   609→            logger.error(f"Error processing source {source.name}: {e}")
+   610→   610→            continue
+   611→   611→
+   612→   612→    # ── Phase 3: Global RSS sources ──
+   613→   613→    logger.info("Phase 3: Global RSS sources")
+   614→   614→    try:
+   615→   615→        global_items = await fetch_global_rss_sources()
+   616→   616→        for item in global_items:
+   617→   617→            if is_blocked_topic(item, item.get("lang", "en")):
+   618→   618→                continue
+   619→   619→            if not is_auto_relevant(item, item.get("lang", "en")):
+   620→   620→                continue
+   621→   621→            if await is_duplicate_post(item["title"], hours=48):
+   622→   622→                continue
+   623→   623→            fp = _compute_fingerprint(item["title"])
+   624→   624→            if _fingerprint_matches_existing(fp):
+   625→   625→                continue
+   626→   626→            added = await add_news_item(
+   627→   627→                source=item["source"],
+   628→   628→                title=item["title"],
+   629→   629→                url=item["url"],
+   630→   630→                summary=item.get("summary", ""),
+   631→   631→                published=item.get("published", time.time()),
+   632→   632→                category=item.get("category", "auto"),
+   633→   633→                lang=item.get("lang", "en"),
+   634→   634→                image_urls=item.get("image_urls", []),
+   635→   635→            )
+   636→   636→            if added:
+   637→   637→                total_new += 1
+   638→   638→                _recent_fingerprints.add(fp)
+   639→   639→                logger.info(f"Global RSS added: {item['title'][:60]}")
+   640→   640→    except Exception as e:
+   641→   641→        logger.warning(f"Global RSS phase failed: {e}")
+   642→   642→    
+   643→   643→    logger.info(f"Phase 3 (global RSS) complete: {total_new} total new items")
+   644→   644→
+   645→   645→    # ── Phase 4: Google News RSS batch ──
+   646→   646→    logger.info("Phase 4: Google News RSS batch")
+   647→   647→    try:
+   648→   648→        gn_items = await fetch_google_news_rss_batch()
+   649→   649→        for item in gn_items:
+   650→   650→            if is_blocked_topic(item, item.get("lang", "en")):
+   651→   651→                continue
+   652→   652→            if not is_auto_relevant(item, item.get("lang", "en")):
+   653→   653→                continue
+   654→   654→            if await is_duplicate_post(item["title"], hours=48):
+   655→   655→                continue
+   656→   656→            fp = _compute_fingerprint(item["title"])
+   657→   657→            if _fingerprint_matches_existing(fp):
+   658→   658→                continue
+   659→   659→            added = await add_news_item(
+   660→   660→                source=item["source"],
+   661→   661→                title=item["title"],
+   662→   662→                url=item["url"],
+   663→   663→                summary=item.get("summary", ""),
+   664→   664→                published=item.get("published", time.time()),
+   665→   665→                category=item.get("category", "auto"),
+   666→   666→                lang=item.get("lang", "en"),
+   667→   667→                image_urls=item.get("image_urls", []),
+   668→   668→            )
+   669→   669→            if added:
+   670→   670→                total_new += 1
+   671→   671→                _recent_fingerprints.add(fp)
+   672→   672→                logger.info(f"Google News RSS added: {item['title'][:60]}")
+   673→   673→    except Exception as e:
+   674→   674→        logger.warning(f"Google News RSS phase failed: {e}")
+   675→   675→    
+   676→   676→    logger.info(f"Phase 4 (Google News RSS) complete: {total_new} total new items")
+   677→   677→
+   678→   678→    logger.info(f"News fetch complete: {total_new} new items")
+   679→   679→    return total_new
+   680→   680→
+   681→   681→
+   682→   682→# ── International news with translation context ────────────────────────────────
+   683→   683→
+   684→   684→async def fetch_international_auto_news() -> List[Dict]:
+   685→   685→    """
+   686→   686→    Fetch international auto news and prepare for translation.
+   687→   687→    Returns items that need translation (non-Russian).
+   688→   688→    """
+   689→   689→    international_items = []
+   690→   690→
+   691→   691→    for source in news_config.sources:
+   692→   692→        if source.lang != "ru":
+   693→   693→            try:
+   694→   694→                items = await fetch_rss(source)
+   695→   695→                for item in items:
+   696→   696→                    if is_auto_relevant(item, source.lang):
+   697→   697→                        international_items.append(item)
+   698→   698→            except Exception as e:
+   699→   699→                logger.error(f"Error fetching international news from {source.name}: {e}")
+   700→   700→
+   701→   701→    return international_items
+   702→   702→
+   703→   703→
+   704→   704→# ── News cycle runner ──────────────────────────────────────────────────────────
+   705→   705→
+   706→   706→async def run_news_cycle() -> int:
+   707→   707→    """
+   708→   708→    Run a complete news cycle:
+   709→   709→    1. Fetch from all sources
+   710→   710→    2. Filter for relevance
+   711→   711→    3. Store in DB
+   712→   712→    
+   713→   713→    Returns count of new items.
+   714→   714→    """
+   715→   715→    logger.info("Starting news fetch cycle...")
+   716→   716→    count = await fetch_all_news()
+   717→   717→    logger.info(f"News cycle complete: {count} new items")
+   718→   718→    return count
+   719→   719→
+   720→   720→
+   721→   721→# ── Image extraction from RSS entries ──────────────────────────────────────────
+   722→   722→
+   723→   723→from html import unescape as _html_unescape
+   724→   724→
+   725→   725→# Image extensions that are valid for Telegram posts (no GIF — animations are junk)
+   726→   726→_VALID_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+   727→   727→# Domains to skip (trackers, analytics, CDN icons)
+   728→   728→_SKIP_IMAGE_DOMAINS = {
+   729→   729→    "feeds.feedburner.com", "feedburner.google.com",
+   730→   730→    "pixel.wp.com", "stats.wordpress.com",
+   731→   731→    "i0.wp.com", "i1.wp.com", "i2.wp.com",
+   732→   732→    "mc.yandex.ru", "mc.yandex.com", "google-analytics.com",
+   733→   733→    "doubleclick.net", "adservice.google.com",
+   734→   734→}
+   735→   735→# Minimum image URL length (filter out tiny 1x1 tracking pixels etc.)
+   736→   736→_MIN_IMAGE_URL_LEN = 30
+   737→   737→
+   738→   738→# Junk filename stems — generic/default/non-content images
+   739→   739→_JUNK_IMAGE_STEMS = {
+   740→   740→    "business_card", "placeholder", "default-image", "default_image",
+   741→   741→    "no-image", "no_image", "coming-soon", "coming_soon",
+   742→   742→    "spacer", "blank", "transparent", "pixel", "tracker",
+   743→   743→    "1x1", "beacon", "spinner", "loading",
+   744→   744→}
+   745→   745→
+   746→   746→# Tiny thumbnail size patterns in URL query params — skip these
+   747→   747→_TINY_SIZE_PATTERNS = [
+   748→   748→    r'[?&]width=(?:1\d\d|80|100|120)(?:&|$)',   # width=80..199 in query
+   749→   749→    r'[?&]height=(?:1\d\d|80|100|120)(?:&|$)',   # height=80..199 in query
+   750→   750→    r'[?&]crop=1:1[,&]',                         # square crop = icon/thumb
+   751→   751→    r'/\d+x\d+/',                                 # /108x108/ in path segments
+   752→   752→    r'[-_](?:\d{2}|1\d{2}|200)x(?:\d{2}|1\d{2}|200)[-_.]',  # -108x108. (under 200px)
+   753→   753→]
+   754→   754→
+   755→   755→# Regex to detect /feed/ as image URL (CarScoops bug — <img src="/feed/">)
+   756→   756→_FEED_URL_PATTERN = re.compile(r'/feed/?$')
+   757→   757→
+   758→   758→
+   759→   759→def _normalize_image_url(url: str) -> str:
+   760→   760→    """Normalize an image URL: decode HTML entities, fix scheme, clean up."""
+   761→   761→    if not url:
+   762→   762→        return ""
+   763→   763→    url = url.strip()
+   764→   764→    # Decode HTML entities: &amp; → &, &#038; → &, &lt; → <, etc.
+   765→   765→    url = _html_unescape(url)
+   766→   766→    # Fix scheme-relative URLs
+   767→   767→    if url.startswith("//"):
+   768→   768→        url = "https:" + url
+   769→   769→    return url
+   770→   770→
+   771→   771→
+   772→   772→def _is_junk_image_url(url: str) -> bool:
+   773→   773→    """Check if an image URL is junk: tracker, icon, tiny thumbnail, default image."""
+   774→   774→    from urllib.parse import urlparse, parse_qs
+   775→   775→    try:
+   776→   776→        url_lower = url.lower()
+   777→   777→        parsed = urlparse(url)
+   778→   778→        domain = parsed.netloc.lower()
+   779→   779→        path_lower = parsed.path.lower()
+   780→   780→
+   781→   781→        # Skip tracker/analytics domains
+   782→   782→        if any(skip in domain for skip in _SKIP_IMAGE_DOMAINS):
+   783→   783→            return True
+   784→   784→
+   785→   785→        # Skip icon/logo/badge/button filenames in path
+   786→   786→        if any(kw in path_lower for kw in [
+   787→   787→            "icon", "avatar", "logo", "favicon", "badge", "button", "banner",
+   788→   788→        ]):
+   789→   789→            return True
+   790→   790→
+   791→   791→        # Skip /feed/ URLs (CarScoops bug)
+   792→   792→        if _FEED_URL_PATTERN.search(url_lower):
+   793→   793→            return True
+   794→   794→
+   795→   795→        # Skip generic/default image filenames (also prefix-match: business_card-1)
+   796→   796→        stem = path_lower.rsplit("/", 1)[-1].split(".")[0].replace("-", "_")
+   797→   797→        if stem in _JUNK_IMAGE_STEMS:
+   798→   798→            return True
+   799→   799→        for junk_stem in _JUNK_IMAGE_STEMS:
+   800→   800→            if stem.startswith(junk_stem):
+   801→   801→                return True
+   802→   802→
+   803→   803→        # Skip tiny thumbnail dimensions in URL
+   804→   804→        for pattern in _TINY_SIZE_PATTERNS:
+   805→   805→            if re.search(pattern, url_lower):
+   806→   806→                return True
+   807→   807→
+   808→   808→    except Exception:
+   809→   809→        return True  # If we can't parse it, skip it
+   810→   810→    return False
+   811→   811→
+   812→   812→
+   813→   813→def _upgrade_thumbnail_url(url: str) -> str:
+   814→   814→    """Upgrade low-quality thumbnail URLs to higher resolution versions.
+   815→   815→
+   816→   816→    Known CDN patterns:
+   817→   817→    - BBC: /240/ → /640/ in path
+   818→   818→    - Autosport/Motorsport.com: /s6/ → /s12/ in path
+   819→   819→    - Reddit: width=140 → width=640 in query
+   820→   820→    - Autocar: /car_review_image_190/ → /body-image/ (190×125 → 900×600)
+   821→   821→    - TASS: /w_320/ → /w_1080/ or remove size suffix
+   822→   822→    - Kommersant: small → large in path
+   823→   823→    - Mail.ru: preview → original
+   824→   824→    - 5Колесо: thumb → full
+   825→   825→    """
+   826→   826→    # BBC: /240/cpsprodpb/ → /640/cpsprodpb/
+   827→   827→    if "bbci.co.uk" in url or "bbc.co.uk" in url:
+   828→   828→        url = re.sub(r'/240/', '/640/', url, count=1)
+   829→   829→
+   830→   830→    # Autosport / Motorsport.com: /s6/ → /s12/
+   831→   831→    if "motorsport.com" in url or "autosport.com" in url:
+   832→   832→        url = re.sub(r'/s6/', '/s12/', url, count=1)
+   833→   833→
+   834→   834→    # Reddit preview: width=140 → width=640
+   835→   835→    if "preview.redd.it" in url or "external-preview.redd.it" in url:
+   836→   836→        url = re.sub(r'width=140', 'width=640', url, count=1)
+   837→   837→        url = re.sub(r'height=140', 'height=640', url, count=1)
+   838→   838→
+   839→   839→    # Autocar UK: /styles/car_review_image_190/ → /styles/body-image/
+   840→   840→    if "autocar.co.uk" in url:
+   841→   841→        url = url.replace('/styles/car_review_image_190/', '/styles/body-image/')
+   842→   842→
+   843→   843→    # TASS: upgrade small thumbnails to full-size
+   844→   844→    if "tass.ru" in url:
+   845→   845→        # /w_320/ → /w_1080/ or /w_800/
+   846→   846→        url = re.sub(r'/w_\d{2,3}/', '/w_1080/', url, count=1)
+   847→   847→        # Remove size parameters in query
+   848→   848→        url = re.sub(r'[?&](width|height|size)=\d+', '', url)
+   849→   849→
+   850→   850→    # Kommersant: upgrade thumbnails
+   851→   851→    if "kommersant.ru" in url:
+   852→   852→        url = url.replace('/small/', '/large/')
+   853→   853→        url = url.replace('/thumb/', '/full/')
+   854→   854→        url = re.sub(r'/\d+x\d+/', '/1200x800/', url, count=1)
+   855→   855→
+   856→   856→    # Mail.ru auto: upgrade previews
+   857→   857→    if "mail.ru" in url or "img.imgsmail.ru" in url:
+   858→   858→        url = url.replace('/preview/', '/original/')
+   859→   859→        url = url.replace('/thumb/', '/original/')
+   860→   860→        # Remove size restriction params
+   861→   861→        url = re.sub(r'[?&]w=\d{2,3}', '', url)
+   862→   862→
+   863→   863→    # 5Колесо: upgrade thumbnails
+   864→   864→    if "5koleso.ru" in url:
+   865→   865→        url = url.replace('/thumb/', '/full/')
+   866→   866→        url = url.replace('/preview/', '/full/')
+   867→   867→
+   868→   868→    return url
+   869→   869→
+   870→   870→
+   871→   871→def _extract_entry_images(entry) -> List[str]:
+   872→   872→    """Extract image URLs from a feedparser entry.
+   873→   873→
+   874→   874→    Priority order (highest quality first):
+   875→   875→    1. media_content (Media RSS — editors pick these, usually hero images)
+   876→   876→    2. enclosures (often full-size article images)
+   877→   877→    3. media_thumbnail (small but from structured metadata)
+   878→   878→    4. links with image type
+   879→   879→    5. <img> tags in content/summary HTML (last — often thumbnails + junk)
+   880→   880→
+   881→   881→    All URLs are HTML-entity-decoded, deduplicated (normalized),
+   882→   882→    junk-filtered, and thumbnail-upgraded before returning.
+   883→   883→    Returns list of clean image URLs (up to 10).
+   884→   884→    """
+   885→   885→    images = []
+   886→   886→    seen_normalized = set()  # Dedup by normalized URL (after unescape)
+   887→   887→
+   888→   888→    def _add_image(raw_url: str):
+   889→   889→        """Add image URL if valid and not already seen (after normalization)."""
+   890→   890→        url = _normalize_image_url(raw_url)
+   891→   891→        if not url or len(url) < _MIN_IMAGE_URL_LEN:
+   892→   892→            return
+   893→   893→        if _is_junk_image_url(url):
+   894→   894→            return
+   895→   895→        # Upgrade low-quality thumbnails to bigger versions
+   896→   896→        url = _upgrade_thumbnail_url(url)
+   897→   897→        # Dedup by normalized form (lowercase for comparison)
+   898→   898→        norm_key = url.lower().rstrip("/")
+   899→   899→        if norm_key in seen_normalized:
+   900→   900→            return
+   901→   901→        seen_normalized.add(norm_key)
+   902→   902→        images.append(url)
+   903→   903→
+   904→   904→    # 1. media_content (Media RSS extension — most reliable, editor-chosen)
+   905→   905→    for media in entry.get("media_content", []) or []:
+   906→   906→        url = media.get("url", "")
+   907→   907→        media_type = media.get("type", "").lower()
+   908→   908→        medium = media.get("medium", "").lower()
+   909→   909→        if url and (medium == "image" or "image" in media_type or _has_image_ext(url)):
+   910→   910→            _add_image(url)
+   911→   911→
+   912→   912→    # 2. enclosures (often full-size article images)
+   913→   913→    for enclosure in entry.get("enclosures", []) or []:
+   914→   914→        url = enclosure.get("href", "") or enclosure.get("url", "")
+   915→   915→        enc_type = enclosure.get("type", "").lower()
+   916→   916→        if url and ("image" in enc_type or _has_image_ext(url)):
+   917→   917→            _add_image(url)
+   918→   918→
+   919→   919→    # 3. media_thumbnail (small but structured metadata)
+   920→   920→    for thumb in entry.get("media_thumbnail", []) or []:
+   921→   921→        url = thumb.get("url", "")
+   922→   922→        if url:
+   923→   923→            _add_image(url)
+   924→   924→
+   925→   925→    # 4. links with image rel or type
+   926→   926→    for link in entry.get("links", []) or []:
+   927→   927→        link_type = link.get("type", "").lower()
+   928→   928→        link_rel = link.get("rel", "").lower()
+   929→   929→        url = link.get("href", "")
+   930→   930→        if url and ("image" in link_type or link_rel == "enclosure"):
+   931→   931→            _add_image(url)
+   932→   932→
+   933→   933→    # 5. Extract <img> tags from content/summary HTML (last resort — noisy)
+   934→   934→    for field_name in ["content", "summary", "description"]:
+   935→   935→        content_value = entry.get(field_name)
+   936→   936→        if isinstance(content_value, list):
+   937→   937→            for item in content_value:
+   938→   938→                html = item.get("value", "") if isinstance(item, dict) else str(item)
+   939→   939→                _extract_img_urls(html, _add_image)
+   940→   940→        elif isinstance(content_value, str):
+   941→   941→            _extract_img_urls(content_value, _add_image)
+   942→   942→
+   943→   943→    return images[:10]
+   944→   944→
+   945→   945→
+   946→   946→def _has_image_ext(url: str) -> bool:
+   947→   947→    """Check if URL ends with an image extension."""
+   948→   948→    from urllib.parse import urlparse
+   949→   949→    try:
+   950→   950→        path = urlparse(url).path.lower().split("?")[0].split("#")[0]
+   951→   951→        return any(path.endswith(ext) for ext in _VALID_IMAGE_EXTENSIONS)
+   952→   952→    except Exception:
+   953→   953→        return False
+   954→   954→
+   955→   955→
+   956→   956→def _extract_img_urls(html: str, callback):
+   957→   957→    """Extract src attributes from <img> tags in HTML.
+   958→   958→
+   959→   959→    Also checks data-src and data-lazy-src for lazy-loaded images.
+   960→   960→    Decodes HTML entities before passing to callback.
+   961→   961→    """
+   962→   962→    if not html:
+   963→   963→        return
+   964→   964→    for attr in ["src", "data-src", "data-lazy-src"]:
+   965→   965→        for match in re.finditer(
+   966→   966→            rf'<img[^>]+{attr}=["\']([^"\']+)["\']', html, re.IGNORECASE
+   967→   967→        ):
+   968→   968→            url = match.group(1)
+   969→   969→            if url and len(url) >= _MIN_IMAGE_URL_LEN:
+   970→   970→                callback(url)
+   971→   971→
+   972→   972→
+   973→   973→# ── Utility ────────────────────────────────────────────────────────────────────
+   974→   974→
+   975→   975→def _clean_html(text: str) -> str:
+   976→   976→    """Remove HTML tags and decode entities."""
+   977→   977→    text = re.sub(r'<[^>]+>', '', text)
+   978→   978→    text = text.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
+   979→   979→    text = text.replace('&quot;', '"').replace('&#39;', "'").replace('&nbsp;', ' ')
+   980→   980→    text = re.sub(r'\s+', ' ', text).strip()
+   981→   981→    return text
+   982→   982→
