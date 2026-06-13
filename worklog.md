@@ -23,3 +23,28 @@ Stage Summary:
 - Key fix: images now extracted and downloaded from RSS feeds that have them
 - Key fix: items without images get second-pass enrichment via ImageFetcher pipeline
 - Key fix: BBC thumbnails upgraded to 640px, large images auto-resized
+
+---
+Task ID: 2
+Agent: main
+Task: Fix photos still missing in posts — second round of fixes
+
+Work Log:
+- Downloaded and analyzed GitHub Actions logs from previous run
+- Found key issues:
+  1. Motorsport.com CDN returns 403 for /s12/ URLs — our upgrade /s6/ → /s12/ BROKE image downloads
+  2. Only 2/7 posts had photos (Electrek and Autocar — RSS sources with images)
+  3. Web_search items (no images) scored same interest as RSS items (with images)
+  4. Google News URLs can't be resolved from GitHub Actions IPs (400 errors)
+  5. Enrichment found 1 image for motorsport.com but download failed due to /s12/ URL
+- Fixes applied:
+  - Removed motorsport.com /s6/ → /s12/ upgrade in both news.py and image_fetcher.py
+  - Increased photo bonus in scoring: 0.4→1.0 for 5+ photos, 0.3→0.7 for 3+, 0.15→0.4 for 1+
+  - Added -0.3 PENALTY for items without photos
+  - Improved article_fetcher comment for Google News skip
+
+Stage Summary:
+- Modified: news.py, image_fetcher.py, content_engine.py, article_fetcher.py
+- Pushed commit 7394cc2 to main
+- GitHub Actions run 27473832045 is in_progress with new code
+- Expected result: RSS items with photos will now consistently outrank text-only web_search items
