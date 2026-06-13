@@ -20,11 +20,13 @@ logger = logging.getLogger("asya.web_search")
 
 class SearchResult:
     """Single search result."""
-    def __init__(self, title: str, url: str, snippet: str = "", source: str = ""):
+    def __init__(self, title: str, url: str, snippet: str = "", source: str = "",
+                 image_urls: List[str] = None):
         self.title = title
         self.url = url
         self.snippet = snippet
         self.source = source
+        self.image_urls = image_urls or []
 
     def to_dict(self) -> Dict[str, str]:
         return {"title": self.title, "url": self.url, "snippet": self.snippet, "source": self.source}
@@ -491,7 +493,7 @@ async def search_google_news_rss(query: str, max_results: int = 5) -> List[Searc
     """Search Google News RSS feed.
 
     Uses Google News RSS endpoint which is reliable and doesn't require API keys.
-    Returns SearchResults with title, url, snippet, and source='google_news'.
+    Returns SearchResults with title, url, snippet, source='google_news', and image_urls.
     """
     import feedparser
     results = []
@@ -505,10 +507,18 @@ async def search_google_news_rss(query: str, max_results: int = 5) -> List[Searc
                     title = entry.get("title", "").strip()
                     link = entry.get("link", "").strip()
                     summary = entry.get("summary", "").strip()
+                    # Extract images from the RSS entry (Google News rarely has them, but just in case)
+                    image_urls = []
+                    try:
+                        from news import _extract_entry_images
+                        image_urls = _extract_entry_images(entry)
+                    except Exception:
+                        pass
                     if title and link:
                         clean_summary = re.sub(r'<[^>]+>', '', summary)[:500]
                         results.append(SearchResult(
-                            title=title, url=link, snippet=clean_summary, source="google_news"
+                            title=title, url=link, snippet=clean_summary, source="google_news",
+                            image_urls=image_urls,
                         ))
     except Exception as e:
         logger.debug(f"Google News RSS search failed: {e}")

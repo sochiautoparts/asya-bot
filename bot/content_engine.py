@@ -983,7 +983,7 @@ async def search_auto_news() -> List[Dict]:
                     "published_time": time.time(),
                     "category": "auto",
                     "lang": "ru" if is_russian else lang,
-                    "image_urls": [],
+                    "image_urls": getattr(result, 'image_urls', []),
                 })
     except Exception as e:
         logger.debug(f"Google News RSS phase failed: {e}")
@@ -1285,6 +1285,19 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
         published_time = item.get("published_time", 0) or item.get("published", 0)
         freshness_bonus = _score_freshness(published_time)
         interest += freshness_bonus
+        
+        # ── BONUS for having photos — items WITH images get significant priority ──
+        # RSS items with real article photos are MUCH more valuable than web search
+        # results with no images (which produce text-only posts nobody clicks on)
+        image_count = len(item.get("image_urls", []))
+        if image_count >= 5:
+            interest += 0.4  # Lots of photos = very visual post
+        elif image_count >= 3:
+            interest += 0.3  # Good photo selection
+        elif image_count >= 1:
+            interest += 0.15  # At least one photo
+        # Items with NO images get NO bonus — they'll need article scraping
+        # which often fails for Google News redirect URLs
         
         scored_items.append({
             "item": item,

@@ -1965,7 +1965,8 @@ async def comment_on_group_post(
     try:
         # Generate comment using LOCAL MODEL ONLY — no cloud API waste on group comments!
         # User requirement: comments in groups MUST use local model only.
-        from ai.providers.local_provider import LocalProvider
+        # Use singleton from ai_router — no reloading the model every time!
+        from ai.router import ai_router
         
         comment_prompt = (
             "Ты Ася — автоэксперт, главред канала @sochiautoparts. "
@@ -1984,7 +1985,8 @@ async def comment_on_group_post(
         )
         
         # LOCAL MODEL ONLY — no cloud fallback for group comments
-        local_provider = LocalProvider()
+        # Use singleton from ai_router (model loaded once, not every call!)
+        local_provider = ai_router._local
         if not await local_provider.is_available():
             logger.info("Local model not available for comment — skipping (no cloud)")
             return False

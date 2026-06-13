@@ -495,9 +495,10 @@ async def handle_photo(message: Message):
     # In groups: Ася should just comment on local model ONLY, not use cloud vision
     if is_group:
         # LOCAL MODEL ONLY for group comments — no cloud API waste!
-        from ai.providers.local_provider import LocalProvider
-        local_provider = LocalProvider()
-        if await local_provider.is_available():
+        # Use singleton from ai_router — no reloading the model every time!
+        from ai.router import ai_router
+        local_provider = ai_router._local
+        if local_provider and await local_provider.is_available():
             caption = message.caption or ""
             simple_prompt = (
                 f"Кто-то прислал фото в группе. "
@@ -987,9 +988,10 @@ async def _process_text_message(message: Message, text: str):
     elif is_group_chat and not is_own_channel:
         # GROUP/SUPERGROUP (not our channel) → LOCAL MODEL ONLY
         # No cloud API waste on casual group comments! User requirement.
-        from ai.providers.local_provider import LocalProvider
-        local_provider = LocalProvider()
-        if await local_provider.is_available():
+        # Use singleton from ai_router — no reloading the model every time!
+        from ai.router import ai_router
+        local_provider = ai_router._local
+        if local_provider and await local_provider.is_available():
             group_messages = [
                 {"role": "system", "content": "Ты Ася — автоэксперт. Пиши короткие комментарии до 300 символов. Живо и естественно. Без markdown. Без политики. Без рекламы канала."},
                 {"role": "user", "content": text[:500]},

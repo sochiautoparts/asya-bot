@@ -864,6 +864,9 @@ class ImageFetcher:
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                                   "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
                     "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.5,ru-RU;q=0.8",
+                    # Referer needed for CDN-hotlink protection (bauersecure.com, hearstapps.com etc.)
+                    "Referer": "https://www.google.com/",
                 },
             )
         return self._client
