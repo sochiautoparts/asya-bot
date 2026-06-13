@@ -781,7 +781,8 @@ class ChannelManager:
         source is 'rss', 'article', 'cache', or 'none'.
         """
         title = news_item.get("title", "")
-        article_url = news_item.get("url", "")
+        # Use resolved_url (from Google News redirect resolution) if available
+        article_url = news_item.get("resolved_url", "") or news_item.get("url", "")
         image_urls = news_item.get("image_urls", [])
 
         try:
@@ -983,7 +984,8 @@ class ChannelManager:
             # Check the actual posted content in the channel — this catches cases where
             # AI rephrased the title significantly but it's the same event
             try:
-                async with aiosqlite.connect(DB_PATH) as db:
+                from bot.database import _connect_db
+                async with _connect_db() as db:
                     cutoff = time.time() - (72 * 3600)  # 72h window
                     async with db.execute(
                         "SELECT content FROM channel_posts WHERE created_at >= ? AND post_type = 'news' ORDER BY created_at DESC LIMIT 30",
@@ -1025,7 +1027,10 @@ class ChannelManager:
 
         # Generate post content using AI
         source_text = ""
-        if news_item.get("summary"):
+        # Use full_text if available (from article_fetcher), otherwise summary
+        if news_item.get("full_text"):
+            source_text = news_item["full_text"]
+        elif news_item.get("summary"):
             source_text = news_item["summary"]
 
         # ── DATE CONTEXT — Ася знает какой сейчас год! ──

@@ -75,7 +75,9 @@ CREATE TABLE IF NOT EXISTS news_items (
     is_posted INTEGER DEFAULT 0,
     category TEXT DEFAULT 'auto',
     lang TEXT DEFAULT 'ru',
-    image_urls TEXT DEFAULT '[]'
+    image_urls TEXT DEFAULT '[]',
+    full_text TEXT DEFAULT '',
+    resolved_url TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS channel_posts (
@@ -158,13 +160,27 @@ CREATE INDEX IF NOT EXISTS idx_topic_registry_last ON topic_registry(last_posted
 
 
 async def init_db() -> None:
-    """Initialize database — create all tables.
+    """Initialize database — create all tables and run migrations.
 
     WAL mode and busy_timeout are set automatically by _connect_db().
     """
     async with _connect_db() as db:
         await db.executescript(SCHEMA)
         await db.commit()
+        
+        # ── Migrations — add columns that may not exist in older DBs ──
+        try:
+            # Add full_text and resolved_url columns to news_items (added June 2026)
+            await db.execute("ALTER TABLE news_items ADD COLUMN full_text TEXT DEFAULT ''")
+            await db.commit()
+        except Exception:
+            pass  # Column already exists
+        
+        try:
+            await db.execute("ALTER TABLE news_items ADD COLUMN resolved_url TEXT DEFAULT ''")
+            await db.commit()
+        except Exception:
+            pass  # Column already exists
 
 
 async def get_or_create_user(user_id: int, username: str = "", first_name: str = "",
@@ -322,30 +338,44 @@ async def clear_chat_history(user_id: int) -> None:
 
 async def add_news_item(source: str, title: str, url: str, summary: str = "",
                          published: float = 0, category: str = "auto", lang: str = "ru",
-                         image_urls: list = None) -> bool:
+                         image_urls: list = None, full_text: str = "", resolved_url: str = "") -> bool:
     """Add a news item. Returns True if new, False if duplicate.
     
     image_urls: list of image URL strings extracted from the RSS feed.
+    full_text: full article text (from article_fetcher or RSS content field).
+    resolved_url: real article URL after Google News redirect resolution.
     """
     now = time.time()
     image_urls_json = json.dumps(image_urls or [], ensure_ascii=False)
     try:
         async with _connect_db() as db:
             await db.execute(
-                """INSERT INTO news_items (source, title, url, summary, published, fetched_at, category, lang, image_urls)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (source, title, url, summary, published, now, category, lang, image_urls_json),
+                """INSERT INTO news_items (source, title, url, summary, published, fetched_at, category, lang, image_urls, full_text, resolved_url)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (source, title, url, summary, published, now, category, lang, image_urls_json, full_text, resolved_url),
             )
             await db.commit()
             return True
     except aiosqlite.IntegrityError:
-        # If already exists, update image_urls if we have new ones
+        # If already exists, update image_urls and full_text if we have new ones
+        updates = []
+        params = []
         if image_urls:
+            updates.append("image_urls = ?")
+            params.append(image_urls_json)
+        if full_text:
+            updates.append("full_text = ?")
+            params.append(full_text)
+        if resolved_url:
+            updates.append("resolved_url = ?")
+            params.append(resolved_url)
+        if updates:
             try:
                 async with _connect_db() as db:
+                    params.append(url)
                     await db.execute(
-                        "UPDATE news_items SET image_urls = ? WHERE url = ? AND image_urls = '[]'",
-                        (image_urls_json, url),
+                        f"UPDATE news_items SET {', '.join(updates)} WHERE url = ? AND (image_urls = '[]' OR full_text = '' OR resolved_url = '')",
+                        params,
                     )
                     await db.commit()
             except Exception:

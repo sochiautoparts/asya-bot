@@ -1400,6 +1400,25 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
         f"title={best_item.get('title', '')[:60]}"
     )
     
+    # ── Enrich with full article content if needed ──
+    # If the best item has no images or only a short summary, fetch the full article
+    # to get: images + full text for AI fact-gathering
+    needs_enrichment = (
+        len(best_item.get("image_urls", [])) < 3
+        or len(best_item.get("summary", "")) < 200
+    )
+    if needs_enrichment and best_item.get("url", "").startswith("http"):
+        try:
+            from bot.article_fetcher import enrich_news_item
+            logger.info(f"Enriching selected item: '{best_item.get('title', '')[:50]}'")
+            best_item = await enrich_news_item(best_item)
+            logger.info(
+                f"Enriched: {len(best_item.get('image_urls', []))} images, "
+                f"{len(best_item.get('full_text', ''))} chars text"
+            )
+        except Exception as e:
+            logger.warning(f"Article enrichment failed: {e}")
+    
     # NOTE: Do NOT register topic here!
     # Topic registration happens in channel.py AFTER the post is actually published.
     # Registering here caused a bug: the topic was registered during selection,

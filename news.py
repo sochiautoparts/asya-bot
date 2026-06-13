@@ -333,11 +333,25 @@ async def fetch_rss(source: NewsSource) -> List[Dict]:
                 # Extract image URLs from RSS entry
                 image_urls = _extract_entry_images(entry)
 
+                # Also extract full content text from RSS entry if available
+                # (many feeds include full article HTML in content field)
+                full_text = ""
+                content_value = entry.get("content") or entry.get("summary") or entry.get("description")
+                if content_value:
+                    if isinstance(content_value, list):
+                        full_text = _clean_html(content_value[0].get("value", "")) if content_value else ""
+                    elif isinstance(content_value, str):
+                        full_text = _clean_html(content_value)
+                    # Truncate to reasonable length
+                    if len(full_text) > 2000:
+                        full_text = full_text[:2000] + "..."
+
                 items.append({
                     "source": source.name,
                     "title": title,
                     "url": url,
                     "summary": summary,
+                    "full_text": full_text if len(full_text) > len(summary) else "",
                     "published": published,
                     "category": source.category,
                     "lang": source.lang,
@@ -490,7 +504,28 @@ async def fetch_google_news_rss_batch() -> List[Dict]:
         except Exception as e:
             logger.debug(f"Google News RSS failed for query '{query}': {e}")
     
-    logger.info(f"Google News RSS batch: {len(items)} items")
+    logger.info(f"Google News RSS batch: {len(items)} items (before enrichment)")
+    
+    # ── Enrich Google News items with article content ──
+    # Google News RSS items have NO images and short summaries.
+    # We resolve the redirect URL and fetch the real article to get:
+    # 1. Full article text (for fact-gathering by AI)
+    # 2. Quality images from the article page
+    if items:
+        try:
+            from bot.article_fetcher import enrich_news_batch
+            items = await enrich_news_batch(items, max_concurrent=3)
+            
+            # Log enrichment results
+            with_images = sum(1 for i in items if i.get("image_urls"))
+            with_text = sum(1 for i in items if i.get("full_text"))
+            logger.info(
+                f"Google News after enrichment: {len(items)} items, "
+                f"{with_images} with images, {with_text} with full text"
+            )
+        except Exception as e:
+            logger.warning(f"Google News enrichment failed: {e}")
+    
     return items
 
 
@@ -554,6 +589,8 @@ async def fetch_all_news() -> int:
                 category=item.get("category", "auto"),
                 lang=item.get("lang", "en"),
                 image_urls=item.get("image_urls", []),
+                full_text=item.get("full_text", ""),
+                resolved_url=item.get("resolved_url", ""),
             )
             if added:
                 total_new += 1
@@ -600,6 +637,8 @@ async def fetch_all_news() -> int:
                     category=item["category"],
                     lang=item["lang"],
                     image_urls=item.get("image_urls", []),
+                    full_text=item.get("full_text", ""),
+                    resolved_url=item.get("resolved_url", ""),
                 )
                 if added:
                     total_new += 1
@@ -632,6 +671,8 @@ async def fetch_all_news() -> int:
                 category=item.get("category", "auto"),
                 lang=item.get("lang", "en"),
                 image_urls=item.get("image_urls", []),
+                full_text=item.get("full_text", ""),
+                resolved_url=item.get("resolved_url", ""),
             )
             if added:
                 total_new += 1
@@ -665,6 +706,8 @@ async def fetch_all_news() -> int:
                 category=item.get("category", "auto"),
                 lang=item.get("lang", "en"),
                 image_urls=item.get("image_urls", []),
+                full_text=item.get("full_text", ""),
+                resolved_url=item.get("resolved_url", ""),
             )
             if added:
                 total_new += 1

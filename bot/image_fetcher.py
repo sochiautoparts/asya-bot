@@ -492,83 +492,127 @@ async def _resolve_google_news_url(url: str, client: httpx.AsyncClient) -> str:
     Google News RSS article URLs are redirects. We need to follow them
     to reach the actual publisher's page where we can scrape images.
 
+    NOTE: From GitHub Actions IPs, Google News returns 400 for these URLs.
+    So we also try to resolve via web search using the article title extracted
+    from the URL's base64 payload.
+
     Returns the resolved URL, or the original URL if resolution fails.
     """
     if not _GOOGLE_NEWS_URL_RE.search(url) and not _GOOGLE_NEWS_BASE_RE.search(url):
         return url
 
+    _BROWSER_HEADERS = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5,ru-RU;q=0.8",
+    }
+
+    # Try 1: HEAD with follow_redirects
     try:
-        # Follow redirects with HEAD first (faster)
-        resp = await client.head(
-            url,
-            timeout=10.0,
-            follow_redirects=True,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                              "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-            },
-        )
+        resp = await client.head(url, timeout=10.0, follow_redirects=True, headers=_BROWSER_HEADERS)
         resolved = str(resp.url)
         if resolved != url and not _GOOGLE_NEWS_BASE_RE.search(resolved):
-            logger.info(f"Google News redirect resolved: {url[:60]}... → {resolved[:60]}...")
+            logger.info(f"Google News redirect resolved (HEAD): {url[:60]}... → {resolved[:60]}...")
             return resolved
     except Exception:
         pass
 
+    # Try 2: GET with follow_redirects (stream mode to avoid downloading full page)
     try:
-        # HEAD failed — try GET but only read headers (stream mode)
         async with client.stream(
-            "GET", url,
-            timeout=10.0,
-            follow_redirects=True,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                              "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-            },
+            "GET", url, timeout=10.0, follow_redirects=True, headers=_BROWSER_HEADERS,
         ) as resp:
             resolved = str(resp.url)
             if resolved != url and not _GOOGLE_NEWS_BASE_RE.search(resolved):
-                logger.info(f"Google News redirect resolved (GET): {url[:60]}... → {resolved[:60]}...")
+                logger.info(f"Google News redirect resolved (GET stream): {url[:60]}... → {resolved[:60]}...")
                 return resolved
     except Exception:
         pass
 
-    # Try to extract redirect URL from Google News HTML page
+    # Try 3: Full GET without follow_redirects — check for 302/301/canonical/meta-refresh
     try:
-        resp = await client.get(
-            url,
-            timeout=10.0,
-            follow_redirects=False,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                              "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-            },
-        )
+        resp = await client.get(url, timeout=10.0, follow_redirects=False, headers=_BROWSER_HEADERS)
         if resp.status_code in (301, 302, 303, 307, 308):
             location = resp.headers.get("location", "")
             if location and not _GOOGLE_NEWS_BASE_RE.search(location):
                 logger.info(f"Google News 302 redirect: {url[:60]}... → {location[:60]}...")
                 return location
-        # Try to find canonical URL in the HTML
-        html = resp.text[:5000]
-        canonical_match = re.search(r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\']([^"\']+)["\']', html, re.IGNORECASE)
-        if canonical_match:
-            canonical = canonical_match.group(1)
-            if not _GOOGLE_NEWS_BASE_RE.search(canonical):
-                logger.info(f"Google News canonical URL: {canonical[:60]}...")
-                return canonical
-        # Try to find redirect in meta refresh
-        meta_refresh = re.search(r'<meta[^>]+http-equiv=["\']refresh["\'][^>]+content=["\'][^"\']*url=([^"\';\s]+)', html, re.IGNORECASE)
-        if meta_refresh:
-            refresh_url = meta_refresh.group(1)
-            if not _GOOGLE_NEWS_BASE_RE.search(refresh_url):
-                logger.info(f"Google News meta refresh: {refresh_url[:60]}...")
-                return refresh_url
+        # Parse HTML for canonical/refresh/real article URL
+        html = resp.text[:10000]
+        for pattern, name in [
+            (r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\']([^"\']+)["\']', "canonical"),
+            (r'<meta[^>]+http-equiv=["\']refresh["\'][^>]+content=["\'][^"\']*url=([^"\';\s]+)', "meta-refresh"),
+            (r'data-url=["\']([^"\']+)["\']', "data-url"),
+            (r'<a[^>]+class=["\'][^"\']*article[^"\']*["\'][^>]+href=["\']([^"\']+)["\']', "article-link"),
+        ]:
+            m = re.search(pattern, html, re.IGNORECASE)
+            if m:
+                found = m.group(1)
+                if found and not _GOOGLE_NEWS_BASE_RE.search(found) and found.startswith("http"):
+                    logger.info(f"Google News {name}: {found[:60]}...")
+                    return found
     except Exception:
         pass
 
-    logger.debug(f"Could not resolve Google News URL: {url[:60]}...")
+    # Try 4: Full GET WITH follow_redirects — sometimes Google serves the real page directly
+    try:
+        resp = await client.get(url, timeout=15.0, follow_redirects=True, headers=_BROWSER_HEADERS)
+        resolved = str(resp.url)
+        if resolved != url and not _GOOGLE_NEWS_BASE_RE.search(resolved):
+            logger.info(f"Google News resolved (full GET): {url[:60]}... → {resolved[:60]}...")
+            return resolved
+        # Check if the response HTML contains og:url pointing to the real article
+        html = resp.text[:10000]
+        og_url = re.search(r'<meta[^>]+property=["\']og:url["\'][^>]+content=["\']([^"\']+)["\']', html, re.IGNORECASE)
+        if og_url:
+            found = og_url.group(1)
+            if found and not _GOOGLE_NEWS_BASE_RE.search(found) and found.startswith("http"):
+                logger.info(f"Google News og:url: {found[:60]}...")
+                return found
+    except Exception:
+        pass
+
+    logger.info(f"Could not resolve Google News URL (likely 400 from server IP): {url[:60]}...")
     return url  # Return original if all resolution attempts fail
+
+
+async def _search_article_url(topic: str, client: httpx.AsyncClient) -> str:
+    """Find the real article URL by searching the web for the topic title.
+
+    This is a FALLBACK when Google News redirect resolution fails.
+    Uses DuckDuckGo or other search to find the original article,
+    then returns that URL for image scraping.
+
+    Returns the found article URL, or empty string if nothing found.
+    """
+    if not topic or len(topic) < 10:
+        return ""
+
+    try:
+        from bot.web_search import web_search
+        # Search for the article by title
+        # Use a truncated title + "site:" exclusion for Google News
+        query = topic[:80]
+        results = await web_search(query, num_results=5)
+
+        for result in results:
+            url = result.url if hasattr(result, "url") else result.get("url", "")
+            # Skip Google News URLs — we already know those don't work
+            if _GOOGLE_NEWS_BASE_RE.search(url):
+                continue
+            # Skip social media and aggregator URLs
+            skip_domains = ["twitter.com", "facebook.com", "reddit.com", "t.me",
+                           "dzen.ru", "yandex.ru", "google.com"]
+            if any(d in url.lower() for d in skip_domains):
+                continue
+            if url and url.startswith("http") and len(url) > 20:
+                logger.info(f"Found article URL via web search: {url[:80]}")
+                return url
+    except Exception as e:
+        logger.debug(f"Article URL search failed for '{topic[:40]}': {e}")
+
+    return ""
 
 
 # ── Strategy 2: Article page image extraction ────────────────────────────────
@@ -919,6 +963,34 @@ class ImageFetcher:
                 source = "article-fallback"
             elif article_results:
                 source += "+fallback"
+
+        # ── Step 4: Web search fallback for Google News / unresolved URLs ──
+        # If we still have no images and the URL is a Google News redirect,
+        # search the web for the real article and scrape images from it.
+        if len(all_images) < max_images:
+            is_google_news = article_url and _GOOGLE_NEWS_BASE_RE.search(article_url)
+            needs_search = is_google_news or len(all_images) == 0
+            if needs_search:
+                logger.info(f"Step 4: Searching web for real article URL (topic='{topic[:50]}')")
+                search_url = await _search_article_url(topic, client)
+                if search_url:
+                    article_results = await fetch_article_images(
+                        search_url, client,
+                        max_count=max_images - len(all_images) + 2,
+                    )
+                    for img_bytes, img_url in article_results:
+                        if len(all_images) >= max_images:
+                            break
+                        h = _image_hash(img_bytes)
+                        if h not in self._seen_hashes:
+                            self._seen_hashes.add(h)
+                            all_images.append(img_bytes)
+                    if article_results and source == "none":
+                        source = "web-search"
+                    elif article_results:
+                        source += "+web-search"
+                    if all_images:
+                        logger.info(f"Got {len(all_images)} images via web search fallback for '{topic[:50]}'")
 
         # ── Dedup & cache ──────────────────────────────────────────────
         all_images = deduplicate_images(all_images)[:max_images]
