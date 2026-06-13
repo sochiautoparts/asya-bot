@@ -87,3 +87,51 @@ Stage Summary:
 - RSS источники: 24 работающих (2 Reddit удалены)
 - Уникализация текста: проверена, работает (7-шаговый процесс)
 - GitHub Actions #364 запущен
+
+---
+Task ID: 4
+Agent: Main (Super Z)
+Task: Проверить логи, исправить мусорные фото, проверить источники, комментарии, перезапустить Actions
+
+Work Log:
+- Изучил логи GitHub Actions (Run #27464111350) — 735 строк
+- НАЙДЕНЫ ОШИБКИ:
+  1. "database is locked" — 6+ раз (aiogram handlers + news fetcher одновременно)
+  2. "No images found" — 2 поста text-only (Google News статьи не отдают фото)
+  3. Все RSS-источники работают (20 items каждый, Авто Mail.ru — 15 items)
+- Проверил RSS-источники: 4 мёртвых (РБК, За Рулем, Колёса.ру, Дром) уже удалены в предыдущей сессии
+- 22 работающих RSS-источника + Google News RSS + web search
+
+ИСПРАВЛЕНИЯ:
+
+1. bot/database.py — SQLite WAL режим (РЕШЕНИЕ "database is locked")
+   - Добавлен _connect_db() helper с PRAGMA journal_mode=WAL, busy_timeout=5000, synchronous=NORMAL
+   - Заменены все 34 aiosqlite.connect(DB_PATH) на _connect_db()
+   - WAL позволяет параллельные чтения при записи
+
+2. bot/image_fetcher.py — v8.0 (РЕШЕНИЕ мусорных фото и text-only постов)
+   - КРИТИЧЕСКОЕ: Добавлен _resolve_google_news_url() — резолвит редиректы news.google.com
+     к РЕАЛЬНОЙ статье перед скрейпингом фото (была #1 причина text-only постов)
+   - Расширен JUNK_DOMAINS: +13 доменов (трекеры, CDN, укорачиватели, аватарки)
+   - Расширен JUNK_PATH_KEYWORDS: +20 паттернов (AMP, thumbnails, QR, cookies, app badges)
+   - Минимальные размеры: 400x300 (было 300x200)
+   - Минимальный файл: 8KB (было 5KB)
+   - Квадратные изображения: <600px (было <500px)
+   - Площадь: 100000px (было 40000px)
+   - Добавлена проверка bytes/pixel — блокирует повреждённые/битые изображения
+
+3. ai/router.py — generate_comment() ТОЛЬКО локальная модель
+   - Убраны все облачные фаллбэки (Pollinations FREE, Pollinations key, Cloudflare, static)
+   - Если локальная модель недоступна — возвращается ошибка, а не фаллбэк на облако
+   - Требование пользователя: "комментирование в чатах и группах только через локальную модель"
+
+Коммит b8186434 запушен в GitHub
+GitHub Actions Run #27464662230 запущен с новым кодом
+Старый Run #27464111350 отменён
+
+Stage Summary:
+- 3 файла изменено, 268 добавлений, 132 удаления
+- SQLite: WAL режим решает "database is locked"
+- Фото: Google News редирект + усиленная фильтрация мусора
+- Комментарии: строго только локальная модель
+- GitHub Actions запущен

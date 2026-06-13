@@ -1,0 +1,302 @@
+     1→     1→     1→Run echo "=== Starting Asya Bot v10.0 — LOCAL-FIRST ==="
+     2→     2→     2→  echo "=== Starting Asya Bot v10.0 — LOCAL-FIRST ==="
+     3→     3→     3→  echo "ARCHITECTURE: Local-First 4-Level Failover"
+     4→     4→     4→  echo "  Level 0: LOCAL Qwen3-4B (4B params, Q4_K_M, CPU) — chat & comments"
+     5→     5→     5→  echo "  Level 1: Pollinations (key) — all routes, 60+ models"
+     6→     6→     6→  echo "  Level 2: Pollinations FREE — fallback, no auth"
+     7→     7→     7→  echo "  Level 3: Cloudflare Workers AI — Mistral Small 3.1, 20K req/day"
+     8→     8→     8→  echo "  Last resort: Static fallback"
+     9→     9→     9→  echo "LOCAL MODEL USAGE:"
+    10→    10→    10→  echo "  CHAT route: Local → Cloud (saves balance!)"
+    11→    11→    11→  echo "  COMMENT route: Local → Cloud (saves balance!)"
+    12→    12→    12→  echo "  FUNCTION route (posts, VIN, diagnostics): Cloud → Local (fallback)"
+    13→    13→    13→  echo "  VISION: Cloud only (local can't do vision)"
+    14→    14→    14→  echo "  IMAGE GEN: Cloud only"
+    15→    15→    15→  echo "ROUTING: Local(chat/comment) → Pollinations(key) → Pollinations(free) → Cloudflare → Static"
+    16→    16→    16→  echo "EDITORIAL TEAM: Ася + Лёха + Димон + Марина + Кеша(попугай) + Сеньор Помидор(кот)"
+    17→    17→    17→  echo "CONTENT: RSS-first (22+ sources), Google News RSS, Reddit, AI Discovery"
+    18→    18→    18→  echo "FORMATS: 16 content types for 24/7 diverse schedule"
+    19→    19→    19→  echo "SCHEDULE: 30 min intervals, 3 posts/cycle + partner posts"
+    20→    20→    20→  echo ""
+    21→    21→    21→  
+    22→    22→    22→  # Verify model file before starting
+    23→    23→    23→  if [ -f "models/Qwen3-4B-Q4_K_M.gguf" ]; then
+    24→    24→    24→    SIZE=$(stat -c%s "models/Qwen3-4B-Q4_K_M.gguf" 2>/dev/null || echo 0)
+    25→    25→    25→    SIZE_MB=$((SIZE / 1048576))
+    26→    26→    26→    echo "LOCAL MODEL: Available (${SIZE_MB} MB)"
+    27→    27→    27→  else
+    28→    28→    28→    echo "LOCAL MODEL: NOT FOUND — running in cloud-only mode"
+    29→    29→    29→    echo "ENABLE_LOCAL_MODEL=false" >> $GITHUB_ENV
+    30→    30→    30→  fi
+    31→    31→    31→  
+    32→    32→    32→  MAX_RESTARTS=10
+    33→    33→    33→  RESTART_COUNT=0
+    34→    34→    34→  
+    35→    35→    35→  while [ $RESTART_COUNT -lt $MAX_RESTARTS ]; do
+    36→    36→    36→    echo "=== Bot start attempt $((RESTART_COUNT + 1))/$MAX_RESTARTS ==="
+    37→    37→    37→  
+    38→    38→    38→    timeout 18000 python -m bot.main || EXIT_CODE=$?
+    39→    39→    39→    EXIT_CODE=${EXIT_CODE:-0}
+    40→    40→    40→  
+    41→    41→    41→    echo "Bot exited with code: $EXIT_CODE"
+    42→    42→    42→  
+    43→    43→    43→    # If bot exited normally (0) or was killed by timeout, try restart
+    44→    44→    44→    if [ $EXIT_CODE -eq 0 ] || [ $EXIT_CODE -eq 124 ]; then
+    45→    45→    45→      echo "Bot process ended, restarting..."
+    46→    46→    46→      RESTART_COUNT=$((RESTART_COUNT + 1))
+    47→    47→    47→      sleep 5
+    48→    48→    48→    else
+    49→    49→    49→      echo "Bot crashed with error code $EXIT_CODE, restarting..."
+    50→    50→    50→      RESTART_COUNT=$((RESTART_COUNT + 1))
+    51→    51→    51→      sleep 10
+    52→    52→    52→    fi
+    53→    53→    53→  done
+    54→    54→    54→  
+    55→    55→    55→  echo "Max restarts reached, workflow will be re-dispatched."
+    56→    56→    56→  shell: /usr/bin/bash -e {0}
+    57→    57→    57→  env:
+    58→    58→    58→    BOT_TOKEN: ***
+    59→    59→    59→    OWNER_ID: ***
+    60→    60→    60→    CHANNEL_ID: -1001479468835
+    61→    61→    61→    CHANNEL_USERNAME: ***
+    62→    62→    62→    POLLINATIONS_API_KEY: ***
+    63→    63→    63→    POLLINATIONS_API_KEY_2: ***
+    64→    64→    64→    POLLINATIONS_FREE_TEXT_URL: https://text.pollinations.ai
+    65→    65→    65→    POLLINATIONS_FREE_IMAGE_URL: https://image.pollinations.ai
+    66→    66→    66→    CF_ACCOUNT_ID_1: ***
+    67→    67→    67→    CF_API_TOKEN_1: ***
+    68→    68→    68→    CF_ACCOUNT_ID_2: ***
+    69→    69→    69→    CF_API_TOKEN_2: ***
+    70→    70→    70→    GH_PAT_TOKEN: ***
+    71→    71→    71→    GH_REPO: sochiautoparts/asya-bot
+    72→    72→    72→    UNSPLASH_ACCESS_KEY: 
+    73→    73→    73→    PEXELS_API_KEY: 
+    74→    74→    74→    ADMITAD_ADS_FILE: data/admitad_ads.json
+    75→    75→    75→    DB_PATH: asya_bot.db
+    76→    76→    76→    PYTHONUNBUFFERED: 1
+    77→    77→    77→    LOG_LEVEL: INFO
+    78→    78→    78→    ENABLE_LOCAL_MODEL: true
+    79→    79→    79→    MODEL_PATH: models/Qwen3-4B-Q4_K_M.gguf
+    80→    80→    80→    MODEL_N_CTX: 4096
+    81→    81→    81→    MODEL_N_THREADS: 4
+    82→    82→    82→    MODEL_MAX_TOKENS: 512
+    83→    83→    83→    MODEL_AUTO_DOWNLOAD: true
+    84→    84→    84→    MODEL_DOWNLOAD_URL: https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf
+    85→    85→    85→    HF_TOKEN: ***
+    86→    86→    86→    NEWS_INTERVAL_MINUTES: 30
+    87→    87→    87→    CHANNEL_POST_INTERVAL_MINUTES: 30
+    88→    88→    88→    PARTNER_POST_INTERVAL_HOURS: 4
+    89→    89→    89→    pythonLocation: /opt/hostedtoolcache/Python/3.12.13/x64
+    90→    90→    90→    PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib/pkgconfig
+    91→    91→    91→    Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+    92→    92→    92→    Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+    93→    93→    93→    Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+    94→    94→    94→    LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib
+    95→    95→    95→=== Starting Asya Bot v10.0 — LOCAL-FIRST ===
+    96→    96→    96→ARCHITECTURE: Local-First 4-Level Failover
+    97→    97→    97→  Level 0: LOCAL Qwen3-4B (4B params, Q4_K_M, CPU) — chat & comments
+    98→    98→    98→  Level 1: Pollinations (key) — all routes, 60+ models
+    99→    99→    99→  Level 2: Pollinations FREE — fallback, no auth
+   100→   100→   100→  Level 3: Cloudflare Workers AI — Mistral Small 3.1, 20K req/day
+   101→   101→   101→  Last resort: Static fallback
+   102→   102→   102→LOCAL MODEL USAGE:
+   103→   103→   103→  CHAT route: Local → Cloud (saves balance!)
+   104→   104→   104→  COMMENT route: Local → Cloud (saves balance!)
+   105→   105→   105→  FUNCTION route (posts, VIN, diagnostics): Cloud → Local (fallback)
+   106→   106→   106→  VISION: Cloud only (local can't do vision)
+   107→   107→   107→  IMAGE GEN: Cloud only
+   108→   108→   108→ROUTING: Local(chat/comment) → Pollinations(key) → Pollinations(free) → Cloudflare → Static
+   109→   109→   109→EDITORIAL TEAM: Ася + Лёха + Димон + Марина + Кеша(попугай) + Сеньор Помидор(кот)
+   110→   110→   110→CONTENT: RSS-first (22+ sources), Google News RSS, Reddit, AI Discovery
+   111→   111→   111→FORMATS: 16 content types for 24/7 diverse schedule
+   112→   112→   112→SCHEDULE: 30 min intervals, 3 posts/cycle + partner posts
+   113→   113→   113→LOCAL MODEL: Available (2381 MB)
+   114→   114→   114→=== Bot start attempt 1/10 ===
+   115→   115→   115→2026-06-13 10:28:54 [INFO] asya.main: Webhook deleted, polling mode ready
+   116→   116→   116→2026-06-13 10:28:54 [INFO] asya.main: Database initialized
+   117→   117→   117→2026-06-13 10:28:54 [INFO] asya.main: Topic registry empty — first run or all topics expired
+   118→   118→   118→2026-06-13 10:28:54 [INFO] asya.ai.cloudflare: CloudflareProvider initialized: 2 accounts, model=@cf/mistralai/mistral-small-3.1-24b-instruct, total_daily_capacity=20000 requests
+   119→   119→   119→2026-06-13 10:28:54 [INFO] asya.ai.local: Loading local model: models/Qwen3-4B-Q4_K_M.gguf (n_ctx=4096, n_threads=4)
+   120→   120→   120→llama_context: n_ctx_seq (4096) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+   121→   121→   121→2026-06-13 10:28:56 [INFO] asya.ai.local: Local model loaded in 1.6s (Qwen3-4B Q4_K_M, ctx=4096, threads=4)
+   122→   122→   122→2026-06-13 10:28:56 [INFO] asya.ai.router: AI Router v10.0 LOCAL-FIRST initialized: local=LOADED (Qwen3-4B, ctx=4096, threads=4, reqs=0, errors=0), pollinations=active (key+free), cloudflare=active, failover: Local → Pollinations(key) → Pollinations(free) → Cloudflare → Static, 59 models: 48 chat, 22 vision, 16 content, 4 search)
+   123→   123→   123→2026-06-13 10:28:56 [INFO] asya.main: AI Router initialized
+   124→   124→   124→2026-06-13 10:28:56 [INFO] asya.partners: Loaded 25 partner programs from remote URL
+   125→   125→   125→2026-06-13 10:28:56 [INFO] asya.main: Partner programs loaded: 25
+   126→   126→   126→2026-06-13 10:28:56 [INFO] asya.channel: Loaded 0 recent post titles into semantic dedup
+   127→   127→   127→2026-06-13 10:28:56 [INFO] asya.main: Handler routers included successfully
+   128→   128→   128→2026-06-13 10:28:56 [INFO] asya.main: === Asya Bot Starting (Local-First v10) ===
+   129→   129→   129→2026-06-13 10:28:56 [INFO] asya.main: Local model: enabled, model=models/Qwen3-4B-Q4_K_M.gguf, Cloud: Pollinations + Cloudflare
+   130→   130→   130→2026-06-13 10:28:56 [INFO] asya.main: Background tasks started
+   131→   131→   131→2026-06-13 10:28:56 [INFO] aiogram.dispatcher: Start polling
+   132→   132→   132→2026-06-13 10:28:56 [INFO] aiogram.dispatcher: Run polling for bot @asiaexp_bot id=8786860829 - 'Ася'
+   133→   133→   133→2026-06-13 10:29:26 [INFO] asya.news: Starting news fetch cycle...
+   134→   134→   134→2026-06-13 10:29:26 [INFO] asya.news: Phase 1: Web search for automotive news
+   135→   135→   135→2026-06-13 10:29:26 [INFO] asya.content_engine: Searching web for auto news: Goodwood Festival of Speed 2026 highlights
+   136→   136→   136→2026-06-13 10:29:26 [INFO] asya.main: Channel poster started — will try to post every cycle
+   137→   137→   137→2026-06-13 10:29:26 [INFO] asya.main: Channel poster: starting new cycle (consecutive_empty=0)
+   138→   138→   138→2026-06-13 10:29:26 [INFO] asya.channel: run_scheduled_post: called
+   139→   139→   139→2026-06-13 10:29:27 [INFO] asya.channel: Converted partner SVG → PNG (18419 bytes): https://cdn.admitad-connect.com/campaign/images/2024/10/7/11
+   140→   140→   140→2026-06-13 10:29:27 [INFO] asya.channel: Using partner image from program object: https://cdn.admitad-connect.com/campaign/images/2024/10/7/11
+   141→   141→   141→2026-06-13 10:29:32 [INFO] asya.ai.pollinations: Pollinations response (KEY1): model=gpt-5.4-2026-03-05, tokens=5809, time=5.1s, length=976
+   142→   142→   142→2026-06-13 10:29:32 [INFO] asya.channel: Added reaction 👏 to message 89438
+   143→   143→   143→2026-06-13 10:29:32 [INFO] asya.channel: Posted partner content: Lukoil Shop RU
+   144→   144→   144→2026-06-13 10:29:32 [INFO] asya.main: Channel poster: post 1/3 published successfully
+   145→   145→   145→2026-06-13 10:29:32 [INFO] asya.main: Waiting 111s before next post in this cycle
+   146→   146→   146→2026-06-13 10:29:34 [INFO] asya.content_engine: Searching web for auto news: автопутешествия маршруты 2026
+   147→   147→   147→2026-06-13 10:29:34 [INFO] asya.content_engine: Searching web for auto news: automotive supply chain semiconductors chips 2026
+   148→   148→   148→2026-06-13 10:29:42 [INFO] asya.content_engine: Phase 1.5: Google News RSS for global coverage
+   149→   149→   149→2026-06-13 10:29:43 [INFO] asya.content_engine: Search found 16 auto news items (Google News + web search)
+   150→   150→   150→2026-06-13 10:29:43 [INFO] asya.news: Blocked news (RU keyword 'культур'): Игровая программа «Путешествие в лето» - Культура.РФ
+   151→   151→   151→2026-06-13 10:29:43 [INFO] asya.news: Web search added: Популярность автопутешествий растет: результаты исследования
+   152→   152→   152→2026-06-13 10:29:43 [INFO] asya.news: Web search added: Дорога зовет: автопутешествий из Краснодара стало больше на 
+   153→   153→   153→2026-06-13 10:29:43 [INFO] asya.news: Web search added: Супербыстрая зарядка при мощности 1500 кВт за 5 минут. Новей
+   154→   154→   154→2026-06-13 10:29:43 [INFO] asya.news: Web search added: Zeekr представит три новинки для Германии - Авто Mail
+   155→   155→   155→2026-06-13 10:29:43 [INFO] asya.news: Web search added: Электрокар или бензин: в МАРТ сравнили стоимость поездки на 
+   156→   156→   156→2026-06-13 10:29:43 [INFO] asya.news: Phase 1 (web search) complete: 5 new items
+   157→   157→   157→2026-06-13 10:29:43 [INFO] asya.news: Phase 2: RSS feeds (fallback/supplement)
+   158→   158→   158→2026-06-13 10:29:44 [INFO] asya.news: Fetched 20 items from ТАСС Авто
+   159→   159→   159→2026-06-13 10:29:44 [INFO] asya.news: Blocked news (RU keyword 'донецк'): В Донецке из-за отключения подстанций без света остались 1,6
+   160→   160→   160→2026-06-13 10:29:44 [INFO] asya.news: Blocked news (RU keyword 'утонул'): В Сибири ребенок утонул в септике
+   161→   161→   161→2026-06-13 10:29:44 [INFO] asya.news: Blocked news (RU keyword 'футбол'): Кечинов назвал удачным старт чемпионата мира по футболу
+   162→   162→   162→2026-06-13 10:29:44 [INFO] asya.news: Blocked news (RU keyword 'протест'): Военные взяли под контроль охваченный протестами афганский Г
+   163→   163→   163→2026-06-13 10:29:44 [INFO] asya.news: Blocked news (RU keyword 'губернатор'): Беглов: совместный с РПЦ туристический маршрут из Петербурга
+   164→   164→   164→2026-06-13 10:29:44 [INFO] asya.news: Blocked news (RU keyword 'министр'): Мадьяр обвинил правительство Орбана во лжи по вопросам мигра
+   165→   165→   165→2026-06-13 10:29:44 [INFO] asya.news: Blocked news (RU keyword 'министр'): В ФРГ заявили о растущей угрозе атак БПЛА на здание Бундеста
+   166→   166→   166→2026-06-13 10:29:45 [INFO] asya.news: Fetched 15 items from Авто Mail.ru
+   167→   167→   167→2026-06-13 10:29:46 [INFO] asya.news: Fetched 20 items from Коммерсант Авто
+   168→   168→   168→2026-06-13 10:29:46 [INFO] asya.news: Blocked news (RU keyword 'крымск'): Хоть потоп // Спецпроект «Фото на документы». Карточка № 41
+   169→   169→   169→2026-06-13 10:29:46 [INFO] asya.news: Blocked news (RU keyword 'губернатор'): Доска почета
+   170→   170→   170→2026-06-13 10:29:46 [INFO] asya.news: Blocked news (RU keyword 'фильм'): Оса родила мышь // Piaggio Vespa Disney Mickey Mouse Edition
+   171→   171→   171→2026-06-13 10:29:46 [INFO] asya.news: Blocked news (RU keyword 'спорт '): «Восемь» пишем, NEXT в уме // О пользе эволюционного развити
+   172→   172→   172→2026-06-13 10:29:46 [INFO] asya.news: Blocked news (RU keyword 'правительств'): Очная ставка // Чего нам ждать от возрождения «Оки»
+   173→   173→   173→2026-06-13 10:29:46 [INFO] asya.news: Blocked news (RU keyword 'театр'): Сценическая машинерия // Легенды автопрома на театральных по
+   174→   174→   174→2026-06-13 10:29:47 [INFO] asya.news: Fetched 20 items from 5Колесо
+   175→   175→   175→2026-06-13 10:29:48 [INFO] asya.news: Blocked news (RU keyword 'lada granta'): Сколько стоит обслуживание популярных автомобилей с пробегом
+   176→   176→   176→2026-06-13 10:29:48 [INFO] asya.news: Blocked news (RU keyword 'автоваз'): Lada Azimut испытали на вибростенде: АВТОВАЗ готовится к зап
+   177→   177→   177→2026-06-13 10:29:49 [INFO] asya.news: Fetched 20 items from Autocar UK
+   178→   178→   178→2026-06-13 10:29:52 [INFO] asya.news: Fetched 20 items from CAR Magazine
+   179→   179→   179→2026-06-13 10:29:52 [INFO] asya.news: Fetched 20 items from CnEVPost
+   180→   180→   180→2026-06-13 10:29:52 [INFO] asya.news: Fetched 20 items from PaulTan
+   181→   181→   181→2026-06-13 10:29:53 [INFO] asya.news: Fetched 20 items from Autosport
+   182→   182→   182→2026-06-13 10:29:53 [INFO] asya.news: Fetched 20 items from CarExpert
+   183→   183→   183→2026-06-13 10:29:54 [INFO] asya.news: Fetched 18 items from TheDrive
+   184→   184→   184→2026-06-13 10:29:54 [INFO] asya.news: Blocked news (RU keyword 'nato'): Growing Pains: The Anatomy of Audi’s Rocky F1 Start
+   185→   185→   185→2026-06-13 10:29:54 [INFO] asya.news: Fetched 20 items from Jalopnik
+   186→   186→   186→2026-06-13 10:29:54 [INFO] asya.news: Blocked news (EN keyword 'sanction'): Trump Sanctions Leave Cubans Waiting Months Via App For A Me
+   187→   187→   187→2026-06-13 10:29:54 [INFO] asya.news: Fetched 20 items from AutoExpress
+   188→   188→   188→2026-06-13 10:29:56 [INFO] asya.news: Fetched 10 items from The Autopian
+   189→   189→   189→2026-06-13 10:29:56 [INFO] asya.news: Blocked news (EN keyword 'swimming pool'): Painter Of Swimming Pools And One BMW Art Car, David Hockney
+   190→   190→   190→2026-06-13 10:29:56 [INFO] asya.news: Fetched 18 items from CarScoops
+   191→   191→   191→2026-06-13 10:29:56 [INFO] asya.news: Blocked news (EN keyword 'military'): Jeep Honors A Military Icon With New Sarge Editions
+   192→   192→   192→2026-06-13 10:29:56 [INFO] asya.news: Fetched 20 items from Motorsport.com
+   193→   193→   193→2026-06-13 10:29:56 [INFO] asya.news: Blocked news (EN keyword 'weather forecast'): F1 Barcelona GP: Saturday schedule, weather forecast and how
+   194→   194→   194→2026-06-13 10:29:56 [INFO] asya.news: Blocked news (EN keyword 'dick'): Will Denny Hamlin catch Tyler Reddick for the championship l
+   195→   195→   195→2026-06-13 10:29:57 [INFO] asya.news: Fetched 20 items from BBC Sport F1
+   196→   196→   196→2026-06-13 10:29:57 [INFO] asya.news: Fetched 10 items from CarNewsChina
+   197→   197→   197→2026-06-13 10:29:57 [INFO] asya.news: Fetched 20 items from Electrek
+   198→   198→   198→2026-06-13 10:29:58 [INFO] asya.news: Fetched 20 items from Car & Driver
+   199→   199→   199→2026-06-13 10:29:58 [INFO] asya.news: Fetched 20 items from Automotive World
+   200→   200→   200→2026-06-13 10:29:59 [INFO] asya.news: Fetched 20 items from Reddit r/MechanicAdvice
+   201→   201→   201→2026-06-13 10:29:59 [INFO] asya.news: Blocked news (RU keyword 'nato'): 2007 Mustang GT HELP
+   202→   202→   202→2026-06-13 10:29:59 [INFO] asya.news: Phase 3: Global RSS sources
+   203→   203→   203→2026-06-13 10:29:59 [INFO] asya.news: Fetched 20 items from Car & Driver Reviews
+   204→   204→   204→2026-06-13 10:29:59 [INFO] asya.news: Global RSS Car & Driver Reviews: 20 items
+   205→   205→   205→2026-06-13 10:30:00 [INFO] asya.news: Fetched 16 items from Car & Driver Features
+   206→   206→   206→2026-06-13 10:30:00 [INFO] asya.news: Global RSS Car & Driver Features: 16 items
+   207→   207→   207→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: 2027 Chevy Bolt vs. 2026 Nissan Leaf Comparison Test: Battle
+   208→   208→   208→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: Tested: 2026 Toyota C-HR Has EV Hustle, Lacks Dynamic Deligh
+   209→   209→   209→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: 2026 Polestar 4 Dual Motor Test: Camera Obscura
+   210→   210→   210→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: 1987 Ford Festiva LX: An Econobox with an Interesting Lineag
+   211→   211→   211→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: 2026 Lexus IS350 Tested: Once More, with Feeling
+   212→   212→   212→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: 1993 Nissan 240SX SE Convertible Test: Rough Edges, Soft Top
+   213→   213→   213→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: 1988 Tuner Car Comparison Test: Corvette, Porsche, Jaguar, M
+   214→   214→   214→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: 2025 Toyota Prius 30,000-Mile Update: Cool Looks Bring Sacri
+   215→   215→   215→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: Our Long-Term Kia Niro PHEV Meets Its Mark
+   216→   216→   216→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: 2026 Ford Ranger Raptor 10,000-Mile Update: Northward Ho!
+   217→   217→   217→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: 2001 Topless Toys Comparo: Can Chevy Keep Up With the German
+   218→   218→   218→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: 2025 Porsche 911 Carrera 4 GTS Cabriolet Tested: Is All-Whee
+   219→   219→   219→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: 1993 Volvo 850GLT Test: An Upstanding Member of the Communit
+   220→   220→   220→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: Tested: Entry-Level 2026 Tesla Model 3 RWD Changes Little fo
+   221→   221→   221→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: The Best Odds: 1991–94 Nissan 240SX
+   222→   222→   222→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: Future Cars Worth Waiting For: 2026–2030
+   223→   223→   223→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: How Larry Chen and Pennzoil Are Working Together to Preserve
+   224→   224→   224→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: Every EV from Every Brand in America
+   225→   225→   225→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: Here's Every New Electric Vehicle Model for Sale in the U.S.
+   226→   226→   226→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: Dashboard Warning Lights Explained
+   227→   227→   227→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: Subaru vs. Subaru: Is the Trailseeker More Outback Than the 
+   228→   228→   228→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: Elana Scherr: Everyone Says the New Ferrari Is Shocking. I D
+   229→   229→   229→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: Reset a Check Engine Light at Your Own Risk
+   230→   230→   230→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: The Most Influential Car of the 1980s Was an EV, and Only 15
+   231→   231→   231→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: Watch the Indy 500 with a Side of Romance
+   232→   232→   232→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: Ezra Dyer: Operation Awesome Day in School Automotive Class
+   233→   233→   233→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: The Pathfinder Helped Invent the Modern SUV and Its Latest E
+   234→   234→   234→2026-06-13 10:30:00 [INFO] asya.news: Global RSS added: 2008 Ultimate High-Speed Test: Zero to 200 and Back
+   235→   235→   235→2026-06-13 10:30:00 [INFO] asya.news: Phase 3 (global RSS) complete: 369 total new items
+   236→   236→   236→2026-06-13 10:30:00 [INFO] asya.news: Phase 4: Google News RSS batch
+   237→   237→   237→2026-06-13 10:30:00 [INFO] asya.news: Fetched 20 items from GoogleNews_ru
+   238→   238→   238→2026-06-13 10:30:00 [INFO] asya.news: Blocked news (RU keyword 'автоваз'): АвтоВАЗ начинает терять вторичный рынок. Доля китайских авто
+   239→   239→   239→2026-06-13 10:30:00 [INFO] asya.news: Fetched 20 items from GoogleNews_ru
+   240→   240→   240→2026-06-13 10:30:00 [INFO] asya.news: Blocked news (RU keyword 'правительств'): Правительство будет лишать льгот зарядные станции на трассах
+   241→   241→   241→2026-06-13 10:30:00 [INFO] asya.news: Blocked news (RU keyword 'украин'): Украина обогнала некоторые страны ЕС по количеству зарядок д
+   242→   242→   242→2026-06-13 10:30:01 [INFO] asya.news: Fetched 20 items from GoogleNews_en
+   243→   243→   243→2026-06-13 10:30:02 [INFO] asya.news: Fetched 20 items from GoogleNews_en
+   244→   244→   244→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS batch: 62 items
+   245→   245→   245→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Контрафактные автозапчасти захватили российский рынок - Авто
+   246→   246→   246→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Контрафакт ×10: поддельные автозапчасти захватили российский
+   247→   247→   247→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Авито Авто: рынок автомобилей с пробегом оживает – спрос выр
+   248→   248→   248→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Цены на автозапчасти растут, а техобслуживание дешевеет: как
+   249→   249→   249→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Рынок авто: кредит, утильсбор и привычка к брендам / Хабр - 
+   250→   250→   250→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Подщеколдин о продажах авто: «Это рынок Австралии, где кенгу
+   251→   251→   251→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Рынок подержанных авто на Кубани резко ушёл вниз: пора покуп
+   252→   252→   252→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Миллион проданных авто: список 6 брендов, за которыми в март
+   253→   253→   253→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Россияне массово ушли на «вторичку»: рынок подержанных авто 
+   254→   254→   254→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: «Задирать цены сейчас нет смысла»: рынок подержанных авто в 
+   255→   255→   255→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Рынок легковых авто ускорится в 2027 году — прогноз Oks Labs
+   256→   256→   256→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Как изменится рынок после утильсбора – отвечает Игорь Шагапо
+   257→   257→   257→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Как одолеть теневой рынок авто - Економічна правда
+   258→   258→   258→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Эксперты раскрыли самое популярное свердловское авто - URA.R
+   259→   259→   259→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Последствия нового утильсбора: импорт новых автомобилей в Ро
+   260→   260→   260→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Подержанные китайские авто захватывают вторичный рынок РФ - 
+   261→   261→   261→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: BYD строит сеть сверхбыстрых зарядок: 400 км за 5 минут и эк
+   262→   262→   262→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Москвичи на обычных авто стали реже занимать парковки для эл
+   263→   263→   263→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Компания BYD строит в Канаде инфраструктуру сверхбыстрой зар
+   264→   264→   264→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Пользоваться электромобилем стало еще удобнее: на улицах Мос
+   265→   265→   265→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: BYD инвестирует €2 млрд в создание сети зарядных станций в Е
+   266→   266→   266→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: FCVC 2026: Impact Coatings Wins Most Popular Exhibit Award -
+   267→   267→   267→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Hydrogen Fuel Cells Market to Surpass $95 Billion by 2035 as
+   268→   268→   268→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Toyota Patents Hydrogen Fuel Cell Scooter - Cycle World
+   269→   269→   269→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: I Visited Toyota’s Proving Grounds a Hydrogen Skeptic. I Alm
+   270→   270→   270→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Hyundai Motor Group, Georgia Tech Sign MOU on Hydrogen Mobil
+   271→   271→   271→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: [Latest] Global Hydrogen Fuel Cell Vehicle Market Size/Share
+   272→   272→   272→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Honda dissolving its fuel cell system partnership with GM - 
+   273→   273→   273→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: German firm targets steam emission hazard from fuel cell veh
+   274→   274→   274→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: SoCal drivers finding long lines for hydrogen fuel amid supp
+   275→   275→   275→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: How UC Berkeley is improving the affordability of hydrogen f
+   276→   276→   276→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Bay Area hydrogen fuel-cell vehicle owners part of a lawsuit
+   277→   277→   277→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Fuel Cell Manufacturing Joint Venture to End as Honda, GM Sh
+   278→   278→   278→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: A Hydrogen-Powered Road Trip: 365 Miles Across Texas - The U
+   279→   279→   279→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: Stellantis Discontinues Hydrogen Fuel Cell Technology Develo
+   280→   280→   280→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: China Targets 100,000 Fuel Cell Vehicles in Operation by 203
+   281→   281→   281→2026-06-13 10:30:02 [INFO] asya.news: Google News RSS added: These Cars Can (Sort of) Drive Themselves - U.S. News & Worl
+   282→   282→   282→2026-06-13 10:30:03 [INFO] asya.news: Google News RSS added: The ‘AI superstar’ CEO behind a self-driving truck unicorn o
+   283→   283→   283→2026-06-13 10:30:03 [INFO] asya.news: Google News RSS added: Minneapolis council targets self-driving car regulations bef
+   284→   284→   284→2026-06-13 10:30:03 [INFO] asya.news: Google News RSS added: 3 Best Self-Driving Car ETFs for 2026 and How to Invest - Th
+   285→   285→   285→2026-06-13 10:30:03 [INFO] asya.news: Google News RSS added: Waymo buys Apple’s abandoned self-driving car proving ground
+   286→   286→   286→2026-06-13 10:30:03 [INFO] asya.news: Google News RSS added: TU Delft research makes self-driving cars safer and more hum
+   287→   287→   287→2026-06-13 10:30:03 [INFO] asya.news: Google News RSS added: Minneapolis leaders introduce Autonomous Vehicle Registratio
+   288→   288→   288→2026-06-13 10:30:03 [INFO] asya.news: Google News RSS added: Artificial eyes could bring human-like sight to self-driving
+   289→   289→   289→2026-06-13 10:30:03 [INFO] asya.news: Google News RSS added: Portugal to roll out autonomous driving test rules in July -
+   290→   290→   290→2026-06-13 10:30:03 [INFO] asya.news: Google News RSS added: The human eye could guide vision of self-driving cars - Cour
+   291→   291→   291→2026-06-13 10:30:03 [INFO] asya.news: Google News RSS added: Waymo Hires Greenberg Traurig for Autonomous Vehicle Lobbyin
+   292→   292→   292→2026-06-13 10:30:03 [INFO] asya.news: Google News RSS added: How autonomous vehicles can move EV policy forward - Trellis
+   293→   293→   293→2026-06-13 10:30:03 [INFO] asya.news: Google News RSS added: Self-driving cars could be introduced on Irish roads in a co
+   294→   294→   294→2026-06-13 10:30:03 [INFO] asya.news: Google News RSS added: Consumers Know, But Don’t Trust Self-Driving Vehicles, Study
+   295→   295→   295→2026-06-13 10:30:03 [INFO] asya.news: Google News RSS added: Waymo Is Doubling Down on Self-Driving Car Ambitions. What T
+   296→   296→   296→2026-06-13 10:30:03 [INFO] asya.news: Google News RSS added: Tesla robotaxis stall as Musk’s self-driving hype hits real-
+   297→   297→   297→2026-06-13 10:30:03 [INFO] asya.news: Google News RSS added: Trust gap continues to slow autonomous vehicle adoption, JD 
+   298→   298→   298→2026-06-13 10:30:03 [INFO] asya.news: Google News RSS added: Saudi Arabia introduces legal framework for self-driving veh
+   299→   299→   299→2026-06-13 10:30:03 [INFO] asya.news: Phase 4 (Google News RSS) complete: 423 total new items
+   300→   300→   300→2026-06-13 10:30:03 [INFO] asya.news: News fetch complete: 423 new items
+
+[showing lines 1-300 of 735; use offset=301 with limit to continue reading]
