@@ -40,7 +40,7 @@ logger = logging.getLogger("asya.image_fetcher")
 
 IMAGE_CACHE_DIR = Path("data/image_cache")
 IMAGE_CACHE_TTL_DAYS = 7
-IMAGE_MIN_SIZE_BYTES = 2_000          # 2 KB — very low, news photos are usually 50KB+
+IMAGE_MIN_SIZE_BYTES = 1_000          # 1 KB — relaxed to capture more article images
 IMAGE_MAX_SIZE_BYTES = 5_242_880      # 5 MB — Telegram limit
 MAX_IMAGES_PER_POST = 10              # Telegram mediagroup limit
 IMAGE_FETCH_TIMEOUT = 15.0
@@ -337,9 +337,9 @@ async def _download_image(client: httpx.AsyncClient, url: str) -> Optional[bytes
             import io
             img = Image.open(io.BytesIO(img_bytes))
             w, h = img.size
-            # Real article photos are at least 300x200
-            # (was 200x150 but that let 140x140 thumbnails through)
-            if w < 300 or h < 200:
+            # Real article photos are at least 200x150
+            # (was 300x200 but that rejected many valid article photos)
+            if w < 200 or h < 150:
                 return None
             # Skip banners (extreme aspect ratios)
             if w / max(h, 1) > 4.0 or h / max(w, 1) > 4.0:

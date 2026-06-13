@@ -725,8 +725,14 @@ class NewsConfig:
 
     sources: List[NewsSource] = field(default_factory=lambda: [
         # ── Russian-language RSS sources ──
-        # NOTE: "Китайские автомобили" removed — DNS failure
+        # Primary Russian auto news (expanded for RU-audience coverage)
         NewsSource("Авто.Вести", "https://auto.vesti.ru/rss/", "ru", "auto"),
+        NewsSource("ТАСС Авто", "https://tass.ru/rss/v2.xml?sections=%D0%90%D0%B2%D1%82%D0%BE", "ru", "auto"),
+        NewsSource("РБК Авто", "https://www.rbc.ru/rss/auto", "ru", "auto"),
+        NewsSource("За Рулем", "https://www.zr.ru/rss/", "ru", "auto"),
+        NewsSource("Авто Mail.ru", "https://auto.mail.ru/rss/", "ru", "auto"),
+        NewsSource("Колёса.ру", "https://www.kolesa.ru/rss/", "ru", "auto"),
+        NewsSource("Дром", "https://www.drom.ru/rss/", "ru", "auto"),
         # ── Working international RSS sources (verified June 2026) ──
         # UK auto magazines
         NewsSource("Autocar UK", "https://www.autocar.co.uk/rss/News", "en", "auto"),

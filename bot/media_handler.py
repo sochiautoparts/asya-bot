@@ -43,10 +43,10 @@ class MediaHandler:
     """Smart media handler with quality scoring and album support"""
     
     def __init__(self):
-        # Minimum requirements
-        self.MIN_WIDTH = 400
-        self.MIN_HEIGHT = 300
-        self.MIN_SIZE_KB = 30
+        # Minimum requirements — relaxed to capture more article photos
+        self.MIN_WIDTH = 200
+        self.MIN_HEIGHT = 150
+        self.MIN_SIZE_KB = 15
         self.MAX_SIZE_KB = 5000  # 5MB max for fast loading
         
         # Bad keywords in URL (reject these images)
@@ -128,13 +128,23 @@ class MediaHandler:
                 "source": scored_images[0].source
             }
         
-        # REGULAR NEWS: Try album if we have 2+ excellent/good images
+        # REGULAR NEWS: Try album with ALL non-rejected images (up to 10)
+        # Prioritize EXCELLENT/GOOD, then add POOR if we have room
         album_candidates = [
             img for img in scored_images 
             if img.quality in [ImageQuality.EXCELLENT, ImageQuality.GOOD]
         ]
         
-        MAX_ALBUM_SIZE = 3  # Telegram allows up to 10, but 3 is optimal
+        # If we have fewer than 2 excellent/good images, include POOR ones too
+        if len(album_candidates) < 2:
+            poor_candidates = [
+                img for img in scored_images 
+                if img.quality == ImageQuality.POOR
+            ]
+            album_candidates.extend(poor_candidates)
+            album_candidates.sort(key=lambda x: x.score, reverse=True)
+        
+        MAX_ALBUM_SIZE = 10  # Telegram allows up to 10 photos per media group
         
         if len(album_candidates) >= 2:
             # Create album

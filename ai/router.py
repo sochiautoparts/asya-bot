@@ -980,6 +980,67 @@ class AIRouter:
             route_type="comment",
         )
 
+    async def generate_comment(
+        self,
+        prompt: str,
+        max_tokens: int = 100,
+    ) -> AIResponse:
+        """Generate a short comment for group posts. Simplified interface.
+        
+        Uses COMMENT route type — local model first, then cloud failover.
+        Returns AIResponse with short comment text.
+        """
+        system_prompt = (
+            "Ты Ася — автоэксперт, главред канала @sochiautoparts. "
+            "Пиши коротко, живо, как живой человек. "
+            "Без markdown, без буллетов, без политики. "
+            "Твой ответ — ТОЛЬКО текст комментария."
+        )
+        
+        # Level 1: Pollinations with key
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ]
+        
+        response = await self._primary.chat(
+            messages=messages,
+            model="openai",
+            temperature=0.8,
+            max_tokens=max_tokens,
+        )
+        
+        # Level 2: Pollinations free
+        if response.error:
+            result = await self._primary.chat_free(
+                messages=messages,
+                model="openai",
+                temperature=0.8,
+                max_tokens=max_tokens,
+            )
+            if not result.error and result.text:
+                response = result
+        
+        # Level 3: Cloudflare
+        if response.error and self._cloudflare and self._cloudflare._accounts:
+            response = await self._cloudflare.chat(
+                messages=messages,
+                temperature=0.8,
+                max_tokens=max_tokens,
+            )
+        
+        # Clean the response
+        if response.text:
+            import re
+            text = response.text.strip()
+            # Remove markdown formatting
+            text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+            text = re.sub(r'\*(.+?)\*', r'\1', text)
+            text = re.sub(r'<[^>]+>', '', text)
+            response.text = text
+        
+        return response
+
     @staticmethod
     def _clean_ai_response(text: str) -> str:
         """Clean AI response artifacts (think tags, markdown, structured output, etc.)."""
