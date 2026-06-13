@@ -197,6 +197,20 @@ BLOCK_KEYWORDS_RU = [
     "банкрот", "компания обанкрот", "компания закрыл",
     "увольнен", "сокращен", "забастовк",
     "эпидеми", "вирус", "заражен",
+    # ── NSFW / Adult content — ABSOLUTE BLOCK ──
+    # These keywords trigger IMMEDIATE blocking — no exceptions.
+    # Prevents any possibility of pornographic content reaching the channel.
+    "порн", "секс", "эрот", "голая", "голые", "обнажён", "обнажен",
+    "интим", "проститут", "путан", "бордель",
+    "изнасилован", "насил", "педофил", "растлен",
+    "пикантн", "горячая дев", "горячие дев",
+    "письк", "хуй", "пизд", "ебать", "ебан", "ёбан",
+    "сосать", "кончить", "сперм", "оргазм",
+    "стриптиз", "камасутр", "ню фото",
+    "порно-", "секс-", "18+", "xxx",
+    "фистинг", "клизьм", "анальн", "оральн", "минет",
+    "ню фото", "обнажённ", "голое тел", "раздевает",
+    "сочные дев", "горячие babes",
 ]
 
 BLOCK_KEYWORDS_EN = [
@@ -245,6 +259,15 @@ BLOCK_KEYWORDS_EN = [
     "epidemic", "virus outbreak", "infection rate",
     "political protest", "political election", "general election",
     "parliament election", "presidential election",
+    # ── NSFW / Adult content — ABSOLUTE BLOCK ──
+    "porn", "pornography", "sex ", "erotic", "nude", "naked",
+    "nsfw", "xxx", "hentai", "milf", "slut", "whore",
+    "boob", "tit ", "pussy", "dick", "cock", "fuck",
+    "blowjob", "anal sex", "orgasm", "fetish", "bdsm",
+    "strip club", "brothel", "prostitut",
+    "genital", "penis", "vagina",
+    "onlyfans", "chaturbate", "livejasmin",
+    "adult content", "explicit photo", "explicit image",
 ]
 
 

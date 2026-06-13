@@ -46,6 +46,70 @@ from bot.content_engine import (
 
 logger = logging.getLogger("asya.channel")
 
+# ── NSFW Image Moderation — AI Vision safety check ───────────────────────────
+# BEFORE any image is posted to the channel, it's checked by AI Vision.
+# If the image is detected as pornographic/nude/explicit, it's BLOCKED.
+# This is the FINAL safety net after SafeSearch + keyword filters.
+
+async def _moderate_image_content(image_bytes: bytes) -> bool:
+    """Check if an image is SAFE for a family-friendly automotive channel.
+    
+    Uses AI Vision to analyze the image content. Returns True if SAFE, False if NSFW.
+    This is the last line of defense — even if SafeSearch fails and keyword filters
+    miss something, this should catch explicit content before it reaches the channel.
+    
+    If the AI check fails (timeout, error), the image is BLOCKED (fail-safe).
+    """
+    try:
+        import base64
+        
+        # Encode image to base64 for AI Vision
+        img_b64 = base64.b64encode(image_bytes).decode("utf-8")
+        
+        # Try AI Vision check with timeout
+        try:
+            from ai.router import ai_router
+            response = await asyncio.wait_for(
+                ai_router.analyze_image(
+                    user_id=0,  # System user for moderation — no history needed
+                    image_base64=img_b64,
+                    prompt=(
+                        "SAFETY CHECK: Is this image safe for a family-friendly automotive news channel? "
+                        "Answer ONLY with one word: SAFE or NSFW. "
+                        "NSFW = any nudity, sexual content, pornography, explicit acts, "
+                        "revealing clothing in sexual context, genital exposure, bare breasts, "
+                        "suggestive poses. SAFE = fully clothed people, cars, landscapes, "
+                        "technical diagrams, news photos, normal automotive content. "
+                        "When in doubt, answer NSFW."
+                    ),
+                ),
+                timeout=15.0
+            )
+            
+            answer = response.text.strip().upper() if response and response.text else ""
+            
+            if "NSFW" in answer:
+                logger.error(f"NSFW IMAGE BLOCKED by AI Vision moderation — image rejected")
+                return False
+            elif "SAFE" in answer:
+                logger.info(f"Image passed AI Vision moderation: SAFE")
+                return True
+            else:
+                # Unclear response — be conservative and block
+                logger.warning(f"AI Vision gave unclear response '{answer[:30]}' — BLOCKING image (fail-safe)")
+                return False
+                
+        except asyncio.TimeoutError:
+            logger.warning(f"AI Vision moderation timed out — BLOCKING image (fail-safe)")
+            return False
+        except Exception as e:
+            logger.warning(f"AI Vision moderation failed: {e} — BLOCKING image (fail-safe)")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Image moderation error: {e} — BLOCKING image (fail-safe)")
+        return False
+
 # ── Reactions to add to posts ───────────────────────────────────────────────
 
 POST_REACTIONS = ["👍", "🔥", "🚗", "😍", "👏", "💯", "🤩", "⚡"]
@@ -405,6 +469,15 @@ def _validate_post_text(text: str) -> bool:
         "украин", "нато", "nato",
         "навальн", "оппозиц", "протест", "митинг",
         "политик", "депутат", "законопроект", "выборы ", "голосован",
+        # ── NSFW / Adult content — ABSOLUTE BLOCK ──
+        "порн", "секс", "эрот", "голая", "голые", "обнажён", "обнажен",
+        "интим", "проститут", "путан", "бордель",
+        "письк", "хуй", "пизд", "ебать", "ебан", "ёбан",
+        "сосать", "кончить", "сперм", "оргазм",
+        "стриптиз", "камасутр", "ню фото",
+        "порно-", "секс-", "18+", "xxx",
+        "фистинг", "минет",
+        "nude", "porn", "nsfw", "hentai", "milf",
     ]
     # Block boring Russian auto brands — 50 years nothing interesting
     blocked_auto_brands = [
@@ -783,6 +856,17 @@ class ChannelManager:
             if w < 100 or (0 < h < 100):
                 return True
 
+        # ── NSFW DOMAIN BLOCK — never allow images from porn/adult sites ──
+        nsfw_domains = [
+            "pornhub", "xvideos", "xnxx", "xhamster", "redtube",
+            "youporn", "tube8", "spankbang", "chaturbate", "bongacams",
+            "livejasmin", "onlyfans", "playboy", "eporner", "porntrex",
+            "rule34", "gelbooru", "danbooru", "sex.com",
+        ]
+        for domain in nsfw_domains:
+            if domain in url_lower:
+                return True
+
         return False
 
     @staticmethod
@@ -1102,8 +1186,20 @@ class ChannelManager:
             if real_images:
                 # Extra safety: deduplicate again at channel level
                 real_images = deduplicate_images(real_images)[:MAX_IMAGES_PER_POST]
-                logger.info(f"Got {len(real_images)} UNIQUE REAL images for '{title[:50]}' (source={real_source})")
-                return real_images, real_source
+                # ── NSFW MODERATION: AI Vision check every image ────────
+                safe_images = []
+                for img in real_images:
+                    is_safe = await _moderate_image_content(img)
+                    if is_safe:
+                        safe_images.append(img)
+                    else:
+                        logger.error(f"NSFW IMAGE REMOVED from post '{title[:50]}' — blocked by AI Vision")
+                if safe_images:
+                    logger.info(f"Got {len(safe_images)} SAFE images for '{title[:50]}' (source={real_source}, {len(real_images)-len(safe_images)} blocked by moderation)")
+                    return safe_images, real_source
+                else:
+                    logger.error(f"ALL images BLOCKED by NSFW moderation for '{title[:50]}' — post will be text-only")
+                    return [], "nsfw_blocked"
         except ImportError:
             # deduplicate_images not available — use ImageFetcher without extra dedup
             try:
@@ -1119,8 +1215,20 @@ class ChannelManager:
                     max_images=MAX_IMAGES_PER_POST,
                 )
                 if real_images:
-                    logger.info(f"Got {len(real_images)} REAL images for '{title[:50]}' (source={real_source})")
-                    return real_images[:MAX_IMAGES_PER_POST], real_source
+                    # ── NSFW MODERATION: AI Vision check every image ────────
+                    safe_images = []
+                    for img in real_images:
+                        is_safe = await _moderate_image_content(img)
+                        if is_safe:
+                            safe_images.append(img)
+                        else:
+                            logger.error(f"NSFW IMAGE REMOVED from post '{title[:50]}' — blocked by AI Vision")
+                    if safe_images:
+                        logger.info(f"Got {len(safe_images)} SAFE images for '{title[:50]}' (source={real_source})")
+                        return safe_images[:MAX_IMAGES_PER_POST], real_source
+                    else:
+                        logger.error(f"ALL images BLOCKED by NSFW moderation for '{title[:50]}' — post will be text-only")
+                        return [], "nsfw_blocked"
             except Exception as e:
                 logger.warning(f"ImageFetcher failed, falling back to legacy pipeline: {e}")
         except Exception as e:
@@ -1200,6 +1308,21 @@ class ChannelManager:
                     logger.warning("ALL image strategies failed — post may be text-only")
             except Exception as e:
                 logger.warning(f"AI image generation skipped: {e}")
+        
+        # ── FINAL NSFW MODERATION: AI Vision check all legacy images ──────
+        # Even if images came from RSS or article scraping, they MUST pass
+        # AI Vision moderation before reaching the channel.
+        if image_list:
+            safe_images = []
+            for img in image_list:
+                is_safe = await _moderate_image_content(img)
+                if is_safe:
+                    safe_images.append(img)
+                else:
+                    logger.error(f"NSFW IMAGE REMOVED (legacy pipeline) from post '{title[:50]}' — blocked by AI Vision")
+            if not safe_images and image_list:
+                logger.error(f"ALL legacy images BLOCKED by NSFW moderation for '{title[:50]}' — post will be text-only")
+            return safe_images[:MAX_IMAGES_PER_POST], source
         
         return image_list[:MAX_IMAGES_PER_POST], source
 

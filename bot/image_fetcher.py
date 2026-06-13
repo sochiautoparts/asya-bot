@@ -90,6 +90,82 @@ JUNK_KEYWORDS = [
 
 JUNK_EXTENSIONS = {".gif", ".svg"}
 
+# ── NSFW / Adult content filter for image search ─────────────────────────────
+# These keywords are BLOCKED from being used as image search queries.
+# If a topic contains any of these words, image search is SKIPPED entirely.
+# This prevents any possibility of pornographic/explicit images reaching the channel.
+
+NSFW_KEYWORDS_RU = [
+    "порн", "секс", "эрот", "голая", "голые", "обнажён", "обнажен",
+    "интим", "проститут", "путан", "бордель", "публичн дом",
+    "клизьм", "фистинг", "анальн", "оральн", "минет",
+    "изнасилован", "насил", "педофил", "растлен",
+    "пикантн", "горячая дев", "горячие дев", "сочные",
+    "письк", "хуй", "пизд", "ебать", "ебан", "ёбан",
+    "сосать", "кончить", "сперм", "оргазм",
+    "стриптиз", "постел", "камасутр",
+    "ню", "nude", "xxx", "18+", "порно",
+    "обнажённ", "голое тел", "раздевает",
+    "вулканск", "вулканская", "порно-", "секс-",
+]
+
+NSFW_KEYWORDS_EN = [
+    "porn", "sex", "erotic", "nude", "naked", "nsfw", "xxx",
+    "boob", "tit ", "tits", "pussy", "dick", "cock", "ass ",
+    "fuck", "slut", "whore", "hentai", "milf", "milfs",
+    "anal", "oral", "blowjob", "cum ", "orgasm",
+    "strip", "brothel", "prostitut",
+    "genital", "penis", "vagina",
+    "fetish", "bdsm", "bondage",
+    "intimate", "provocative",
+    "18+", "adult content", "explicit",
+]
+
+# Domains known to host adult/pornographic content — BLOCKED entirely
+NSFW_DOMAINS = {
+    "pornhub.com", "xvideos.com", "xnxx.com", "xhamster.com",
+    "redtube.com", "youporn.com", "tube8.com", "spankbang.com",
+    "chaturbate.com", "bongacams.com", "livejasmin.com",
+    "onlyfans.com", "playboy.com", "hustler.com",
+    "eporner.com", "fuq.com", "thumbzilla.com",
+    "sex.com", "porntrex.com", "daftsex.com",
+    "r34", "rule34", "gelbooru.com", "danbooru.donmai.us",
+    "imgur.com/a/",  # Imgur albums can have anything
+    "t.co/",  # Twitter short links — unpredictable content
+}
+
+
+def _is_nsfw_query(topic: str) -> bool:
+    """Check if an image search query contains NSFW/adult keywords.
+
+    If True, image search MUST be skipped entirely to prevent
+    pornographic content from reaching the channel.
+    This is a HARD BLOCK — no search should be performed.
+    """
+    topic_lower = topic.lower()
+
+    for kw in NSFW_KEYWORDS_RU:
+        if kw in topic_lower:
+            logger.warning(f"NSFW QUERY BLOCKED: keyword '{kw}' found in topic '{topic[:60]}'")
+            return True
+
+    for kw in NSFW_KEYWORDS_EN:
+        if kw in topic_lower:
+            logger.warning(f"NSFW QUERY BLOCKED: keyword '{kw}' found in topic '{topic[:60]}'")
+            return True
+
+    return False
+
+
+def _is_nsfw_image_url(url: str) -> bool:
+    """Check if an image URL comes from a known adult/pornographic domain."""
+    url_lower = url.lower()
+    for domain in NSFW_DOMAINS:
+        if domain in url_lower:
+            logger.warning(f"NSFW DOMAIN BLOCKED: '{domain}' in URL '{url[:80]}'")
+            return True
+    return False
+
 
 # ── Image Cache ───────────────────────────────────────────────────────────────
 
@@ -272,6 +348,10 @@ async def _validate_and_download(
 ) -> Optional[bytes]:
     """Download and validate an image URL. Returns image bytes or None."""
     if _is_junk_url(url):
+        return None
+    
+    # BLOCK: NSFW domain check — never download from porn/adult sites
+    if _is_nsfw_image_url(url):
         return None
 
     try:
@@ -747,6 +827,7 @@ async def _search_bing_images(topic: str, max_images: int = 5) -> List[str]:
             "first": 1,
             "count": min(max_images * 3, 35),
             "qft": "+filterui:photo-photo",  # Filter: photos only
+            "safe": "Strict",  # SAFESEARCH: Block all adult content
         }
         
         async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
@@ -825,6 +906,7 @@ async def _search_google_images(topic: str, max_images: int = 5) -> List[str]:
             "tbm": "isch",  # Image search
             "hl": "ru",
             "gl": "RU",
+            "safe": "active",  # SAFESEARCH: Block all adult content
         }
         
         headers = {
@@ -902,6 +984,7 @@ async def _search_searxng_images(topic: str, max_images: int = 5) -> List[str]:
                     max_results=8,
                     language="ru",
                     categories="images",
+                    safesearch=2,  # SAFESEARCH: Strict — block all adult content
                 )
                 for r in results:
                     if r.url and r.url not in seen_urls:
@@ -926,7 +1009,13 @@ async def _search_searxng_images(topic: str, max_images: int = 5) -> List[str]:
 async def search_images(topic: str, max_images: int = 5) -> List[str]:
     """Search for images using MULTI-PROVIDER pipeline with CONCURRENT fallback.
     
-    v4.0: Multi-provider image search with reliable sources:
+    v4.1: Added NSFW protection:
+      - HARD BLOCK: If topic contains NSFW keywords, search is SKIPPED entirely
+      - All providers use SafeSearch (Strict mode)
+      - NSFW domains are blocked from results
+      - AI Vision content moderation before posting (in channel.py)
+    
+    Providers:
       1. Unsplash — high-quality stock photos (free API or scraping)
       2. Pexels — stock photos (free API or scraping)
       3. Bing Images — comprehensive image search (scraping, cloud-friendly)
@@ -936,6 +1025,14 @@ async def search_images(topic: str, max_images: int = 5) -> List[str]:
     All providers (except SearXNG) are queried CONCURRENTLY for speed.
     Results are merged and deduplicated.
     """
+    # ── HARD BLOCK: Skip image search entirely for NSFW topics ────────
+    # This is the most important safety check. If the topic contains
+    # any adult/sexual keywords, we MUST NOT search for images at all.
+    # Even with SafeSearch, some explicit images can slip through.
+    if _is_nsfw_query(topic):
+        logger.error(f"IMAGE SEARCH BLOCKED: NSFW topic detected — '{topic[:60]}'")
+        return []
+    
     image_urls: List[str] = []
     seen_urls: set = set()
     
@@ -955,7 +1052,7 @@ async def search_images(topic: str, max_images: int = 5) -> List[str]:
     for provider_results in results:
         if isinstance(provider_results, list):
             for url in provider_results:
-                if url and url not in seen_urls and not _is_junk_url(url):
+                if url and url not in seen_urls and not _is_junk_url(url) and not _is_nsfw_image_url(url):
                     seen_urls.add(url)
                     image_urls.append(url)
     
@@ -964,7 +1061,7 @@ async def search_images(topic: str, max_images: int = 5) -> List[str]:
         try:
             google_results = await _search_google_images(topic, max_images=max(3, max_images - len(image_urls)))
             for url in google_results:
-                if url and url not in seen_urls and not _is_junk_url(url):
+                if url and url not in seen_urls and not _is_junk_url(url) and not _is_nsfw_image_url(url):
                     seen_urls.add(url)
                     image_urls.append(url)
         except Exception as e:
@@ -975,7 +1072,7 @@ async def search_images(topic: str, max_images: int = 5) -> List[str]:
         try:
             searxng_results = await _search_searxng_images(topic, max_images=max(3, max_images - len(image_urls)))
             for url in searxng_results:
-                if url and url not in seen_urls and not _is_junk_url(url):
+                if url and url not in seen_urls and not _is_junk_url(url) and not _is_nsfw_image_url(url):
                     seen_urls.add(url)
                     image_urls.append(url)
         except Exception as e:
@@ -988,7 +1085,7 @@ async def search_images(topic: str, max_images: int = 5) -> List[str]:
             results = await web_search(f"{clean_topic} фото image", max_results=5)
             for r in results:
                 url = r.get("url", "") if isinstance(r, dict) else getattr(r, "url", "")
-                if url and url not in seen_urls and not _is_junk_url(url):
+                if url and url not in seen_urls and not _is_junk_url(url) and not _is_nsfw_image_url(url):
                     seen_urls.add(url)
                     image_urls.append(url)
         except Exception as e:
@@ -1151,9 +1248,15 @@ class ImageFetcher:
         Returns (image_list: List[bytes], source: str)
         source is 'rss', 'article', 'search', or 'cache' for logging.
         Images are deduplicated by hash to prevent duplicates in posts.
+        NSFW protection: If topic contains adult keywords, returns empty list.
         """
         # Reset seen hashes for this fetch call
         self._seen_hashes = set()
+
+        # ── HARD BLOCK: Skip image fetch entirely for NSFW topics ────────
+        if _is_nsfw_query(topic):
+            logger.error(f"IMAGE FETCH BLOCKED: NSFW topic detected — '{topic[:60]}'")
+            return [], "nsfw_blocked"
 
         # ── Step 0: Check cache ───────────────────────────────────────────
         cached = self.cache.get(topic)

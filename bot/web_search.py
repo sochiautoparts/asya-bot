@@ -210,7 +210,7 @@ SEARXNG_INSTANCES = [
 ]
 
 
-async def search_searxng(query: str, max_results: int = 5, language: str = "ru", categories: str = "") -> List[SearchResult]:
+async def search_searxng(query: str, max_results: int = 5, language: str = "ru", categories: str = "", safesearch: int = 2) -> List[SearchResult]:
     """Search using SearXNG public instances with CONCURRENT requests.
     
     Tries multiple instances concurrently (first N that responds wins),
@@ -242,6 +242,7 @@ async def search_searxng(query: str, max_results: int = 5, language: str = "ru",
                     "format": "json",
                     "language": language,
                     "pageno": 1,
+                    "safesearch": str(safesearch),  # 0=off, 1=moderate, 2=strict
                 }
                 if categories:
                     params["categories"] = categories
