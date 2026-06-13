@@ -4,6 +4,8 @@ on:
   schedule:
     - cron: '0 */5 * * *'      # Every 5 hours
   workflow_dispatch:                     # Manual trigger
+  push:
+    branches: [main]                    # Auto-trigger on push to main
 
 concurrency:
   group: asya-bot-single
