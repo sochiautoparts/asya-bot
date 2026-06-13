@@ -1559,8 +1559,8 @@
   1559→async def enrich_with_search_images(news_item: Dict) -> List[str]:
   1560→    """Enrich a news item with images found via web search.
   1561→
-  1562→    v3.0: Delegates to bot.image_fetcher.search_images which implements
-  1563→    the ORIGINAL-FIRST pipeline with SearXNG image search + deduplication.
+  1562→    v4.0: Delegates to bot.image_fetcher.search_images which implements
+  1563→    the MULTI-PROVIDER pipeline (Unsplash → Pexels → Bing → Google → SearXNG).
   1564→    Reduced max_images from 5 to 3 — quality over quantity.
   1565→    Falls back to legacy search_news_images if ImageFetcher unavailable.
   1566→    """

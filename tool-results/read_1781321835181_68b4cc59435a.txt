@@ -1,0 +1,1052 @@
+     1→"""
+     2→Asya Bot Database — SQLite with aiosqlite
+     3→Tables: users, chat_history, news_items, channel_posts, ai_cache, partner_posts
+     4→"""
+     5→
+     6→import aiosqlite
+     7→import hashlib
+     8→import json
+     9→import time
+    10→from typing import Optional, List, Dict, Any
+    11→
+    12→from bot.config import config
+    13→
+    14→
+    15→DB_PATH = config.DB_PATH
+    16→
+    17→SCHEMA = """
+    18→CREATE TABLE IF NOT EXISTS users (
+    19→    user_id INTEGER PRIMARY KEY,
+    20→    username TEXT DEFAULT '',
+    21→    first_name TEXT DEFAULT '',
+    22→    last_name TEXT DEFAULT '',
+    23→    language_code TEXT DEFAULT 'ru',
+    24→    is_blocked INTEGER DEFAULT 0,
+    25→    is_admin INTEGER DEFAULT 0,
+    26→    first_seen REAL DEFAULT 0,
+    27→    last_seen REAL DEFAULT 0,
+    28→    message_count INTEGER DEFAULT 0,
+    29→    chat_mode TEXT DEFAULT 'normal'
+    30→);
+    31→
+    32→CREATE TABLE IF NOT EXISTS chat_history (
+    33→    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    34→    user_id INTEGER NOT NULL,
+    35→    role TEXT NOT NULL,
+    36→    content TEXT NOT NULL,
+    37→    timestamp REAL DEFAULT 0,
+    38→    FOREIGN KEY (user_id) REFERENCES users(user_id)
+    39→);
+    40→
+    41→CREATE TABLE IF NOT EXISTS news_items (
+    42→    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    43→    source TEXT NOT NULL,
+    44→    title TEXT NOT NULL,
+    45→    url TEXT UNIQUE NOT NULL,
+    46→    summary TEXT DEFAULT '',
+    47→    published REAL DEFAULT 0,
+    48→    fetched_at REAL DEFAULT 0,
+    49→    is_posted INTEGER DEFAULT 0,
+    50→    category TEXT DEFAULT 'auto',
+    51→    lang TEXT DEFAULT 'ru',
+    52→    image_urls TEXT DEFAULT '[]'
+    53→);
+    54→
+    55→CREATE TABLE IF NOT EXISTS channel_posts (
+    56→    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    57→    message_id INTEGER DEFAULT 0,
+    58→    content TEXT NOT NULL,
+    59→    post_type TEXT DEFAULT 'news',
+    60→    source_url TEXT DEFAULT '',
+    61→    created_at REAL DEFAULT 0,
+    62→    partner_program TEXT DEFAULT '',
+    63→    views INTEGER DEFAULT 0
+    64→);
+    65→
+    66→CREATE TABLE IF NOT EXISTS ai_cache (
+    67→    query_hash TEXT PRIMARY KEY,
+    68→    query TEXT NOT NULL,
+    69→    response TEXT NOT NULL,
+    70→    model TEXT DEFAULT '',
+    71→    created_at REAL DEFAULT 0,
+    72→    hit_count INTEGER DEFAULT 0
+    73→);
+    74→
+    75→CREATE TABLE IF NOT EXISTS partner_posts (
+    76→    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    77→    program_id TEXT NOT NULL,
+    78→    program_name TEXT NOT NULL,
+    79→    category TEXT NOT NULL,
+    80→    affiliate_url TEXT NOT NULL,
+    81→    post_content TEXT DEFAULT '',
+    82→    posted_at REAL DEFAULT 0,
+    83→    message_id INTEGER DEFAULT 0
+    84→);
+    85→
+    86→CREATE INDEX IF NOT EXISTS idx_chat_history_user ON chat_history(user_id, timestamp);
+    87→CREATE INDEX IF NOT EXISTS idx_news_items_url ON news_items(url);
+    88→CREATE INDEX IF NOT EXISTS idx_news_items_posted ON news_items(is_posted, published);
+    89→CREATE INDEX IF NOT EXISTS idx_channel_posts_created ON channel_posts(created_at);
+    90→CREATE INDEX IF NOT EXISTS idx_ai_cache_query ON ai_cache(query_hash);
+    91→CREATE INDEX IF NOT EXISTS idx_partner_posts_category ON partner_posts(category, posted_at);
+    92→
+    93→CREATE TABLE IF NOT EXISTS user_cars (
+    94→    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    95→    user_id INTEGER NOT NULL,
+    96→    brand TEXT DEFAULT '',
+    97→    model TEXT DEFAULT '',
+    98→    year INTEGER DEFAULT 0,
+    99→    vin TEXT DEFAULT '',
+   100→    engine TEXT DEFAULT '',
+   101→    mileage INTEGER DEFAULT 0,
+   102→    notes TEXT DEFAULT '',
+   103→    created_at REAL DEFAULT 0,
+   104→    FOREIGN KEY (user_id) REFERENCES users(user_id)
+   105→);
+   106→
+   107→CREATE INDEX IF NOT EXISTS idx_user_cars_user ON user_cars(user_id);
+   108→
+   109→CREATE TABLE IF NOT EXISTS post_fingerprints (
+   110→    id INTEGER PRIMARY KEY AUTOINCREMENT,
+   111→    title_hash TEXT NOT NULL,
+   112→    content_hash TEXT NOT NULL,
+   113→    title_prefix TEXT NOT NULL,
+   114→    post_id INTEGER DEFAULT 0,
+   115→    created_at REAL DEFAULT 0
+   116→);
+   117→
+   118→CREATE INDEX IF NOT EXISTS idx_fingerprints_title ON post_fingerprints(title_hash);
+   119→CREATE INDEX IF NOT EXISTS idx_fingerprints_content ON post_fingerprints(content_hash);
+   120→CREATE INDEX IF NOT EXISTS idx_fingerprints_created ON post_fingerprints(created_at);
+   121→
+   122→CREATE TABLE IF NOT EXISTS topic_registry (
+   123→    entity_key TEXT PRIMARY KEY,
+   124→    first_seen REAL DEFAULT 0,
+   125→    last_posted REAL DEFAULT 0,
+   126→    post_count INTEGER DEFAULT 1,
+   127→    titles TEXT DEFAULT '[]'
+   128→);
+   129→
+   130→CREATE INDEX IF NOT EXISTS idx_topic_registry_last ON topic_registry(last_posted);
+   131→"""
+   132→
+   133→
+   134→async def init_db() -> None:
+   135→    """Initialize database — create all tables."""
+   136→    async with aiosqlite.connect(DB_PATH) as db:
+   137→        await db.executescript(SCHEMA)
+   138→        await db.commit()
+   139→
+   140→
+   141→async def get_or_create_user(user_id: int, username: str = "", first_name: str = "",
+   142→                              last_name: str = "", language_code: str = "ru") -> Dict[str, Any]:
+   143→    """Get or create a user record. Returns user dict.
+   144→    
+   145→    Handles race condition where two concurrent requests try to INSERT
+   146→    the same user_id — uses INSERT OR IGNORE + SELECT instead of
+   147→    INSERT + catch IntegrityError.
+   148→    """
+   149→    now = time.time()
+   150→    async with aiosqlite.connect(DB_PATH) as db:
+   151→        db.row_factory = aiosqlite.Row
+   152→        async with db.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)) as cursor:
+   153→            row = await cursor.fetchone()
+   154→
+   155→        if row is None:
+   156→            try:
+   157→                await db.execute(
+   158→                    """INSERT INTO users (user_id, username, first_name, last_name, language_code,
+   159→                       first_seen, last_seen, message_count)
+   160→                       VALUES (?, ?, ?, ?, ?, ?, ?, 1)""",
+   161→                    (user_id, username, first_name, last_name, language_code, now, now),
+   162→                )
+   163→                await db.commit()
+   164→                return {
+   165→                    "user_id": user_id, "username": username, "first_name": first_name,
+   166→                    "last_name": last_name, "language_code": language_code,
+   167→                    "is_blocked": 0, "is_admin": 0, "first_seen": now,
+   168→                    "last_seen": now, "message_count": 1, "chat_mode": "normal",
+   169→                }
+   170→            except aiosqlite.IntegrityError:
+   171→                # Race condition: another request already inserted this user
+   172→                # Re-fetch the existing row
+   173→                async with db.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)) as cursor:
+   174→                    row = await cursor.fetchone()
+   175→                if row:
+   176→                    # Still update last_seen
+   177→                    await db.execute(
+   178→                        """UPDATE users SET username=?, first_name=?, last_name=?,
+   179→                           last_seen=?, message_count=message_count+1 WHERE user_id=?""",
+   180→                        (username, first_name, last_name, now, user_id),
+   181→                    )
+   182→                    await db.commit()
+   183→                    return dict(row)
+   184→                # Shouldn't happen, but fallback
+   185→                return {
+   186→                    "user_id": user_id, "username": username, "first_name": first_name,
+   187→                    "last_name": last_name, "language_code": language_code,
+   188→                    "is_blocked": 0, "is_admin": 0, "first_seen": now,
+   189→                    "last_seen": now, "message_count": 1, "chat_mode": "normal",
+   190→                }
+   191→        else:
+   192→            await db.execute(
+   193→                """UPDATE users SET username=?, first_name=?, last_name=?,
+   194→                   last_seen=?, message_count=message_count+1 WHERE user_id=?""",
+   195→                (username, first_name, last_name, now, user_id),
+   196→            )
+   197→            await db.commit()
+   198→            return dict(row)
+   199→
+   200→
+   201→async def is_user_blocked(user_id: int) -> bool:
+   202→    """Check if a user is blocked."""
+   203→    async with aiosqlite.connect(DB_PATH) as db:
+   204→        async with db.execute("SELECT is_blocked FROM users WHERE user_id = ?", (user_id,)) as cursor:
+   205→            row = await cursor.fetchone()
+   206→            return bool(row and row[0])
+   207→
+   208→
+   209→async def set_user_admin(user_id: int, is_admin: bool = True) -> None:
+   210→    """Set or unset a user as admin."""
+   211→    async with aiosqlite.connect(DB_PATH) as db:
+   212→        await db.execute("UPDATE users SET is_admin = ? WHERE user_id = ?", (int(is_admin), user_id))
+   213→        await db.commit()
+   214→
+   215→
+   216→async def is_user_admin(user_id: int) -> bool:
+   217→    """Check if a user is admin (or is the owner)."""
+   218→    if user_id == config.OWNER_ID:
+   219→        return True
+   220→    async with aiosqlite.connect(DB_PATH) as db:
+   221→        async with db.execute("SELECT is_admin FROM users WHERE user_id = ?", (user_id,)) as cursor:
+   222→            row = await cursor.fetchone()
+   223→            return bool(row and row[0])
+   224→
+   225→
+   226→async def block_user(user_id: int, blocked: bool = True) -> None:
+   227→    """Block or unblock a user."""
+   228→    async with aiosqlite.connect(DB_PATH) as db:
+   229→        await db.execute("UPDATE users SET is_blocked = ? WHERE user_id = ?", (int(blocked), user_id))
+   230→        await db.commit()
+   231→
+   232→
+   233→async def set_chat_mode(user_id: int, mode: str) -> None:
+   234→    """Set chat mode for a user (normal, diagnostic, parts)."""
+   235→    async with aiosqlite.connect(DB_PATH) as db:
+   236→        await db.execute("UPDATE users SET chat_mode = ? WHERE user_id = ?", (mode, user_id))
+   237→        await db.commit()
+   238→
+   239→
+   240→async def get_chat_mode(user_id: int) -> str:
+   241→    """Get current chat mode for a user."""
+   242→    async with aiosqlite.connect(DB_PATH) as db:
+   243→        async with db.execute("SELECT chat_mode FROM users WHERE user_id = ?", (user_id,)) as cursor:
+   244→            row = await cursor.fetchone()
+   245→            return row[0] if row else "normal"
+   246→
+   247→
+   248→async def add_chat_message(user_id: int, role: str, content: str) -> None:
+   249→    """Add a message to chat history."""
+   250→    now = time.time()
+   251→    async with aiosqlite.connect(DB_PATH) as db:
+   252→        await db.execute(
+   253→            "INSERT INTO chat_history (user_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
+   254→            (user_id, role, content, now),
+   255→        )
+   256→        await db.commit()
+   257→        # Prune old messages to keep history manageable
+   258→        await _prune_chat_history(db, user_id)
+   259→
+   260→
+   261→async def _prune_chat_history(db: aiosqlite.Connection, user_id: int) -> None:
+   262→    """Keep only the most recent N messages for a user."""
+   263→    limit = config.CHAT_HISTORY_LIMIT
+   264→    async with db.execute(
+   265→        """DELETE FROM chat_history WHERE user_id = ? AND id NOT IN (
+   266→           SELECT id FROM chat_history WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?
+   267→        )""",
+   268→        (user_id, user_id, limit),
+   269→    ) as cursor:
+   270→        pass
+   271→    await db.commit()
+   272→
+   273→
+   274→async def get_chat_history(user_id: int, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+   275→    """Get chat history for a user, most recent first."""
+   276→    limit = limit or config.CHAT_HISTORY_LIMIT
+   277→    async with aiosqlite.connect(DB_PATH) as db:
+   278→        db.row_factory = aiosqlite.Row
+   279→        async with db.execute(
+   280→            "SELECT role, content, timestamp FROM chat_history WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?",
+   281→            (user_id, limit),
+   282→        ) as cursor:
+   283→            rows = await cursor.fetchall()
+   284→            return [dict(r) for r in reversed(rows)]
+   285→
+   286→
+   287→async def clear_chat_history(user_id: int) -> None:
+   288→    """Clear chat history for a user."""
+   289→    async with aiosqlite.connect(DB_PATH) as db:
+   290→        await db.execute("DELETE FROM chat_history WHERE user_id = ?", (user_id,))
+   291→        await db.commit()
+   292→
+   293→
+   294→async def add_news_item(source: str, title: str, url: str, summary: str = "",
+   295→                         published: float = 0, category: str = "auto", lang: str = "ru",
+   296→                         image_urls: list = None) -> bool:
+   297→    """Add a news item. Returns True if new, False if duplicate.
+   298→    
+   299→    image_urls: list of image URL strings extracted from the RSS feed.
+   300→    """
+   301→    now = time.time()
+   302→    image_urls_json = json.dumps(image_urls or [], ensure_ascii=False)
+   303→    try:
+   304→        async with aiosqlite.connect(DB_PATH) as db:
+   305→            await db.execute(
+   306→                """INSERT INTO news_items (source, title, url, summary, published, fetched_at, category, lang, image_urls)
+   307→                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+   308→                (source, title, url, summary, published, now, category, lang, image_urls_json),
+   309→            )
+   310→            await db.commit()
+   311→            return True
+   312→    except aiosqlite.IntegrityError:
+   313→        # If already exists, update image_urls if we have new ones
+   314→        if image_urls:
+   315→            try:
+   316→                async with aiosqlite.connect(DB_PATH) as db:
+   317→                    await db.execute(
+   318→                        "UPDATE news_items SET image_urls = ? WHERE url = ? AND image_urls = '[]'",
+   319→                        (image_urls_json, url),
+   320→                    )
+   321→                    await db.commit()
+   322→            except Exception:
+   323→                pass
+   324→        return False
+   325→
+   326→
+   327→async def get_unposted_news(limit: int = 10, category: str = "") -> List[Dict[str, Any]]:
+   328→    """Get unposted news items, ordered by publish date.
+   329→    
+   330→    Parses image_urls JSON field back into a Python list.
+   331→    """
+   332→    async with aiosqlite.connect(DB_PATH) as db:
+   333→        db.row_factory = aiosqlite.Row
+   334→        if category:
+   335→            async with db.execute(
+   336→                """SELECT * FROM news_items WHERE is_posted = 0 AND category = ?
+   337→                   ORDER BY published DESC LIMIT ?""",
+   338→                (category, limit),
+   339→            ) as cursor:
+   340→                rows = await cursor.fetchall()
+   341→        else:
+   342→            async with db.execute(
+   343→                """SELECT * FROM news_items WHERE is_posted = 0
+   344→                   ORDER BY published DESC LIMIT ?""",
+   345→                (limit,),
+   346→            ) as cursor:
+   347→                rows = await cursor.fetchall()
+   348→        result = []
+   349→        for r in rows:
+   350→            item = dict(r)
+   351→            # Parse image_urls from JSON string to list
+   352→            if "image_urls" in item and isinstance(item["image_urls"], str):
+   353→                try:
+   354→                    item["image_urls"] = json.loads(item["image_urls"])
+   355→                except (json.JSONDecodeError, TypeError):
+   356→                    item["image_urls"] = []
+   357→            elif "image_urls" not in item:
+   358→                item["image_urls"] = []
+   359→            result.append(item)
+   360→        return result
+   361→
+   362→
+   363→async def mark_news_posted(url: str) -> None:
+   364→    """Mark a news item as posted to channel."""
+   365→    async with aiosqlite.connect(DB_PATH) as db:
+   366→        await db.execute("UPDATE news_items SET is_posted = 1 WHERE url = ?", (url,))
+   367→        await db.commit()
+   368→
+   369→
+   370→async def add_channel_post(content: str, message_id: int = 0, post_type: str = "news",
+   371→                            source_url: str = "", partner_program: str = "") -> int:
+   372→    """Add a channel post record. Returns post ID."""
+   373→    now = time.time()
+   374→    async with aiosqlite.connect(DB_PATH) as db:
+   375→        cursor = await db.execute(
+   376→            """INSERT INTO channel_posts (message_id, content, post_type, source_url, created_at, partner_program)
+   377→               VALUES (?, ?, ?, ?, ?, ?)""",
+   378→            (message_id, content, post_type, source_url, now, partner_program),
+   379→        )
+   380→        await db.commit()
+   381→        return cursor.lastrowid
+   382→
+   383→
+   384→async def get_today_post_count() -> int:
+   385→    """Get number of posts made today."""
+   386→    today_start = time.time() - (time.time() % 86400)
+   387→    async with aiosqlite.connect(DB_PATH) as db:
+   388→        async with db.execute(
+   389→            "SELECT COUNT(*) FROM channel_posts WHERE created_at >= ?", (today_start,),
+   390→        ) as cursor:
+   391→            row = await cursor.fetchone()
+   392→            return row[0] if row else 0
+   393→
+   394→
+   395→async def get_hourly_post_count() -> int:
+   396→    """Get number of posts made in the last hour."""
+   397→    hour_ago = time.time() - 3600
+   398→    async with aiosqlite.connect(DB_PATH) as db:
+   399→        async with db.execute(
+   400→            "SELECT COUNT(*) FROM channel_posts WHERE created_at >= ?", (hour_ago,),
+   401→        ) as cursor:
+   402→            row = await cursor.fetchone()
+   403→            return row[0] if row else 0
+   404→
+   405→
+   406→async def get_ai_cached(query_hash: str) -> Optional[str]:
+   407→    """Get cached AI response if available and fresh (< 1 hour)."""
+   408→    max_age = time.time() - 3600
+   409→    async with aiosqlite.connect(DB_PATH) as db:
+   410→        async with db.execute(
+   411→            "SELECT response FROM ai_cache WHERE query_hash = ? AND created_at > ?",
+   412→            (query_hash, max_age),
+   413→        ) as cursor:
+   414→            row = await cursor.fetchone()
+   415→            if row:
+   416→                await db.execute(
+   417→                    "UPDATE ai_cache SET hit_count = hit_count + 1 WHERE query_hash = ?",
+   418→                    (query_hash,),
+   419→                )
+   420→                await db.commit()
+   421→                return row[0]
+   422→            return None
+   423→
+   424→
+   425→async def set_ai_cached(query_hash: str, query: str, response: str, model: str = "") -> None:
+   426→    """Cache an AI response."""
+   427→    now = time.time()
+   428→    async with aiosqlite.connect(DB_PATH) as db:
+   429→        await db.execute(
+   430→            """INSERT OR REPLACE INTO ai_cache (query_hash, query, response, model, created_at, hit_count)
+   431→               VALUES (?, ?, ?, ?, ?, 0)""",
+   432→            (query_hash, query, response, model, now),
+   433→        )
+   434→        await db.commit()
+   435→
+   436→
+   437→async def add_partner_post(program_id: str, program_name: str, category: str,
+   438→                            affiliate_url: str, post_content: str = "",
+   439→                            message_id: int = 0) -> int:
+   440→    """Add a partner post record."""
+   441→    now = time.time()
+   442→    async with aiosqlite.connect(DB_PATH) as db:
+   443→        cursor = await db.execute(
+   444→            """INSERT INTO partner_posts (program_id, program_name, category, affiliate_url,
+   445→               post_content, posted_at, message_id)
+   446→               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+   447→            (program_id, program_name, category, affiliate_url, post_content, now, message_id),
+   448→        )
+   449→        await db.commit()
+   450→        return cursor.lastrowid
+   451→
+   452→
+   453→async def get_today_partner_post_count() -> int:
+   454→    """Get number of partner posts made today."""
+   455→    today_start = time.time() - (time.time() % 86400)
+   456→    async with aiosqlite.connect(DB_PATH) as db:
+   457→        async with db.execute(
+   458→            "SELECT COUNT(*) FROM partner_posts WHERE posted_at >= ?", (today_start,),
+   459→        ) as cursor:
+   460→            row = await cursor.fetchone()
+   461→            return row[0] if row else 0
+   462→
+   463→
+   464→async def add_user_car(user_id: int, brand: str = "", model: str = "", year: int = 0,
+   465→                       vin: str = "", engine: str = "", mileage: int = 0,
+   466→                       notes: str = "") -> int:
+   467→    """Add a car to user's profile. Returns car ID."""
+   468→    now = time.time()
+   469→    async with aiosqlite.connect(DB_PATH) as db:
+   470→        cursor = await db.execute(
+   471→            """INSERT INTO user_cars (user_id, brand, model, year, vin, engine, mileage, notes, created_at)
+   472→               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+   473→            (user_id, brand, model, year, vin, engine, mileage, notes, now),
+   474→        )
+   475→        await db.commit()
+   476→        return cursor.lastrowid
+   477→
+   478→
+   479→async def get_user_cars(user_id: int) -> List[Dict[str, Any]]:
+   480→    """Get all cars for a user."""
+   481→    async with aiosqlite.connect(DB_PATH) as db:
+   482→        db.row_factory = aiosqlite.Row
+   483→        async with db.execute(
+   484→            "SELECT * FROM user_cars WHERE user_id = ? ORDER BY created_at DESC",
+   485→            (user_id,),
+   486→        ) as cursor:
+   487→            rows = await cursor.fetchall()
+   488→            return [dict(r) for r in rows]
+   489→
+   490→
+   491→async def delete_user_car(car_id: int, user_id: int) -> bool:
+   492→    """Delete a car from user's profile. Returns True if deleted."""
+   493→    async with aiosqlite.connect(DB_PATH) as db:
+   494→        cursor = await db.execute(
+   495→            "DELETE FROM user_cars WHERE id = ? AND user_id = ?",
+   496→            (car_id, user_id),
+   497→        )
+   498→        await db.commit()
+   499→        return cursor.rowcount > 0
+   500→
+   501→
+   502→async def update_car_mileage(car_id: int, user_id: int, mileage: int) -> bool:
+   503→    """Update mileage for a user's car."""
+   504→    async with aiosqlite.connect(DB_PATH) as db:
+   505→        cursor = await db.execute(
+   506→            "UPDATE user_cars SET mileage = ? WHERE id = ? AND user_id = ?",
+   507→            (mileage, car_id, user_id),
+   508→        )
+   509→        await db.commit()
+   510→        return cursor.rowcount > 0
+   511→
+   512→
+   513→# ── Rate Limiting ────────────────────────────────────────────────────────────────
+   514→
+   515→_user_message_times: Dict[int, List[float]] = {}
+   516→RATE_LIMIT_MESSAGES = 10  # Max messages per minute
+   517→RATE_LIMIT_WINDOW = 60    # 1 minute window
+   518→
+   519→
+   520→def check_rate_limit(user_id: int) -> bool:
+   521→    """Check if user is within rate limits. Returns True if allowed."""
+   522→    now = time.time()
+   523→    if user_id not in _user_message_times:
+   524→        _user_message_times[user_id] = [now]
+   525→        return True
+   526→
+   527→    # Clean old timestamps
+   528→    times = _user_message_times[user_id]
+   529→    times = [t for t in times if now - t < RATE_LIMIT_WINDOW]
+   530→    times.append(now)
+   531→    _user_message_times[user_id] = times
+   532→
+   533→    return len(times) <= RATE_LIMIT_MESSAGES
+   534→
+   535→
+   536→async def add_post_fingerprint(title: str, content: str, post_id: int = 0) -> None:
+   537→    """Add a fingerprint for a posted item to prevent duplicates.
+   538→    
+   539→    Stores:
+   540→    - title_hash: SHA256 of normalized title (lowercase, no punctuation)
+   541→    - content_hash: SHA256 of first 500 chars of normalized content
+   542→    - title_prefix: first 30 chars of title for quick prefix matching
+   543→    """
+   544→    now = time.time()
+   545→    title_hash = _make_title_hash(title)
+   546→    content_hash = _make_content_hash(content)
+   547→    title_prefix = _normalize_text(title)[:30]
+   548→    async with aiosqlite.connect(DB_PATH) as db:
+   549→        await db.execute(
+   550→            """INSERT INTO post_fingerprints (title_hash, content_hash, title_prefix, post_id, created_at)
+   551→               VALUES (?, ?, ?, ?, ?)""",
+   552→            (title_hash, content_hash, title_prefix, post_id, now),
+   553→        )
+   554→        await db.commit()
+   555→
+   556→
+   557→async def is_duplicate_post(title: str, content: str = "", hours: int = 48,
+   558→                            source_url: str = "") -> bool:
+   559→    """Check if a post with similar title or content was recently posted.
+   560→
+   561→    Checks (in order):
+   562→    1. Source URL match (same article from different RSS feeds)
+   563→    2. Exact title hash match (same title, possibly different source)
+   564→    3. Title prefix match (first 30 chars — catches reworded titles about same topic)
+   565→    4. Keyword overlap match (extract key nouns — catches paraphrased titles about same subject)
+   566→       Also normalizes car brand names (BMW/Bayerische, LADA/ВАЗ, etc.)
+   567→    5. Content hash match (same content, possibly different title)
+   568→    6. NORMALIZED CORE MATCH — extract core words (brand + model + event) and compare
+   569→       This catches "BMW представила новый X5" vs "Новый BMW X5 2026: первые детали"
+   570→
+   571→    Args:
+   572→        title: News item title to check
+   573→        content: Post content to check (optional)
+   574→        hours: How many hours back to check (default 48h)
+   575→        source_url: Original article URL for URL-based dedup (optional)
+   576→
+   577→    Returns:
+   578→        True if a similar post was found (DUPLICATE), False if unique
+   579→    """
+   580→    cutoff = time.time() - (hours * 3600)
+   581→    title_hash = _make_title_hash(title)
+   582→    title_prefix = _normalize_text(title)[:30]
+   583→
+   584→    async with aiosqlite.connect(DB_PATH) as db:
+   585→        # Check 1: Source URL match — same article from different RSS feeds
+   586→        # Compares the path component of URLs (ignores www/http/https differences)
+   587→        if source_url:
+   588→            url_fingerprint = _make_url_fingerprint(source_url)
+   589→            if url_fingerprint:
+   590→                async with db.execute(
+   591→                    "SELECT source_url FROM channel_posts WHERE created_at >= ?",
+   592→                    (cutoff,),
+   593→                ) as cursor:
+   594→                    rows = await cursor.fetchall()
+   595→                    for row in rows:
+   596→                        existing_url = row[0] if row else ""
+   597→                        if existing_url and _make_url_fingerprint(existing_url) == url_fingerprint:
+   598→                            return True
+   599→
+   600→        # Check 2: Exact title hash match
+   601→        async with db.execute(
+   602→            "SELECT COUNT(*) FROM post_fingerprints WHERE title_hash = ? AND created_at >= ?",
+   603→            (title_hash, cutoff),
+   604→        ) as cursor:
+   605→            row = await cursor.fetchone()
+   606→            if row and row[0] > 0:
+   607→                return True
+   608→
+   609→        # Check 3: Title prefix match (catches reworded titles about same topic)
+   610→        if len(title_prefix) >= 10:
+   611→            async with db.execute(
+   612→                "SELECT COUNT(*) FROM post_fingerprints WHERE title_prefix = ? AND created_at >= ?",
+   613→                (title_prefix, cutoff),
+   614→            ) as cursor:
+   615→                row = await cursor.fetchone()
+   616→                if row and row[0] > 0:
+   617→                    return True
+   618→
+   619→        # Check 4: Keyword overlap — extract significant words from title and compare
+   620→        # Also normalizes car brand names (BMW/Bayerische, LADA/ВАЗ, etc.)
+   621→        title_keywords = _extract_title_keywords(title)
+   622→        title_keywords_normalized = _normalize_brand_keywords(title_keywords)
+   623→        if len(title_keywords_normalized) >= 2:
+   624→            async with db.execute(
+   625→                "SELECT title_prefix FROM post_fingerprints WHERE created_at >= ?",
+   626→                (cutoff,),
+   627→            ) as cursor:
+   628→                rows = await cursor.fetchall()
+   629→                for row in rows:
+   630→                    existing_prefix = row[0] if row else ""
+   631→                    if not existing_prefix:
+   632→                        continue
+   633→                    existing_keywords = _extract_title_keywords(existing_prefix)
+   634→                    existing_keywords_normalized = _normalize_brand_keywords(existing_keywords)
+   635→                    if not existing_keywords_normalized:
+   636→                        continue
+   637→                    # Calculate keyword overlap ratio (using normalized brands)
+   638→                    common = title_keywords_normalized & existing_keywords_normalized
+   639→                    if len(common) >= 2:
+   640→                        overlap_ratio = len(common) / min(len(title_keywords_normalized), len(existing_keywords_normalized))
+   641→                        if overlap_ratio >= 0.50:
+   642→                            return True
+   643→                    # Also check overlap between raw keywords for better matching
+   644→                    raw_common = title_keywords & existing_keywords
+   645→                    if len(raw_common) >= 3:
+   646→                        raw_overlap_ratio = len(raw_common) / min(len(title_keywords), len(existing_keywords)) if min(len(title_keywords), len(existing_keywords)) > 0 else 0
+   647→                        if raw_overlap_ratio >= 0.45:
+   648→                            return True
+   649→
+   650→        # ── Check 6: NORMALIZED CORE MATCH ──
+   651→        # Extract core content words (brands, models, numbers, events) and compare
+   652→        # This catches cases where titles are completely reworded but about same event
+   653→        core_words = _extract_core_words(title)
+   654→        if len(core_words) >= 2:
+   655→            async with db.execute(
+   656→                "SELECT title_prefix FROM post_fingerprints WHERE created_at >= ?",
+   657→                (cutoff,),
+   658→            ) as cursor:
+   659→                rows = await cursor.fetchall()
+   660→                for row in rows:
+   661→                    existing_prefix = row[0] if row else ""
+   662→                    if not existing_prefix:
+   663→                        continue
+   664→                    existing_core = _extract_core_words(existing_prefix)
+   665→                    if len(existing_core) < 2:
+   666→                        continue
+   667→                    core_common = core_words & existing_core
+   668→                    # If 2+ core words match (e.g., "BMW" + "X5" or "Tesla" + "recalls"),
+   669→                    # it's almost certainly the same event
+   670→                    if len(core_common) >= 2:
+   671→                        return True
+   672→
+   673→        # Check 5: Content hash match (if content provided)
+   674→        if content:
+   675→            content_hash = _make_content_hash(content)
+   676→            async with db.execute(
+   677→                "SELECT COUNT(*) FROM post_fingerprints WHERE content_hash = ? AND created_at >= ?",
+   678→                (content_hash, cutoff),
+   679→            ) as cursor:
+   680→                row = await cursor.fetchone()
+   681→                if row and row[0] > 0:
+   682→                    return True
+   683→
+   684→    return False
+   685→
+   686→
+   687→async def get_recent_post_titles(hours: int = 48, limit: int = 50) -> List[str]:
+   688→    """Get titles of recently posted news items for similarity checking."""
+   689→    cutoff = time.time() - (hours * 3600)
+   690→    async with aiosqlite.connect(DB_PATH) as db:
+   691→        db.row_factory = aiosqlite.Row
+   692→        async with db.execute(
+   693→            """SELECT content, source_url FROM channel_posts
+   694→               WHERE created_at >= ? AND post_type = 'news'
+   695→               ORDER BY created_at DESC LIMIT ?""",
+   696→            (cutoff, limit),
+   697→        ) as cursor:
+   698→            rows = await cursor.fetchall()
+   699→            # Extract titles from post content (first line usually)
+   700→            titles = []
+   701→            for row in rows:
+   702→                content = row["content"] if "content" in row.keys() else row[0]
+   703→                if content:
+   704→                    first_line = content.split('\n')[0].strip()
+   705→                    if first_line:
+   706→                        titles.append(first_line)
+   707→            return titles
+   708→
+   709→
+   710→def _normalize_text(text: str) -> str:
+   711→    """Normalize text for comparison: lowercase, remove punctuation, collapse spaces."""
+   712→    import re
+   713→    text = text.lower().strip()
+   714→    # Remove punctuation
+   715→    text = re.sub(r'[^\w\sа-яё]', '', text, flags=re.IGNORECASE)
+   716→    # Collapse whitespace
+   717→    text = re.sub(r'\s+', ' ', text).strip()
+   718→    return text
+   719→
+   720→
+   721→# Stopwords to exclude from keyword extraction (common words that don't carry meaning)
+   722→_TITLE_STOPWORDS = {
+   723→    # English
+   724→    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+   725→    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+   726→    "should", "may", "might", "shall", "can", "need", "must", "ought",
+   727→    "to", "of", "in", "for", "on", "with", "at", "by", "from", "as",
+   728→    "into", "through", "during", "before", "after", "above", "below",
+   729→    "between", "out", "off", "over", "under", "again", "further",
+   730→    "then", "once", "and", "but", "or", "nor", "not", "so", "yet",
+   731→    "both", "either", "neither", "each", "every", "all", "any",
+   732→    "this", "that", "these", "those", "it", "its", "he", "she",
+   733→    "they", "them", "we", "you", "i", "me", "my", "your", "his",
+   734→    "her", "our", "their", "what", "which", "who", "whom", "how",
+   735→    "when", "where", "why", "if", "than", "too", "very", "just",
+   736→    "about", "also", "more", "most", "other", "some", "such",
+   737→    "no", "only", "own", "same", "up", "new", "now", "here",
+   738→    "get", "gets", "got", "make", "makes", "take", "takes",
+   739→    # Russian
+   740→    "и", "в", "во", "не", "что", "он", "на", "я", "с", "со", "как",
+   741→    "а", "то", "все", "она", "так", "его", "но", "да", "ты", "к",
+   742→    "у", "же", "вы", "за", "бы", "по", "только", "ее", "мне", "было",
+   743→    "вот", "от", "меня", "еще", "нет", "о", "из", "ему", "теперь",
+   744→    "когда", "даже", "ну", "вдруг", "ли", "если", "уже", "или", "ни",
+   745→    "быть", "был", "него", "до", "вас", "нибудь", "опять", "уж",
+   746→    "ведь", "там", "потом", "себя", "ничего", "ей", "может", "они",
+   747→    "тут", "где", "есть", "надо", "ней", "для", "мы", "тебя", "их",
+   748→    "чем", "была", "сам", "чтоб", "без", "будто", "человек", "чего",
+   749→    "раз", "тоже", "себе", "под", "будет", "ж", "тогда", "кто",
+   750→    "этот", "того", "потому", "этого", "какой", "совсем", "ним",
+   751→    "здесь", "этом", "один", "почти", "мой", "тем", "чтобы", "нее",
+   752→    "сейчас", "были", "куда", "зачем", "всех", "никогда", "можно",
+   753→    "при", "наконец", "два", "об", "другой", "хоть", "после",
+   754→    "над", "больше", "тот", "через", "эти", "нас", "про", "всего",
+   755→    "них", "какая", "много", "разве", "три", "эту", "моя", "впрочем",
+   756→    "хорошо", "свою", "этой", "перед", "иногда", "лучше", "чуть",
+   757→    "том", "нельзя", "такой", "им", "более", "всегда", "конечно",
+   758→    "всю", "между",
+   759→}
+   760→
+   761→
+   762→def _extract_title_keywords(title: str) -> set:
+   763→    """Extract significant keywords from a title for overlap comparison.
+   764→
+   765→    Returns a set of normalized significant words (stopwords removed, short words filtered).
+   766→    """
+   767→    import re
+   768→    normalized = _normalize_text(title)
+   769→    words = set(normalized.split())
+   770→    # Remove stopwords and very short words (less than 3 chars)
+   771→    significant = set()
+   772→    for w in words:
+   773→        if len(w) >= 3 and w not in _TITLE_STOPWORDS:
+   774→            significant.add(w)
+   775→    return significant
+   776→
+   777→
+   778→def _extract_core_words(title: str) -> set:
+   779→    """Extract CORE content words from a title for robust dedup.
+   780→    
+   781→    Unlike _extract_title_keywords which includes all significant words,
+   782→    this function focuses on the "identity" words of a news item:
+   783→    - Car brand names (BMW, Tesla, etc.)
+   784→    - Car model names/numbers (X5, Model 3, 911, etc.)
+   785→    - Significant numbers (years, displacements, horsepower)
+   786→    - Key event words (reveal, recall, launch, debut, etc.)
+   787→    
+   788→    This catches cases where the same event is described differently:
+   789→    - "BMW представила новый X5" vs "Новый BMW X5 2026: первые детали"
+   790→    - "Tesla recalls 10000 cars" vs "Tesla issues safety recall for Model Y"
+   791→    """
+   792→    import re as _re
+   793→    text = title.lower()
+   794→    core = set()
+   795→    
+   796→    # Car brands — most important identity markers
+   797→    for brand in _BRAND_NORMALIZE_MAP.values():
+   798→        if brand in text:
+   799→            core.add(brand)
+   800→    # Also check original brand names not in map
+   801→    for brand in ["bmw", "mercedes", "audi", "toyota", "honda", "nissan", "hyundai", "kia",
+   802→                  "ford", "chevrolet", "porsche", "lexus", "volvo", "tesla", "byd", "zeekr",
+   803→                  "chery", "haval", "geely", "changan", "exeed", "tank", "renault", "peugeot",
+   804→                  "skoda", "subaru", "suzuki", "mitsubishi", "jaguar", "land rover", "mini",
+   805→                  "jeep", "infiniti", "genesis", "rivian", "lucid", "polestar",
+   806→                  "ferrari", "lamborghini", "maserati", "bentley", "rolls-royce", "bugatti",
+   807→                  "mclaren", "aston martin", "lotus", "fiat", "alfa romeo", "citroen"]:
+   808→        if brand in text and brand not in core:
+   809→            core.add(brand)
+   810→    
+   811→    # Model names/numbers — strong identity markers
+   812→    model_patterns = [
+   813→        r'\b([mglxqsec]\d+)\b',  # M3, X5, Q7, A4
+   814→        r'\b(model\s?[s3xy])\b',  # Model S, Model 3
+   815→        r'\b(\d{3,4}[ix]?)\b',   # 911, 330i
+   816→        r'\b(class|series|corolla|camry|civic|accord|mustang|camaro|corvette|prius|rav4|supra)\b',
+   817→        r'\b(taycan|macan|cayenne|panamera|wrangler|bronco|defender|civic|prius|accord)\b',
+   818→        r'\b(двигател[яь]|мотор|турбо|гибрид|электромобиль|электрокар)\b',
+   819→    ]
+   820→    for pattern in model_patterns:
+   821→        matches = _re.findall(pattern, text)
+   822→        for m in matches:
+   823→            core.add(m.replace(" ", "_"))
+   824→    
+   825→    # Event keywords — what happened
+   826→    event_words = [
+   827→        "reveal", "launch", "debut", "unveil", "release", "announce", "announce",
+   828→        "recall", "recalls", "отзыв", "ban", "запрет", "record", "рекорд",
+   829→        "crash", "авария", "merger", "слияни", "bankruptcy", "банкрот",
+   830→        "redesign", "рестайлинг", "facelift", "update", "обновлен",
+   831→        "премьера", "запуск", "дебют", "анонс", "представлен", "выпуск",
+   832→        "скандал", "scandal", "отзыв", "recall", "проблем", "problem",
+   833→        "sold", "продан", "продаж", "цена", "price", "стоимост",
+   834→    ]
+   835→    for ew in event_words:
+   836→        if ew in text:
+   837→            core.add(ew)
+   838→    
+   839→    return core
+   840→
+   841→
+   842→# Car brand name normalization map for dedup
+   843→_BRAND_NORMALIZE_MAP = {
+   844→    # Russian → English
+   845→    "бмв": "bmw", "бавария": "bmw", "байерише": "bmw",
+   846→    "мерседес": "mercedes", "мерс": "mercedes",
+   847→    "фольксваген": "volkswagen", "ваг": "vw", "фв": "vw",
+   848→    "ауди": "audi",
+   849→    "тойота": "toyota",
+   850→    "ниссан": "nissan",
+   851→    "хонда": "honda",
+   852→    "мазда": "mazda",
+   853→    "киа": "kia",
+   854→    "хендай": "hyundai", "хёндэ": "hyundai", "хундай": "hyundai",
+   855→    "форд": "ford",
+   856→    "рено": "renault",
+   857→    "пежо": "peugeot",
+   858→    "шевроле": "chevrolet", "шеви": "chevy",
+   859→    "кадиллак": "cadillac",
+   860→    "лексус": "lexus",
+   861→    "инфинити": "infiniti",
+   862→    "порше": "porsche",
+   863→    "вольво": "volvo",
+   864→    "субару": "subaru",
+   865→    "сузуки": "suzuki",
+   866→    "митсубиси": "mitsubishi", "мицубиси": "mitsubishi",
+   867→    "шкода": "skoda",
+   868→    "сеат": "seat",
+   869→    "фиат": "fiat",
+   870→    "альфа": "alfa",
+   871→    "ягуар": "jaguar",
+   872→    "лендровер": "landrover", "лэндровер": "landrover",
+   873→    "миникар": "mini",
+   874→    "смарт": "smart",
+   875→    "опель": "opel",
+   876→    "ваз": "lada", "лава": "lada",
+   877→    "уаз": "uaz",
+   878→    "газ": "gaz",
+   879→    "черри": "chery",
+   880→    "хавал": "haval",
+   881→    "джили": "geely",
+   882→    "чанган": "changan",
+   883→    "эксид": "exeed",
+   884→    "танк": "tank",
+   885→    "тесла": "tesla",
+   886→    "байд": "byd",
+   887→    "зикр": "zeekr",
+   888→    "лисян": "lixiang", "ли": "li",
+   889→    # English alternate spellings
+   890→    "vw": "volkswagen", "chevy": "chevrolet",
+   891→    "benz": "mercedes", "daimler": "mercedes",
+   892→    "beemer": "bmw", "bimmer": "bmw",
+   893→}
+   894→
+   895→
+   896→def _normalize_brand_keywords(keywords: set) -> set:
+   897→    """Normalize car brand names in keyword set for better dedup matching.
+   898→    
+   899→    Maps alternate brand spellings to a canonical form so that
+   900→    'BMW X5 новый двигатель' and 'БМВ Х5 получила мотор' are detected as duplicates.
+   901→    """
+   902→    normalized = set()
+   903→    for kw in keywords:
+   904→        kw_lower = kw.lower()
+   905→        if kw_lower in _BRAND_NORMALIZE_MAP:
+   906→            normalized.add(_BRAND_NORMALIZE_MAP[kw_lower])
+   907→        else:
+   908→            normalized.add(kw)
+   909→    return normalized
+   910→
+   911→
+   912→def _make_url_fingerprint(url: str) -> str:
+   913→    """Create a fingerprint of a URL for deduplication.
+   914→    
+   915→    Strips protocol, www prefix, trailing slashes, and query parameters
+   916→    so that https://www.example.com/article/123 and http://example.com/article/123/
+   917→    are treated as the same URL.
+   918→    """
+   919→    from urllib.parse import urlparse
+   920→    try:
+   921→        parsed = urlparse(url.strip())
+   922→        # Use path only (ignore protocol, www, query, fragment)
+   923→        path = parsed.path.rstrip('/')
+   924→        domain = parsed.netloc.lower()
+   925→        # Remove www prefix
+   926→        if domain.startswith('www.'):
+   927→            domain = domain[4:]
+   928→        fingerprint_str = f"{domain}{path}"
+   929→        if not fingerprint_str or len(fingerprint_str) < 5:
+   930→            return ""
+   931→        return hashlib.sha256(fingerprint_str.encode('utf-8')).hexdigest()
+   932→    except Exception:
+   933→        return ""
+   934→
+   935→
+   936→def _make_title_hash(title: str) -> str:
+   937→    """Create a hash of normalized title for exact duplicate detection."""
+   938→    normalized = _normalize_text(title)
+   939→    return hashlib.sha256(normalized.encode('utf-8')).hexdigest()
+   940→
+   941→
+   942→def _make_content_hash(content: str) -> str:
+   943→    """Create a hash of normalized content (first 500 chars) for duplicate detection."""
+   944→    normalized = _normalize_text(content[:500])
+   945→    return hashlib.sha256(normalized.encode('utf-8')).hexdigest()
+   946→
+   947→
+   948→async def cleanup_old_fingerprints(max_age_days: int = 7) -> int:
+   949→    """Remove fingerprints older than max_age_days. Returns count of removed rows."""
+   950→    cutoff = time.time() - (max_age_days * 86400)
+   951→    async with aiosqlite.connect(DB_PATH) as db:
+   952→        cursor = await db.execute(
+   953→            "DELETE FROM post_fingerprints WHERE created_at < ?", (cutoff,)
+   954→        )
+   955→        await db.commit()
+   956→        return cursor.rowcount
+   957→
+   958→
+   959→async def get_stats() -> Dict[str, Any]:
+   960→    """Get bot statistics."""
+   961→    async with aiosqlite.connect(DB_PATH) as db:
+   962→        stats = {}
+   963→        async with db.execute("SELECT COUNT(*) FROM users") as cursor:
+   964→            stats["total_users"] = (await cursor.fetchone())[0]
+   965→        async with db.execute("SELECT COUNT(*) FROM users WHERE is_blocked = 0") as cursor:
+   966→            stats["active_users"] = (await cursor.fetchone())[0]
+   967→        async with db.execute("SELECT COUNT(*) FROM news_items") as cursor:
+   968→            stats["total_news"] = (await cursor.fetchone())[0]
+   969→        async with db.execute("SELECT COUNT(*) FROM news_items WHERE is_posted = 0") as cursor:
+   970→            stats["unposted_news"] = (await cursor.fetchone())[0]
+   971→        async with db.execute("SELECT COUNT(*) FROM channel_posts") as cursor:
+   972→            stats["total_posts"] = (await cursor.fetchone())[0]
+   973→        async with db.execute("SELECT COUNT(*) FROM partner_posts") as cursor:
+   974→            stats["partner_posts"] = (await cursor.fetchone())[0]
+   975→        async with db.execute("SELECT COUNT(*) FROM ai_cache") as cursor:
+   976→            stats["cached_queries"] = (await cursor.fetchone())[0]
+   977→        return stats
+   978→
+   979→
+   980→# ── Topic Registry (persistent) ──────────────────────────────────────────────
+   981→
+   982→async def load_topic_registry() -> Dict:
+   983→    """Load topic registry from DB into memory. Returns dict of entity_key -> {first_seen, last_posted, post_count, titles}.
+   984→
+   985→    Only loads topics that are NOT expired (within 72h of last_posted).
+   986→    This is called at startup to restore the registry after restart.
+   987→    """
+   988→    max_age = 48 * 3600  # 48 hours — faster topic cycling
+   989→    cutoff = time.time() - max_age
+   990→    registry = {}
+   991→    try:
+   992→        async with aiosqlite.connect(DB_PATH) as db:
+   993→            async with db.execute(
+   994→                "SELECT entity_key, first_seen, last_posted, post_count, titles FROM topic_registry WHERE last_posted >= ?",
+   995→                (cutoff,),
+   996→            ) as cursor:
+   997→                rows = await cursor.fetchall()
+   998→                for row in rows:
+   999→                    entity_key, first_seen, last_posted, post_count, titles_json = row
+  1000→                    try:
+  1001→                        titles = json.loads(titles_json) if titles_json else []
+  1002→                    except (json.JSONDecodeError, TypeError):
+  1003→                        titles = []
+  1004→                    registry[entity_key] = {
+  1005→                        "first_seen": first_seen,
+  1006→                        "last_posted": last_posted,
+  1007→                        "post_count": post_count,
+  1008→                        "titles": titles,
+  1009→                    }
+  1010→    except Exception as e:
+  1011→        # Table might not exist yet on first run — that's OK
+  1012→        import logging
+  1013→        logging.getLogger("asya.database").debug(f"Could not load topic registry: {e}")
+  1014→    return registry
+  1015→
+  1016→
+  1017→async def save_topic_to_registry(entity_key: str, first_seen: float, last_posted: float,
+  1018→                                  post_count: int, titles: list) -> None:
+  1019→    """Save or update a single topic in the DB registry."""
+  1020→    if not entity_key:
+  1021→        return
+  1022→    titles_json = json.dumps(titles[-20:], ensure_ascii=False)  # Keep last 20 titles
+  1023→    try:
+  1024→        async with aiosqlite.connect(DB_PATH) as db:
+  1025→            await db.execute(
+  1026→                """INSERT INTO topic_registry (entity_key, first_seen, last_posted, post_count, titles)
+  1027→                   VALUES (?, ?, ?, ?, ?)
+  1028→                   ON CONFLICT(entity_key) DO UPDATE SET
+  1029→                       last_posted = excluded.last_posted,
+  1030→                       post_count = excluded.post_count,
+  1031→                       titles = excluded.titles""",
+  1032→                (entity_key, first_seen, last_posted, post_count, titles_json),
+  1033→            )
+  1034→            await db.commit()
+  1035→    except Exception as e:
+  1036→        import logging
+  1037→        logging.getLogger("asya.database").debug(f"Could not save topic to registry: {e}")
+  1038→
+  1039→
+  1040→async def cleanup_topic_registry(max_age_hours: int = 48) -> int:
+  1041→    """Remove expired topics from the DB registry. Returns count of removed rows."""
+  1042→    cutoff = time.time() - (max_age_hours * 3600)
+  1043→    try:
+  1044→        async with aiosqlite.connect(DB_PATH) as db:
+  1045→            cursor = await db.execute(
+  1046→                "DELETE FROM topic_registry WHERE last_posted < ?", (cutoff,)
+  1047→            )
+  1048→            await db.commit()
+  1049→            return cursor.rowcount
+  1050→    except Exception:
+  1051→        return 0
+  1052→
