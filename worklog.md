@@ -1,33 +1,35 @@
+# Asya-Bot Worklog
 
 ---
 Task ID: 1
-Agent: Main Agent
-Task: Clone asya-bot repository, fix ImageFetcher, improve image search, push changes, restart Actions
+Agent: Main
+Task: CRITICAL FIX — NSFW protection for asya-bot channel
 
 Work Log:
 - Cloned repository https://github.com/sochiautoparts/asya-bot
-- Analyzed full project structure (bot, ai, handlers, channel, news, etc.)
-- Checked GitHub Actions runs — all were cancelled/in_progress, no successful completions
-- Identified ImageFetcher v3.0 dependency on unreliable SearXNG public instances
-- Rewrote image_fetcher.py to v4.0 with multi-provider pipeline:
-  - Added _search_unsplash() — Unsplash API/scraping for high-quality stock photos
-  - Added _search_pexels() — Pexels API/scraping for stock photos
-  - Added _search_bing_images() — Bing Images scraping with murl extraction for full-size images
-  - Added _search_google_images() — Google Images scraping as secondary source
-  - Moved SearXNG to last resort (_search_searxng_images)
-  - All primary providers run concurrently for speed
-  - Added proper warning logging when ALL providers fail
-- Fixed Bing Images: extracts full-size mediaurl (URL-decoded) instead of 42x42 thumbnails
-- Reduced SearXNG instances from 28 to 10 most reliable
-- Added UNSPLASH_ACCESS_KEY and PEXELS_API_KEY to config.py, .env.example, and bot.yml workflow
-- Updated content_engine.py docstring to reflect v4.0 changes
-- Ran syntax checks on all 13 project files — all pass
-- Ran functional tests — Bing Images returns full-size original image URLs
-- Committed and pushed changes to GitHub
-- Triggered GitHub Actions workflow dispatch — new run #27439852440 started
+- Analyzed all code files to identify root cause of pornographic images in channel
+- Found ZERO SafeSearch parameters in ALL image search providers (Bing, Google, SearXNG)
+- Found ZERO NSFW/adult content filtering anywhere in the codebase
+- Found ZERO image content moderation before posting to channel
+- Added SafeSearch=Strict to Bing Images, safe=active to Google Images, safesearch=2 to SearXNG
+- Added 50 Russian + 39 English NSFW keywords blocklist in image_fetcher.py
+- Added 26 porn/adult domain blacklist in image_fetcher.py
+- Added _is_nsfw_query() HARD BLOCK — skips image search entirely for NSFW topics
+- Added _is_nsfw_image_url() — blocks downloads from adult domains
+- Added _moderate_image_content() AI Vision check in channel.py — checks EVERY image before posting
+- AI Vision moderation is fail-safe: if check fails/times out, image is BLOCKED
+- Added NSFW keywords to BLOCK_KEYWORDS_RU and BLOCK_KEYWORDS_EN in news.py
+- Added NSFW keywords to _validate_post_text() blocked_keywords in channel.py
+- Added NSFW domain check to _is_junk_image_url() in channel.py
+- Added safesearch parameter to search_searxng() in web_search.py (default=2/strict)
+- Cleared image cache (data/image_cache) to remove potentially polluted entries
+- All Python files pass syntax check (py_compile)
+- All NSFW filter functions tested and passing
+- Committed and pushed as d4d7089b
+- Dispatched new GitHub Actions run (Run #349, head_sha=d4d7089b)
+- Cancelled old Actions run (Run #347, head_sha=870e609c) that was running without NSFW protection
 
 Stage Summary:
-- image_fetcher.py: v3.0 → v4.0 (multi-provider pipeline with concurrent search)
-- 6 files modified, 435 insertions, 61 deletions
-- Commit: 0ed13dc "feat: ImageFetcher v4.0 — multi-provider image search pipeline"
-- GitHub Actions run triggered successfully
+- 3 layers of NSFW defense now active: SafeSearch + keyword/domain filtering + AI Vision moderation
+- Commit: d4d7089b "CRITICAL FIX: NSFW protection — prevent pornographic images in channel"
+- GitHub Actions restarted with fixed code
