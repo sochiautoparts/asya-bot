@@ -1557,38 +1557,14 @@ def get_translation_uniquification_hint(lang: str) -> str:
 
 
 async def enrich_with_search_images(news_item: Dict) -> List[str]:
-    """Enrich a news item with images found via web search.
+    """DEPRECATED — image search removed. Returns empty list.
 
-    v4.0: Delegates to bot.image_fetcher.search_images which implements
-    the MULTI-PROVIDER pipeline (Unsplash → Pexels → Bing → Google → SearXNG).
-    Reduced max_images from 5 to 3 — quality over quantity.
-    Falls back to legacy search_news_images if ImageFetcher unavailable.
+    v5.0: Image search providers removed from image_fetcher.
+    Article photos are now extracted directly from RSS and article pages.
+    This function kept for import compatibility but always returns [].
     """
-    title = news_item.get("title", "")
-
-    # Try new ImageFetcher first (includes deduplication)
-    try:
-        from bot.image_fetcher import search_images
-        image_urls = await search_images(title, max_images=3)
-        if image_urls:
-            logger.info(f"Found {len(image_urls)} images via ImageFetcher for: {title[:50]}")
-            return image_urls
-    except Exception as e:
-        logger.debug(f"ImageFetcher search failed, using legacy: {e}")
-
-    # Legacy fallback
-    query = re.sub(r'\b(the|a|an|in|on|at|to|for|of|with|and|or|but|это|для|при|как|что|уже|ещё)\b', '', title, flags=re.IGNORECASE)
-    query = re.sub(r'\s+', ' ', query).strip()
-    query = query[:80]
-
-    try:
-        image_urls = await search_news_images(query, max_count=3)
-        if image_urls:
-            logger.info(f"Found {len(image_urls)} legacy search images for: {title[:50]}")
-        return image_urls
-    except Exception as e:
-        logger.debug(f"Search image enrichment failed: {e}")
-        return []
+    logger.debug("enrich_with_search_images is DEPRECATED — image search removed")
+    return []
 
 
 def get_date_context() -> str:

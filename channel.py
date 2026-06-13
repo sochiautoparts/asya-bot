@@ -37,7 +37,7 @@ from ai.router import ai_router
 from bot.partners import partner_manager
 from bot.web_search import web_search, search_news, SearchResult
 from bot.content_engine import (
-    get_best_news_item, enrich_with_search_images, get_date_context,
+    get_best_news_item, get_date_context,
     _is_topic_covered, _extract_entities, _score_interest,
     _register_topic, get_editorial_aside, get_translation_uniquification_hint,
 )
@@ -46,90 +46,20 @@ from bot.content_engine import (
 
 logger = logging.getLogger("asya.channel")
 
-# ── NSFW Image Moderation — AI Vision safety check ───────────────────────────
-# BEFORE any image is posted to the channel, it's checked by AI Vision.
-# If the image is detected as pornographic/nude/explicit, it's BLOCKED.
-# This is the FINAL safety net after SafeSearch + keyword filters.
-
-async def _moderate_image_content(image_bytes: bytes) -> bool:
-    """Check if an image is SAFE for a family-friendly automotive channel.
-    
-    Uses AI Vision to analyze the image content. Returns True if SAFE, False if NSFW.
-    This is the last line of defense — even if SafeSearch fails and keyword filters
-    miss something, this should catch explicit content before it reaches the channel.
-    
-    If the AI check fails (timeout, error), the image is BLOCKED (fail-safe).
-    """
-    try:
-        import base64
-        
-        # Encode image to base64 for AI Vision
-        img_b64 = base64.b64encode(image_bytes).decode("utf-8")
-        
-        # Try AI Vision check with timeout
-        try:
-            from ai.router import ai_router
-            response = await asyncio.wait_for(
-                ai_router.analyze_image(
-                    user_id=0,  # System user for moderation — no history needed
-                    image_base64=img_b64,
-                    prompt=(
-                        "SAFETY CHECK: Is this image safe for a family-friendly automotive news channel? "
-                        "Answer ONLY with one word: SAFE or NSFW. "
-                        "NSFW = any nudity, sexual content, pornography, explicit acts, "
-                        "revealing clothing in sexual context, genital exposure, bare breasts, "
-                        "suggestive poses. SAFE = fully clothed people, cars, landscapes, "
-                        "technical diagrams, news photos, normal automotive content. "
-                        "When in doubt, answer NSFW."
-                    ),
-                ),
-                timeout=15.0
-            )
-            
-            answer = response.text.strip().upper() if response and response.text else ""
-            
-            if "NSFW" in answer:
-                logger.error(f"NSFW IMAGE BLOCKED by AI Vision moderation — image rejected")
-                return False
-            elif "SAFE" in answer:
-                logger.info(f"Image passed AI Vision moderation: SAFE")
-                return True
-            else:
-                # Unclear response — be conservative and block
-                logger.warning(f"AI Vision gave unclear response '{answer[:30]}' — BLOCKING image (fail-safe)")
-                return False
-                
-        except asyncio.TimeoutError:
-            logger.warning(f"AI Vision moderation timed out — BLOCKING image (fail-safe)")
-            return False
-        except Exception as e:
-            logger.warning(f"AI Vision moderation failed: {e} — BLOCKING image (fail-safe)")
-            return False
-            
-    except Exception as e:
-        logger.error(f"Image moderation error: {e} — BLOCKING image (fail-safe)")
-        return False
+# NSFW moderation REMOVED — automotive news from RSS feeds doesn't contain porn.
+# The old system had AI Vision checks, SafeSearch, keyword filters — all unnecessary
+# overhead for an automotive news bot that gets its images from article pages.
 
 # ── Reactions to add to posts ───────────────────────────────────────────────
 
 POST_REACTIONS = ["👍", "🔥", "🚗", "😍", "👏", "💯", "🤩", "⚡"]
 
 # ── How many images per news post ───────────────────────────────────────────
-# Telegram allows up to 10 media per post, but we aim for QUALITY over quantity.
-# 2-4 unique real images per post is optimal. Too many images:
-#   - Clutters the post, makes it hard to read
-#   - Often leads to duplicate/similar photos from same source
-#   - Slower to load and post
+# Telegram allows up to 10 media per post — USE IT.
+# Article photos are relevant and real, more is better for visual impact.
 NEWS_IMAGES_MIN = 1
-NEWS_IMAGES_MAX = 4
-# Maximum total images in a channel post (reduced from 10 — too many was cluttering)
-MAX_IMAGES_PER_POST = 4
-# Maximum real images to download from RSS (don't need all 10 from feed)
-MAX_RSS_IMAGES = 4
-# Maximum images to scrape from article page
-MAX_SCRAPE_IMAGES = 3
-# Maximum images from web search enrichment
-MAX_SEARCH_IMAGES = 2
+NEWS_IMAGES_MAX = 10
+MAX_IMAGES_PER_POST = 10
 
 # ── Poll topics for channel engagement ──────────────────────────────────────
 
@@ -856,17 +786,6 @@ class ChannelManager:
             if w < 100 or (0 < h < 100):
                 return True
 
-        # ── NSFW DOMAIN BLOCK — never allow images from porn/adult sites ──
-        nsfw_domains = [
-            "pornhub", "xvideos", "xnxx", "xhamster", "redtube",
-            "youporn", "tube8", "spankbang", "chaturbate", "bongacams",
-            "livejasmin", "onlyfans", "playboy", "eporner", "porntrex",
-            "rule34", "gelbooru", "danbooru", "sex.com",
-        ]
-        for domain in nsfw_domains:
-            if domain in url_lower:
-                return True
-
         return False
 
     @staticmethod
@@ -1151,180 +1070,44 @@ class ChannelManager:
         return images[0] if images else None
 
     async def _get_post_images(self, news_item: Dict) -> tuple:
-        """Get images for a news post with ORIGINAL-FIRST strategy.
-        
-        v3.0: Uses ImageFetcher with deduplication pipeline:
-        1. RSS image URLs (image_urls field from feed) — DEDUPLICATED by hash
-        2. RSS enclosures (media:content, enclosures) — DEDUPLICATED by hash
-        3. Article page images (og:image, twitter:image, JSON-LD) — DEDUPLICATED
-        4. Image search (SearXNG) — DEDUPLICATED
-        5. AI generation — VERY LAST RESORT, only 1 image
-        
+        """Get images for a news post — simple article-first approach.
+
+        v5.0: No search engines, no AI generation, no NSFW moderation.
+        Just take the photos that are already in the article/RSS feed.
+
+        1. RSS images (media:content, enclosures, <img> in content)
+        2. Article page images (og:image, JSON-LD, <img> tags)
+        3. Done. If no images — post goes text-only.
+
         Returns (image_list: List[bytes], source: str)
-        source is 'rss', 'article', 'search', 'cache', or 'ai' for logging.
-        Images are deduplicated by SHA256 hash to prevent duplicate photos.
+        source is 'rss', 'article', 'cache', or 'none'.
         """
         title = news_item.get("title", "")
         article_url = news_item.get("url", "")
         rss_image_urls = news_item.get("image_urls", [])
-        rss_entry = news_item.get("rss_entry")  # Raw feedparser entry for content:encoded parsing
-        
-        # ── Steps 1-4: Try ImageFetcher for REAL images ──────────────────
-        # ImageFetcher now includes hash-based deduplication built-in
+        rss_entry = news_item.get("rss_entry")
+
         try:
-            from bot.image_fetcher import ImageFetcher, deduplicate_images
+            from bot.image_fetcher import ImageFetcher
             if not hasattr(self, '_image_fetcher'):
                 self._image_fetcher = ImageFetcher()
-            
-            real_images, real_source = await self._image_fetcher.fetch(
+
+            images, source = await self._image_fetcher.fetch(
                 topic=title,
                 article_url=article_url,
                 rss_entry=rss_entry,
                 image_urls=rss_image_urls,
                 max_images=MAX_IMAGES_PER_POST,
             )
-            if real_images:
-                # Extra safety: deduplicate again at channel level
-                real_images = deduplicate_images(real_images)[:MAX_IMAGES_PER_POST]
-                # ── NSFW MODERATION: AI Vision check every image ────────
-                safe_images = []
-                for img in real_images:
-                    is_safe = await _moderate_image_content(img)
-                    if is_safe:
-                        safe_images.append(img)
-                    else:
-                        logger.error(f"NSFW IMAGE REMOVED from post '{title[:50]}' — blocked by AI Vision")
-                if safe_images:
-                    logger.info(f"Got {len(safe_images)} SAFE images for '{title[:50]}' (source={real_source}, {len(real_images)-len(safe_images)} blocked by moderation)")
-                    return safe_images, real_source
-                else:
-                    logger.error(f"ALL images BLOCKED by NSFW moderation for '{title[:50]}' — post will be text-only")
-                    return [], "nsfw_blocked"
-        except ImportError:
-            # deduplicate_images not available — use ImageFetcher without extra dedup
-            try:
-                from bot.image_fetcher import ImageFetcher
-                if not hasattr(self, '_image_fetcher'):
-                    self._image_fetcher = ImageFetcher()
-                
-                real_images, real_source = await self._image_fetcher.fetch(
-                    topic=title,
-                    article_url=article_url,
-                    rss_entry=rss_entry,
-                    image_urls=rss_image_urls,
-                    max_images=MAX_IMAGES_PER_POST,
-                )
-                if real_images:
-                    # ── NSFW MODERATION: AI Vision check every image ────────
-                    safe_images = []
-                    for img in real_images:
-                        is_safe = await _moderate_image_content(img)
-                        if is_safe:
-                            safe_images.append(img)
-                        else:
-                            logger.error(f"NSFW IMAGE REMOVED from post '{title[:50]}' — blocked by AI Vision")
-                    if safe_images:
-                        logger.info(f"Got {len(safe_images)} SAFE images for '{title[:50]}' (source={real_source})")
-                        return safe_images[:MAX_IMAGES_PER_POST], real_source
-                    else:
-                        logger.error(f"ALL images BLOCKED by NSFW moderation for '{title[:50]}' — post will be text-only")
-                        return [], "nsfw_blocked"
-            except Exception as e:
-                logger.warning(f"ImageFetcher failed, falling back to legacy pipeline: {e}")
+            if images:
+                logger.info(f"Got {len(images)} images for '{title[:50]}' (source={source})")
+            else:
+                logger.info(f"No images found for '{title[:50]}' — text-only post")
+            return images, source
+
         except Exception as e:
-            logger.warning(f"ImageFetcher failed, falling back to legacy pipeline: {e}")
-        
-        # ── Legacy fallback: try scraping directly (with dedup) ────────────
-        image_list = []
-        seen_hashes = set()
-        source = "none"
-        
-        def _hash_dedup_add(img_bytes: bytes) -> bool:
-            """Add image only if not a duplicate. Returns True if added."""
-            import hashlib
-            h = hashlib.sha256(img_bytes).hexdigest()
-            if h in seen_hashes:
-                logger.debug(f"Legacy pipeline: skipping duplicate image (hash={h[:12]})")
-                return False
-            seen_hashes.add(h)
-            return True
-        
-        # Try RSS images directly
-        if rss_image_urls:
-            try:
-                rss_images = await self._download_news_images(rss_image_urls, max_count=MAX_RSS_IMAGES)
-                for img in rss_images:
-                    if _hash_dedup_add(img):
-                        image_list.append(img)
-                if image_list:
-                    source = "real"
-            except Exception:
-                pass
-        
-        # Try article scraping
-        if article_url and len(image_list) < MAX_IMAGES_PER_POST:
-            try:
-                scraped = await self._scrape_article_images(article_url, max_count=MAX_SCRAPE_IMAGES)
-                for img in scraped:
-                    if len(image_list) >= MAX_IMAGES_PER_POST:
-                        break
-                    if _hash_dedup_add(img):
-                        image_list.append(img)
-                if image_list and source == "none":
-                    source = "scraped"
-                elif image_list:
-                    source += "+scraped"
-            except Exception:
-                pass
-        
-        # Try search
-        if len(image_list) < 2 and title:
-            try:
-                search_image_urls = await enrich_with_search_images(news_item)
-                if search_image_urls:
-                    searched = await self._download_news_images(search_image_urls, max_count=MAX_SEARCH_IMAGES)
-                    for img in searched:
-                        if len(image_list) >= MAX_IMAGES_PER_POST:
-                            break
-                        if _hash_dedup_add(img):
-                            image_list.append(img)
-                    if image_list and source == "none":
-                        source = "search"
-                    elif image_list:
-                        source += "+search"
-            except Exception:
-                pass
-        
-        # ── Step 5: AI generation — VERY LAST RESORT, only 1 image ───────
-        # Prefer real photos over AI-generated illustrations.
-        # Only generate when NO real images were found at all.
-        if not image_list:
-            try:
-                image_list = await self._generate_post_images(title, count=1)
-                if image_list:
-                    source = "ai"
-                    logger.info(f"Generated 1 AI image (no real images found for '{title[:50]}')")
-                else:
-                    logger.warning("ALL image strategies failed — post may be text-only")
-            except Exception as e:
-                logger.warning(f"AI image generation skipped: {e}")
-        
-        # ── FINAL NSFW MODERATION: AI Vision check all legacy images ──────
-        # Even if images came from RSS or article scraping, they MUST pass
-        # AI Vision moderation before reaching the channel.
-        if image_list:
-            safe_images = []
-            for img in image_list:
-                is_safe = await _moderate_image_content(img)
-                if is_safe:
-                    safe_images.append(img)
-                else:
-                    logger.error(f"NSFW IMAGE REMOVED (legacy pipeline) from post '{title[:50]}' — blocked by AI Vision")
-            if not safe_images and image_list:
-                logger.error(f"ALL legacy images BLOCKED by NSFW moderation for '{title[:50]}' — post will be text-only")
-            return safe_images[:MAX_IMAGES_PER_POST], source
-        
-        return image_list[:MAX_IMAGES_PER_POST], source
+            logger.warning(f"ImageFetcher failed: {e} — text-only post")
+            return [], "none"
 
     async def _download_partner_image(self, image_url: str) -> Optional[bytes]:
         """Download a partner program image (logo/banner).
@@ -1709,58 +1492,13 @@ class ChannelManager:
         _TEXT_LIMIT = config.TELEGRAM_TEXT_LIMIT          # 4096
         _MIN_CONTENT_FOR_TEXT_ONLY = 1025  # Must exceed caption limit to justify text-only
 
-        # ── CASE 1: No media + short text (≤1024) → try to find a REAL image ──
-        # PREFER real photos over AI-generated. Only generate AI as VERY last resort.
-        # Better to post text-only than fake AI images.
+        # ── CASE 1: No media + short text (≤1024) → text-only is fine ──
+        # No more AI image generation or image search. If the article had photos,
+        # they were already extracted by _get_post_images(). If not — text-only.
         if not has_media and len(post_text) <= _CAPTION_LIMIT:
-            logger.warning(
-                f"Post has NO media and text is {len(post_text)} chars (fits in caption). "
-                f"Searching for real images first, AI generation as last resort."
+            logger.info(
+                f"Post has no media, text is {len(post_text)} chars — publishing text-only."
             )
-
-            # Try 1: Search for real images via SearXNG image search
-            real_image_found = False
-            try:
-                from bot.image_fetcher import ImageFetcher, deduplicate_images
-                if not hasattr(self, '_image_fetcher'):
-                    self._image_fetcher = ImageFetcher()
-
-                search_topic = news_item.get("title", "")
-                if search_topic:
-                    search_images, search_src = await self._image_fetcher.fetch(
-                        topic=search_topic,
-                        article_url=news_item.get("url", ""),
-                        image_urls=news_item.get("image_urls", []),
-                        max_images=2,  # Just need 1-2 images
-                    )
-                    if search_images:
-                        search_images = deduplicate_images(search_images)[:2]
-                        image_list = search_images
-                        has_media = True
-                        real_image_found = True
-                        logger.info(f"Found {len(search_images)} REAL images via search for text-only post (source={search_src})")
-            except Exception as e:
-                logger.debug(f"Real image search for text-only post failed: {e}")
-
-            # Try 2: AI generation — ONLY if no real images found at all
-            if not real_image_found:
-                try:
-                    last_resort_images = await self._generate_post_images(
-                        news_item.get("title", ""), count=1
-                    )
-                    if last_resort_images:
-                        image_list = last_resort_images
-                        has_media = True
-                        logger.info("AI image generation SUCCEEDED (no real images found)")
-                except Exception as e:
-                    logger.warning(f"AI image generation failed: {e}")
-
-            if not has_media:
-                # LAST RESORT: publish text-only rather than leaving channel silent.
-                logger.warning(
-                    f"POSTING TEXT-ONLY (last resort): No images available, text is "
-                    f"{len(post_text)} chars. Channel silence is worse than no-photo post."
-                )
 
         # ── CASE 2: Has media + text > caption limit → try compress to keep media ──
         elif has_media and len(post_text) > _CAPTION_LIMIT:
@@ -1799,52 +1537,14 @@ class ChannelManager:
                     )
                     post_text = _enforce_char_limit(post_text, has_media=True)
 
-        # ── CASE 3: No media + long text (>1024) → check if interesting enough ──
+        # ── CASE 3: No media + long text (>1024) → text-only is fine ──
+        # No more AI image generation. If article had photos, they're already attached.
         elif not has_media and len(post_text) > _CAPTION_LIMIT:
-            # Text exceeds caption limit and we have no image
-            # Allow text-only ONLY if content is interesting and within Telegram limit
-            interest_score = _score_interest(
-                news_item.get("title", ""),
-                news_item.get("summary", "")
+            if len(post_text) > _TEXT_LIMIT:
+                post_text = _enforce_char_limit(post_text, has_media=False)
+            logger.info(
+                f"Text-only post: {len(post_text)} chars. No AI-generated images."
             )
-            if interest_score >= 0.5 and len(post_text) <= _TEXT_LIMIT:
-                logger.info(
-                    f"Text-only post allowed: {len(post_text)} chars, interest={interest_score:.2f}. "
-                    f"Content is interesting enough to justify publishing without photo."
-                )
-            else:
-                # Not interesting enough for long text-only — try ONE image gen, then publish anyway
-                logger.warning(
-                    f"Text-only post: interest={interest_score:.2f}, "
-                    f"text={len(post_text)} chars. Trying quick image generation."
-                )
-                try:
-                    last_resort_images = await self._generate_post_images(
-                        news_item.get("title", ""), count=1
-                    )
-                    if last_resort_images:
-                        image_list = last_resort_images
-                        has_media = True
-                        # Must compress text to fit caption now
-                        post_text = _enforce_char_limit(post_text, has_media=True)
-                        logger.info("Got image for low-interest long post — compressed text to fit caption")
-                    else:
-                        # No image — publish text-only as last resort instead of blocking
-                        # Truncate to Telegram text-only limit if needed
-                        if len(post_text) > _TEXT_LIMIT:
-                            post_text = _enforce_char_limit(post_text, has_media=False)
-                        logger.warning(
-                            f"POSTING TEXT-ONLY (last resort): No image, interest={interest_score:.2f}, "
-                            f"text={len(post_text)} chars. Better than channel silence."
-                        )
-                except Exception as e:
-                    logger.warning(f"Image generation for long post failed: {e}")
-                    # Still publish text-only — don't block
-                    if len(post_text) > _TEXT_LIMIT:
-                        post_text = _enforce_char_limit(post_text, has_media=False)
-                    logger.warning(
-                        f"POSTING TEXT-ONLY (after error): {len(post_text)} chars."
-                    )
 
         # Smart character limit enforcement — always preserve footer
         post_text = _enforce_char_limit(post_text, has_media)
