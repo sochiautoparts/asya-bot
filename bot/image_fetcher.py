@@ -80,12 +80,13 @@ JUNK_STEMS = {
 JUNK_EXTENSIONS = {".gif", ".svg"}
 
 # Tiny thumbnail size patterns in URL — skip these
+# NOTE: Must be specific — don't match real image sizes like 630x420!
 TINY_SIZE_PATTERNS = [
-    re.compile(r'[?&]width=(?:1\d\d|80|100|120)(?:&|$)', re.IGNORECASE),
-    re.compile(r'[?&]height=(?:1\d\d|80|100|120)(?:&|$)', re.IGNORECASE),
-    re.compile(r'[?&]crop=1:1[,&]', re.IGNORECASE),
-    re.compile(r'/\d{2,3}x\d{2,3}/', re.IGNORECASE),  # /108x108/ in path
-    re.compile(r'[-_]\d{2,3}x\d{2,3}[-_.]', re.IGNORECASE),  # -108x108. or _108x108- in filename
+    re.compile(r'[?&]width=(?:1\d\d|80|100|120)(?:&|$)', re.IGNORECASE),  # width=80..199 in query
+    re.compile(r'[?&]height=(?:1\d\d|80|100|120)(?:&|$)', re.IGNORECASE),  # height=80..199 in query
+    re.compile(r'[?&]crop=1:1[,&]', re.IGNORECASE),                        # square crop = icon
+    re.compile(r'/\d{2,3}x\d{2,3}/', re.IGNORECASE),                       # /108x108/ in path segments
+    re.compile(r'[-_](?:\d{2}|1\d{2}|200)x(?:\d{2}|1\d{2}|200)[-_.]', re.IGNORECASE),  # -108x108. (under 200px)
 ]
 
 # /feed/ as image URL (CarScoops bug)

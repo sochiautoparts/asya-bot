@@ -745,11 +745,11 @@ _JUNK_IMAGE_STEMS = {
 
 # Tiny thumbnail size patterns in URL query params — skip these
 _TINY_SIZE_PATTERNS = [
-    r'[?&]width=(?:1\d\d|80|100|120)(?:&|$)',   # width=80..199
-    r'[?&]height=(?:1\d\d|80|100|120)(?:&|$)',   # height=80..199
+    r'[?&]width=(?:1\d\d|80|100|120)(?:&|$)',   # width=80..199 in query
+    r'[?&]height=(?:1\d\d|80|100|120)(?:&|$)',   # height=80..199 in query
     r'[?&]crop=1:1[,&]',                         # square crop = icon/thumb
-    r'/\d+x\d+/',                                 # /108x108/ in path
-    r'[-_]\d{2,3}x\d{2,3}[-_.]',                 # -108x108. or _108x108- in filename
+    r'/\d+x\d+/',                                 # /108x108/ in path segments
+    r'[-_](?:\d{2}|1\d{2}|200)x(?:\d{2}|1\d{2}|200)[-_.]',  # -108x108. (under 200px)
 ]
 
 # Regex to detect /feed/ as image URL (CarScoops bug — <img src="/feed/">)
