@@ -1,0 +1,794 @@
+     1→Run echo "=== Starting Asya Bot v10.0 — LOCAL-FIRST ==="
+     2→=== Starting Asya Bot v10.0 — LOCAL-FIRST ===
+     3→ARCHITECTURE: Local-First 4-Level Failover
+     4→  Level 0: LOCAL Qwen3-4B (4B params, Q4_K_M, CPU) — chat & comments
+     5→  Level 1: Pollinations (key) — all routes, 60+ models
+     6→  Level 2: Pollinations FREE — fallback, no auth
+     7→  Level 3: Cloudflare Workers AI — Mistral Small 3.1, 20K req/day
+     8→  Last resort: Static fallback
+     9→LOCAL MODEL USAGE:
+    10→  CHAT route: Local → Cloud (saves balance!)
+    11→  COMMENT route: Local → Cloud (saves balance!)
+    12→  FUNCTION route (posts, VIN, diagnostics): Cloud → Local (fallback)
+    13→  VISION: Cloud only (local can't do vision)
+    14→  IMAGE GEN: Cloud only
+    15→ROUTING: Local(chat/comment) → Pollinations(key) → Pollinations(free) → Cloudflare → Static
+    16→EDITORIAL TEAM: Ася + Лёха + Димон + Марина + Кеша(попугай) + Сеньор Помидор(кот)
+    17→CONTENT: RSS-first (22+ sources), Google News RSS, Reddit, AI Discovery
+    18→FORMATS: 16 content types for 24/7 diverse schedule
+    19→SCHEDULE: 30 min intervals, 3 posts/cycle + partner posts
+    20→LOCAL MODEL: Available (2381 MB)
+    21→=== Bot start attempt 1/10 ===
+    22→2026-06-13 10:55:59 [INFO] asya.main: Webhook deleted, polling mode ready
+    23→2026-06-13 10:55:59 [INFO] asya.main: Database initialized
+    24→2026-06-13 10:55:59 [INFO] asya.main: Topic registry empty — first run or all topics expired
+    25→2026-06-13 10:55:59 [INFO] asya.ai.cloudflare: CloudflareProvider initialized: 2 accounts, model=@cf/mistralai/mistral-small-3.1-24b-instruct, total_daily_capacity=20000 requests
+    26→2026-06-13 10:55:59 [INFO] asya.ai.local: Loading local model: models/Qwen3-4B-Q4_K_M.gguf (n_ctx=4096, n_threads=4)
+    27→llama_context: n_ctx_seq (4096) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+    28→2026-06-13 10:56:01 [INFO] asya.ai.local: Local model loaded in 1.7s (Qwen3-4B Q4_K_M, ctx=4096, threads=4)
+    29→2026-06-13 10:56:01 [INFO] asya.ai.router: AI Router v10.0 LOCAL-FIRST initialized: local=LOADED (Qwen3-4B, ctx=4096, threads=4, reqs=0, errors=0), pollinations=active (key+free), cloudflare=active, failover: Local → Pollinations(key) → Pollinations(free) → Cloudflare → Static, 59 models: 48 chat, 22 vision, 16 content, 4 search)
+    30→2026-06-13 10:56:01 [INFO] asya.main: AI Router initialized
+    31→2026-06-13 10:56:01 [INFO] asya.partners: Loaded 25 partner programs from remote URL
+    32→2026-06-13 10:56:01 [INFO] asya.main: Partner programs loaded: 25
+    33→2026-06-13 10:56:01 [INFO] asya.channel: Loaded 0 recent post titles into semantic dedup
+    34→2026-06-13 10:56:01 [INFO] asya.main: Handler routers included successfully
+    35→2026-06-13 10:56:01 [INFO] asya.main: === Asya Bot Starting (Local-First v10) ===
+    36→2026-06-13 10:56:01 [INFO] asya.main: Local model: enabled, model=models/Qwen3-4B-Q4_K_M.gguf, Cloud: Pollinations + Cloudflare
+    37→2026-06-13 10:56:01 [INFO] asya.main: Background tasks started
+    38→2026-06-13 10:56:01 [INFO] aiogram.dispatcher: Start polling
+    39→2026-06-13 10:56:01 [INFO] aiogram.dispatcher: Run polling for bot @asiaexp_bot id=8786860829 - 'Ася'
+    40→2026-06-13 10:56:31 [INFO] asya.news: Starting news fetch cycle...
+    41→2026-06-13 10:56:31 [INFO] asya.news: Phase 1: Web search for automotive news
+    42→2026-06-13 10:56:31 [INFO] asya.content_engine: Searching web for auto news: продажи автомобилей Россия 2026 статистика
+    43→2026-06-13 10:56:31 [INFO] asya.main: Channel poster started — will try to post every cycle
+    44→2026-06-13 10:56:31 [INFO] asya.main: Channel poster: starting new cycle (consecutive_empty=0)
+    45→2026-06-13 10:56:31 [INFO] asya.channel: run_scheduled_post: called
+    46→2026-06-13 10:56:32 [INFO] asya.channel: Converted partner SVG → PNG (18419 bytes): https://cdn.admitad-connect.com/campaign/images/2024/10/7/11
+    47→2026-06-13 10:56:32 [INFO] asya.channel: Using partner image from program object: https://cdn.admitad-connect.com/campaign/images/2024/10/7/11
+    48→2026-06-13 10:56:32 [INFO] asya.content_engine: Searching web for auto news: automotive supply chain semiconductors chips 2026
+    49→2026-06-13 10:56:37 [INFO] asya.ai.pollinations: Pollinations response (KEY1): model=gpt-5.4-2026-03-05, tokens=5788, time=4.4s, length=887
+    50→2026-06-13 10:56:37 [INFO] asya.channel: Posted partner content: Lukoil Shop RU
+    51→2026-06-13 10:56:37 [INFO] asya.main: Channel poster: post 1/3 published successfully
+    52→2026-06-13 10:56:37 [INFO] asya.main: Waiting 103s before next post in this cycle
+    53→2026-06-13 10:56:40 [INFO] asya.content_engine: Searching web for auto news: car service industry trends 2026
+    54→2026-06-13 10:56:48 [INFO] asya.content_engine: Phase 1.5: Google News RSS for global coverage
+    55→2026-06-13 10:56:49 [INFO] asya.content_engine: Search found 17 auto news items (Google News + web search)
+    56→2026-06-13 10:56:49 [INFO] asya.news: Web search added: Продажи новых легковых автомобилей в России в мае 2026 года 
+    57→2026-06-13 10:56:49 [INFO] asya.news: Web search added: Статистика продаж новых автомобилей в России в апреле 2026 г
+    58→2026-06-13 10:56:49 [INFO] asya.news: Web search added: Что происходило с авторынком в России в первом квартале 2026
+    59→2026-06-13 10:56:49 [INFO] asya.news: Web search added: Как продавались новые автомобили в России в мае и за все 5 м
+    60→2026-06-13 10:56:49 [INFO] asya.news: Web search added: Williams F1 2026 Sponsors, Valuation & Bitget Crypto Guide -
+    61→2026-06-13 10:56:49 [INFO] asya.news: Web search added: Таксист отказал – поехала сама: лишенная прав минчанка с 20-
+    62→2026-06-13 10:56:49 [INFO] asya.news: Web search added: Таможня Беларуси выпустила предупреждение для тех, кто плани
+    63→2026-06-13 10:56:49 [INFO] asya.news: Web search added: Экс-регионал Хомутынник во время войны ''эвакуировал'' в Евр
+    64→2026-06-13 10:56:49 [INFO] asya.news: Web search added: Сколько живет аккумулятор электромобиля и что на это влияет?
+    65→2026-06-13 10:56:49 [INFO] asya.news: Web search added: The GNS spoke about tax benefits when selling a car » News o
+    66→2026-06-13 10:56:49 [INFO] asya.news: Web search added: Гибрид Chevrolet Volt не выдержал конкуренции с Toyota Prius
+    67→2026-06-13 10:56:49 [INFO] asya.news: Web search added: 2024 best-selling sedan, SUV, and MPV ranking in China - Car
+    68→2026-06-13 10:56:49 [INFO] asya.news: Web search added: Taking Technology as Pen and Innovation as Ink, BYD "Submits
+    69→2026-06-13 10:56:49 [INFO] asya.news: Phase 1 (web search) complete: 13 new items
+    70→2026-06-13 10:56:49 [INFO] asya.news: Phase 2: RSS feeds (fallback/supplement)
+    71→2026-06-13 10:56:50 [INFO] asya.news: Fetched 20 items from ТАСС Авто
+    72→2026-06-13 10:56:50 [INFO] asya.news: Blocked news (RU keyword 'парламент'): Орбан: руководство ЕС несет Венгрии самую большую угрозу
+    73→2026-06-13 10:56:50 [INFO] asya.news: Blocked news (RU keyword 'донбас'): Хуснуллин: еще 2 300 объектов социнфраструктуры восстановят 
+    74→2026-06-13 10:56:50 [INFO] asya.news: Blocked news (RU keyword 'мэр '): Собянин поздравил Институт Генплана Москвы с 75-летием
+    75→2026-06-13 10:56:50 [INFO] asya.news: Blocked news (RU keyword 'донбас'): Хуснуллин: Донбасс и Новороссия должны достичь среднерусског
+    76→2026-06-13 10:56:50 [INFO] asya.news: Blocked news (RU keyword 'донбас'): Хуснуллин: объем налоговых поступлений Донбасса и Новороссии
+    77→2026-06-13 10:56:50 [INFO] asya.news: Blocked news (RU keyword 'донбас'): Хуснуллин: объем инвестиций в ОЭЗ Донбасса и Новороссии прев
+    78→2026-06-13 10:56:50 [INFO] asya.news: Blocked news (RU keyword 'путин'): Путин призвал воссоздать то, что было разрушено в Донбассе и
+    79→2026-06-13 10:56:50 [INFO] asya.news: Blocked news (RU keyword 'украин'): Corriere della Sera: Мелони может предложить Стубба как пере
+    80→2026-06-13 10:56:50 [INFO] asya.news: Blocked news (RU keyword 'путин'): Путин: никакие удары ВСУ по РФ не помогут противнику
+    81→2026-06-13 10:56:50 [INFO] asya.news: Blocked news (RU keyword 'путин'): Путин: ВС РФ продвигаются по всем направлениям СВО
+    82→2026-06-13 10:56:50 [INFO] asya.news: Blocked news (RU keyword 'путин'): Путин: войска РФ удерживают стратегическое преимущество в СВ
+    83→2026-06-13 10:56:50 [INFO] asya.news: Blocked news (RU keyword 'путин'): Путин: регионы Донбасса и Новороссии к 2030 году должны дост
+    84→2026-06-13 10:56:50 [INFO] asya.news: Blocked news (RU keyword 'путин'): Путин проводит по ВКС совещание по развитию Донбасса и Новор
+    85→2026-06-13 10:56:51 [INFO] asya.news: Fetched 15 items from Авто Mail.ru
+    86→2026-06-13 10:56:52 [INFO] asya.news: Fetched 20 items from Коммерсант Авто
+    87→2026-06-13 10:56:52 [INFO] asya.news: Blocked news (RU keyword 'крымск'): Хоть потоп // Спецпроект «Фото на документы». Карточка № 41
+    88→2026-06-13 10:56:52 [INFO] asya.news: Blocked news (RU keyword 'губернатор'): Доска почета
+    89→2026-06-13 10:56:52 [INFO] asya.news: Blocked news (RU keyword 'фильм'): Оса родила мышь // Piaggio Vespa Disney Mickey Mouse Edition
+    90→2026-06-13 10:56:52 [INFO] asya.news: Blocked news (RU keyword 'спорт '): «Восемь» пишем, NEXT в уме // О пользе эволюционного развити
+    91→2026-06-13 10:56:52 [INFO] asya.news: Blocked news (RU keyword 'правительств'): Очная ставка // Чего нам ждать от возрождения «Оки»
+    92→2026-06-13 10:56:52 [INFO] asya.news: Blocked news (RU keyword 'театр'): Сценическая машинерия // Легенды автопрома на театральных по
+    93→2026-06-13 10:56:55 [INFO] asya.news: Fetched 20 items from 5Колесо
+    94→2026-06-13 10:56:55 [INFO] asya.news: Blocked news (RU keyword 'lada granta'): Сколько стоит обслуживание популярных автомобилей с пробегом
+    95→2026-06-13 10:56:55 [INFO] asya.news: Blocked news (RU keyword 'автоваз'): Lada Azimut испытали на вибростенде: АВТОВАЗ готовится к зап
+    96→2026-06-13 10:56:56 [INFO] asya.news: Fetched 20 items from Autocar UK
+    97→2026-06-13 10:56:59 [INFO] asya.news: Fetched 20 items from CAR Magazine
+    98→2026-06-13 10:56:59 [INFO] asya.news: Fetched 20 items from CnEVPost
+    99→2026-06-13 10:57:00 [INFO] asya.news: Fetched 20 items from PaulTan
+   100→2026-06-13 10:57:00 [INFO] asya.news: Fetched 20 items from Autosport
+   101→2026-06-13 10:57:01 [INFO] asya.news: Fetched 20 items from CarExpert
+   102→2026-06-13 10:57:02 [INFO] asya.news: Fetched 18 items from TheDrive
+   103→2026-06-13 10:57:02 [INFO] asya.news: Blocked news (RU keyword 'nato'): Growing Pains: The Anatomy of Audi’s Rocky F1 Start
+   104→2026-06-13 10:57:02 [INFO] asya.news: Fetched 20 items from Jalopnik
+   105→2026-06-13 10:57:02 [INFO] asya.news: Blocked news (EN keyword 'sanction'): Trump Sanctions Leave Cubans Waiting Months Via App For A Me
+   106→2026-06-13 10:57:02 [INFO] asya.news: Fetched 20 items from AutoExpress
+   107→2026-06-13 10:57:03 [INFO] asya.news: Fetched 10 items from The Autopian
+   108→2026-06-13 10:57:03 [INFO] asya.news: Blocked news (EN keyword 'swimming pool'): Painter Of Swimming Pools And One BMW Art Car, David Hockney
+   109→2026-06-13 10:57:04 [INFO] asya.news: Fetched 18 items from CarScoops
+   110→2026-06-13 10:57:04 [INFO] asya.news: Blocked news (EN keyword 'military'): Jeep Honors A Military Icon With New Sarge Editions
+   111→2026-06-13 10:57:04 [INFO] asya.news: Fetched 20 items from Motorsport.com
+   112→2026-06-13 10:57:04 [INFO] asya.news: Blocked news (EN keyword 'weather forecast'): F1 Barcelona GP: Saturday schedule, weather forecast and how
+   113→2026-06-13 10:57:04 [INFO] asya.news: Fetched 20 items from BBC Sport F1
+   114→2026-06-13 10:57:05 [INFO] asya.news: Fetched 10 items from CarNewsChina
+   115→2026-06-13 10:57:05 [INFO] asya.news: Fetched 20 items from Electrek
+   116→2026-06-13 10:57:06 [INFO] asya.news: Fetched 20 items from Car & Driver
+   117→2026-06-13 10:57:07 [INFO] asya.news: Fetched 20 items from Automotive World
+   118→2026-06-13 10:57:08 [INFO] asya.news: Fetched 20 items from Reddit r/MechanicAdvice
+   119→2026-06-13 10:57:08 [INFO] asya.news: Blocked news (RU keyword 'nato'): 2007 Mustang GT HELP
+   120→2026-06-13 10:57:08 [INFO] asya.news: Phase 3: Global RSS sources
+   121→2026-06-13 10:57:08 [INFO] asya.news: Fetched 20 items from Car & Driver Reviews
+   122→2026-06-13 10:57:08 [INFO] asya.news: Global RSS Car & Driver Reviews: 20 items
+   123→2026-06-13 10:57:08 [INFO] asya.news: Fetched 16 items from Car & Driver Features
+   124→2026-06-13 10:57:08 [INFO] asya.news: Global RSS Car & Driver Features: 16 items
+   125→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: 2027 Chevy Bolt vs. 2026 Nissan Leaf Comparison Test: Battle
+   126→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: Tested: 2026 Toyota C-HR Has EV Hustle, Lacks Dynamic Deligh
+   127→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: 2026 Polestar 4 Dual Motor Test: Camera Obscura
+   128→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: 1987 Ford Festiva LX: An Econobox with an Interesting Lineag
+   129→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: 2026 Lexus IS350 Tested: Once More, with Feeling
+   130→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: 1993 Nissan 240SX SE Convertible Test: Rough Edges, Soft Top
+   131→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: 1988 Tuner Car Comparison Test: Corvette, Porsche, Jaguar, M
+   132→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: 2025 Toyota Prius 30,000-Mile Update: Cool Looks Bring Sacri
+   133→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: Our Long-Term Kia Niro PHEV Meets Its Mark
+   134→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: 2026 Ford Ranger Raptor 10,000-Mile Update: Northward Ho!
+   135→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: 2001 Topless Toys Comparo: Can Chevy Keep Up With the German
+   136→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: 2025 Porsche 911 Carrera 4 GTS Cabriolet Tested: Is All-Whee
+   137→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: 1993 Volvo 850GLT Test: An Upstanding Member of the Communit
+   138→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: Tested: Entry-Level 2026 Tesla Model 3 RWD Changes Little fo
+   139→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: The Best Odds: 1991–94 Nissan 240SX
+   140→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: Future Cars Worth Waiting For: 2026–2030
+   141→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: How Larry Chen and Pennzoil Are Working Together to Preserve
+   142→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: Every EV from Every Brand in America
+   143→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: Here's Every New Electric Vehicle Model for Sale in the U.S.
+   144→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: Dashboard Warning Lights Explained
+   145→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: Subaru vs. Subaru: Is the Trailseeker More Outback Than the 
+   146→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: Elana Scherr: Everyone Says the New Ferrari Is Shocking. I D
+   147→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: Reset a Check Engine Light at Your Own Risk
+   148→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: The Most Influential Car of the 1980s Was an EV, and Only 15
+   149→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: Watch the Indy 500 with a Side of Romance
+   150→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: Ezra Dyer: Operation Awesome Day in School Automotive Class
+   151→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: The Pathfinder Helped Invent the Modern SUV and Its Latest E
+   152→2026-06-13 10:57:08 [INFO] asya.news: Global RSS added: 2008 Ultimate High-Speed Test: Zero to 200 and Back
+   153→2026-06-13 10:57:08 [INFO] asya.news: Phase 3 (global RSS) complete: 375 total new items
+   154→2026-06-13 10:57:08 [INFO] asya.news: Phase 4: Google News RSS batch
+   155→2026-06-13 10:57:09 [INFO] asya.news: Fetched 20 items from GoogleNews_ru
+   156→2026-06-13 10:57:09 [INFO] asya.news: Fetched 20 items from GoogleNews_en
+   157→2026-06-13 10:57:10 [INFO] asya.news: Fetched 20 items from GoogleNews_en
+   158→2026-06-13 10:57:10 [INFO] asya.news: Blocked news (EN keyword 'pandemic'): How pandemic car shortages are still making new and used car
+   159→2026-06-13 10:57:11 [INFO] asya.news: Fetched 20 items from GoogleNews_en
+   160→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS batch: 70 items
+   161→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: За чей счет? Водителям не дадут 15 минут на спасение авто от
+   162→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: В США хотят полностью запретить китайские автомобили - gazet
+   163→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Парковка автомобиля во дворе. Разобрали главные риски и спос
+   164→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Режим испытаний автономного вождения в Португалии стартует в
+   165→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Дмитрий Миляев передал автомобили Центру «Герой 71» - newstu
+   166→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Норрис: Машина выглядит лучше, чем на прошлых этапах - F1New
+   167→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Представляем июньское обновление Gran Turismo 7: 5 новые маш
+   168→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Какие марки подержанных машин подешевели сильнее всего на вл
+   169→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Житель Подмосковья задержан по подозрению в угонах премиальн
+   170→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Приставы Удмуртии за один рейд изъяли три автомобиля у должн
+   171→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Эксперты назвали самые покупаемые орловцами автомобили - Оре
+   172→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Машина "скорой" и соцобъект повреждены дронами в Белгородско
+   173→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Весной спрос на новые китайские автомобили вырос на 25,2% – 
+   174→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Косил траву - попал в машину: в Тымовском коммунальщик повре
+   175→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: На трассе М-4 «Дон» в Ростовской области столкнулись четыре 
+   176→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: В Александрове конфискована машина водителя, чей уровень алк
+   177→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Центрам "Герой 71" в Тульской области передали новые автомоб
+   178→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Latest Product Recalls: Baby Wipes, Cars, Food & More – What
+   179→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: CONSUMER SAFETY ALERT: NYS Department of State’s Division of
+   180→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Toyota recalls 81K cars as dashboard failure hides safety al
+   181→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: How to register your VIN to get notified about a vehicle rec
+   182→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: UK recall alert issued for car seat base that poses risk of 
+   183→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: New warnings issued over defective airbags, how to check for
+   184→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: CPSC Warns Consumers to Immediately Stop Using Portable Elec
+   185→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Ford issues do not drive warning for over 4K vehicles. See m
+   186→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Recall Alert: Genesis - thetruthaboutcars.com
+   187→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Recall alert: 84K vehicles recalled for instrument panel iss
+   188→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Auto Safety Recall Derby - Week of March 16 - ConsumerAffair
+   189→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Is Your Car One of Millions with Takata Airbags That Are Und
+   190→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Recall alert: 14K Evenflo car seats recalled - WHIO TV
+   191→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Most-Recalled Car Brands of 2025: Who Ranked Highest in Safe
+   192→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: GM recalls more than 270,000 cars in U.S. over rearview came
+   193→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Car Safety Alert: Hyundai Halts 2026 Palisade Sales After Fa
+   194→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Recall Alert: Mercedes-Benz E-Class And More - thetruthabout
+   195→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Used EV Prices Are Rising Faster Than Gas Cars - Motor1.com
+   196→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Used Vehicle Sales Pace Slows in May as Prices Climb Higher 
+   197→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Used Vehicle Prices Climb Higher As Sales Pace Slows - Autom
+   198→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Used Car Prices Approach Records, But Steeper Depreciation, 
+   199→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: CarGurus finds used car prices top $30k, new vehicle demand 
+   200→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Is Now the Time to Buy, Sell, or Trade in a Car? - Kelley Bl
+   201→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Edmunds sees major shift on used car prices - thestreet.com
+   202→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Price Plateau: CARFAX used vehicle market report - Collision
+   203→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Used Toyota RAV4 Hybrids Are Selling For More Than They Cost
+   204→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Here’s why used car prices and demand are soaring right now 
+   205→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Manheim Used Vehicle Value Index: May 2026 Trends - Cox Auto
+   206→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: May inventory holds steady at 2.89M, Used-car prices top $30
+   207→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Wholesale Used Vehicle Market Sustains Moderate Rise In Valu
+   208→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Europe Is Learning An Uncomfortable Truth About Local Batter
+   209→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Exclusive: GM may ditch LFP batteries for future EVs - Reute
+   210→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Why old EV batteries still go to waste—and how AI could chan
+   211→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Making EV Batteries Truly Sustainable: Where to Focus and Wh
+   212→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: China Loves This Cheap Battery Tech. Here's Why General Moto
+   213→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: General Motors taps new battery tech to help power data cent
+   214→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: GM and Redwood Launch Second-Life EV Battery Energy Storage 
+   215→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Dodge Charger maker road-tests solid-state EV battery hittin
+   216→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: EV Battery Technology May Not Need a Breakthrough - The EV R
+   217→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Solid-state battery technology: Toyota, Tesla, and Honda lea
+   218→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: Nissan joins new ‘Cheaper Than China’ solid-state EV battery
+   219→2026-06-13 10:57:11 [INFO] asya.news: Google News RSS added: A solid-state EV battery that can achieve 800 miles of drivi
+   220→2026-06-13 10:57:11 [INFO] asya.news: Phase 4 (Google News RSS) complete: 434 total new items
+   221→2026-06-13 10:57:11 [INFO] asya.news: News fetch complete: 434 new items
+   222→2026-06-13 10:57:11 [INFO] asya.news: News cycle complete: 434 new items
+   223→2026-06-13 10:57:11 [INFO] asya.main: News fetcher: 434 new items
+   224→2026-06-13 10:58:21 [INFO] asya.channel: run_scheduled_post: called
+   225→2026-06-13 10:58:21 [INFO] asya.channel: post_news: called with item=None (will pick best)
+   226→2026-06-13 10:58:21 [INFO] asya.channel: post_news: 25 unposted items in DB
+   227→2026-06-13 10:58:21 [INFO] asya.content_engine: Phase 0: AI discovery for today's automotive news (PRIMARY)
+   228→2026-06-13 10:58:21 [INFO] asya.ai.pollinations: Pollinations response (KEY1): model=gpt-5.4-2026-03-05, tokens=896, time=0.5s, length=2144
+   229→2026-06-13 10:58:21 [INFO] asya.content_engine: AI discovery (openai-large): got 2144 chars
+   230→2026-06-13 10:59:49 [INFO] asya.ai.local: Loading local model: models/Qwen3-4B-Q4_K_M.gguf (n_ctx=4096, n_threads=4)
+   231→llama_context: n_ctx_seq (4096) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+   232→2026-06-13 10:59:51 [INFO] asya.ai.local: Local model loaded in 1.6s (Qwen3-4B Q4_K_M, ctx=4096, threads=4)
+   233→2026-06-13 10:59:51 [INFO] asya.ai.local: Loading local model: models/Qwen3-4B-Q4_K_M.gguf (n_ctx=4096, n_threads=4)
+   234→llama_context: n_ctx_seq (4096) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+   235→2026-06-13 10:59:54 [INFO] asya.ai.local: Local model loaded in 3.2s (Qwen3-4B Q4_K_M, ctx=4096, threads=4)
+   236→2026-06-13 10:59:54 [INFO] asya.ai.local: Loading local model: models/Qwen3-4B-Q4_K_M.gguf (n_ctx=4096, n_threads=4)
+   237→llama_context: n_ctx_seq (4096) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+   238→2026-06-13 10:59:59 [INFO] asya.ai.local: Local model loaded in 4.9s (Qwen3-4B Q4_K_M, ctx=4096, threads=4)
+   239→Error: -13 10:59:59 [ERROR] aiogram.event: Cause exception while process update id=628838735 by bot id=8786860829
+   240→OperationalError: database is locked
+   241→Traceback (most recent call last):
+   242→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/dispatcher.py", line 309, in _process_update
+   243→    response = await self.feed_update(bot, update, **kwargs)
+   244→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   245→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/dispatcher.py", line 158, in feed_update
+   246→    response = await self.update.wrap_outer_middleware(
+   247→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   248→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/middlewares/error.py", line 25, in __call__
+   249→    return await handler(event, data)
+   250→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   251→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/middlewares/user_context.py", line 56, in __call__
+   252→    return await handler(event, data)
+   253→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   254→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/fsm/middleware.py", line 42, in __call__
+   255→    return await handler(event, data)
+   256→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   257→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/telegram.py", line 121, in trigger
+   258→    return await wrapped_inner(event, kwargs)
+   259→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   260→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/handler.py", line 43, in call
+   261→    return await wrapped()
+   262→           ^^^^^^^^^^^^^^^
+   263→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/dispatcher.py", line 276, in _listen_update
+   264→    return await self.propagate_event(update_type=update_type, event=event, **kwargs)
+   265→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   266→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 146, in propagate_event
+   267→    return await observer.wrap_outer_middleware(_wrapped, event=event, data=kwargs)
+   268→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   269→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 141, in _wrapped
+   270→    return await self._propagate_event(
+   271→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   272→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 174, in _propagate_event
+   273→    response = await router.propagate_event(update_type=update_type, event=event, **kwargs)
+   274→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   275→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 146, in propagate_event
+   276→    return await observer.wrap_outer_middleware(_wrapped, event=event, data=kwargs)
+   277→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   278→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 141, in _wrapped
+   279→    return await self._propagate_event(
+   280→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   281→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 166, in _propagate_event
+   282→    response = await observer.trigger(event, **kwargs)
+   283→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   284→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/telegram.py", line 121, in trigger
+   285→    return await wrapped_inner(event, kwargs)
+   286→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   287→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/handler.py", line 43, in call
+   288→    return await wrapped()
+   289→           ^^^^^^^^^^^^^^^
+   290→  File "/home/runner/work/asya-bot/asya-bot/bot/handlers/chat.py", line 489, in handle_photo
+   291→    if not await _check_user(message):
+   292→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   293→  File "/home/runner/work/asya-bot/asya-bot/bot/handlers/chat.py", line 177, in _check_user
+   294→    user = await get_or_create_user(
+   295→           ^^^^^^^^^^^^^^^^^^^^^^^^^
+   296→  File "/home/runner/work/asya-bot/asya-bot/bot/database.py", line 186, in get_or_create_user
+   297→    await db.execute(
+   298→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiosqlite/core.py", line 193, in execute
+   299→    cursor = await self._execute(self._conn.execute, sql, parameters)
+   300→             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   301→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiosqlite/core.py", line 132, in _execute
+   302→    return await future
+   303→           ^^^^^^^^^^^^
+   304→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiosqlite/core.py", line 115, in run
+   305→    result = function()
+   306→             ^^^^^^^^^^
+   307→sqlite3.OperationalError: database is locked
+   308→Error: -13 10:59:59 [ERROR] aiogram.event: Cause exception while process update id=628838737 by bot id=8786860829
+   309→OperationalError: database is locked
+   310→Traceback (most recent call last):
+   311→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/dispatcher.py", line 309, in _process_update
+   312→    response = await self.feed_update(bot, update, **kwargs)
+   313→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   314→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/dispatcher.py", line 158, in feed_update
+   315→    response = await self.update.wrap_outer_middleware(
+   316→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   317→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/middlewares/error.py", line 25, in __call__
+   318→    return await handler(event, data)
+   319→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   320→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/middlewares/user_context.py", line 56, in __call__
+   321→    return await handler(event, data)
+   322→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   323→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/fsm/middleware.py", line 42, in __call__
+   324→    return await handler(event, data)
+   325→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   326→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/telegram.py", line 121, in trigger
+   327→    return await wrapped_inner(event, kwargs)
+   328→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   329→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/handler.py", line 43, in call
+   330→    return await wrapped()
+   331→           ^^^^^^^^^^^^^^^
+   332→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/dispatcher.py", line 276, in _listen_update
+   333→    return await self.propagate_event(update_type=update_type, event=event, **kwargs)
+   334→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   335→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 146, in propagate_event
+   336→    return await observer.wrap_outer_middleware(_wrapped, event=event, data=kwargs)
+   337→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   338→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 141, in _wrapped
+   339→    return await self._propagate_event(
+   340→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   341→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 174, in _propagate_event
+   342→    response = await router.propagate_event(update_type=update_type, event=event, **kwargs)
+   343→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   344→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 146, in propagate_event
+   345→    return await observer.wrap_outer_middleware(_wrapped, event=event, data=kwargs)
+   346→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   347→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 141, in _wrapped
+   348→    return await self._propagate_event(
+   349→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   350→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 166, in _propagate_event
+   351→    response = await observer.trigger(event, **kwargs)
+   352→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   353→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/telegram.py", line 121, in trigger
+   354→    return await wrapped_inner(event, kwargs)
+   355→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   356→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/handler.py", line 43, in call
+   357→    return await wrapped()
+   358→           ^^^^^^^^^^^^^^^
+   359→  File "/home/runner/work/asya-bot/asya-bot/bot/handlers/chat.py", line 489, in handle_photo
+   360→    if not await _check_user(message):
+   361→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   362→  File "/home/runner/work/asya-bot/asya-bot/bot/handlers/chat.py", line 177, in _check_user
+   363→    user = await get_or_create_user(
+   364→           ^^^^^^^^^^^^^^^^^^^^^^^^^
+   365→  File "/home/runner/work/asya-bot/asya-bot/bot/database.py", line 221, in get_or_create_user
+   366→    await db.execute(
+   367→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiosqlite/core.py", line 193, in execute
+   368→    cursor = await self._execute(self._conn.execute, sql, parameters)
+   369→             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   370→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiosqlite/core.py", line 132, in _execute
+   371→    return await future
+   372→           ^^^^^^^^^^^^
+   373→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiosqlite/core.py", line 115, in run
+   374→    result = function()
+   375→             ^^^^^^^^^^
+   376→sqlite3.OperationalError: database is locked
+   377→Error: -13 10:59:59 [ERROR] aiogram.event: Cause exception while process update id=628838733 by bot id=8786860829
+   378→OperationalError: database is locked
+   379→Traceback (most recent call last):
+   380→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/dispatcher.py", line 309, in _process_update
+   381→    response = await self.feed_update(bot, update, **kwargs)
+   382→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   383→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/dispatcher.py", line 158, in feed_update
+   384→    response = await self.update.wrap_outer_middleware(
+   385→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   386→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/middlewares/error.py", line 25, in __call__
+   387→    return await handler(event, data)
+   388→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   389→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/middlewares/user_context.py", line 56, in __call__
+   390→    return await handler(event, data)
+   391→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   392→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/fsm/middleware.py", line 42, in __call__
+   393→    return await handler(event, data)
+   394→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   395→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/telegram.py", line 121, in trigger
+   396→    return await wrapped_inner(event, kwargs)
+   397→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   398→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/handler.py", line 43, in call
+   399→    return await wrapped()
+   400→           ^^^^^^^^^^^^^^^
+   401→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/dispatcher.py", line 276, in _listen_update
+   402→    return await self.propagate_event(update_type=update_type, event=event, **kwargs)
+   403→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   404→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 146, in propagate_event
+   405→    return await observer.wrap_outer_middleware(_wrapped, event=event, data=kwargs)
+   406→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   407→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 141, in _wrapped
+   408→    return await self._propagate_event(
+   409→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   410→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 174, in _propagate_event
+   411→    response = await router.propagate_event(update_type=update_type, event=event, **kwargs)
+   412→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   413→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 146, in propagate_event
+   414→    return await observer.wrap_outer_middleware(_wrapped, event=event, data=kwargs)
+   415→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   416→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 141, in _wrapped
+   417→    return await self._propagate_event(
+   418→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   419→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 166, in _propagate_event
+   420→    response = await observer.trigger(event, **kwargs)
+   421→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   422→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/telegram.py", line 121, in trigger
+   423→    return await wrapped_inner(event, kwargs)
+   424→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   425→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/handler.py", line 43, in call
+   426→    return await wrapped()
+   427→           ^^^^^^^^^^^^^^^
+   428→  File "/home/runner/work/asya-bot/asya-bot/bot/handlers/chat.py", line 489, in handle_photo
+   429→    if not await _check_user(message):
+   430→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   431→  File "/home/runner/work/asya-bot/asya-bot/bot/handlers/chat.py", line 177, in _check_user
+   432→    user = await get_or_create_user(
+   433→           ^^^^^^^^^^^^^^^^^^^^^^^^^
+   434→  File "/home/runner/work/asya-bot/asya-bot/bot/database.py", line 221, in get_or_create_user
+   435→    await db.execute(
+   436→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiosqlite/core.py", line 193, in execute
+   437→    cursor = await self._execute(self._conn.execute, sql, parameters)
+   438→             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   439→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiosqlite/core.py", line 132, in _execute
+   440→    return await future
+   441→           ^^^^^^^^^^^^
+   442→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiosqlite/core.py", line 115, in run
+   443→    result = function()
+   444→             ^^^^^^^^^^
+   445→sqlite3.OperationalError: database is locked
+   446→Error: -13 10:59:59 [ERROR] aiogram.event: Cause exception while process update id=628838734 by bot id=8786860829
+   447→OperationalError: database is locked
+   448→Traceback (most recent call last):
+   449→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/dispatcher.py", line 309, in _process_update
+   450→    response = await self.feed_update(bot, update, **kwargs)
+   451→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   452→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/dispatcher.py", line 158, in feed_update
+   453→    response = await self.update.wrap_outer_middleware(
+   454→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   455→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/middlewares/error.py", line 25, in __call__
+   456→    return await handler(event, data)
+   457→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   458→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/middlewares/user_context.py", line 56, in __call__
+   459→    return await handler(event, data)
+   460→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   461→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/fsm/middleware.py", line 42, in __call__
+   462→    return await handler(event, data)
+   463→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   464→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/telegram.py", line 121, in trigger
+   465→    return await wrapped_inner(event, kwargs)
+   466→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   467→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/handler.py", line 43, in call
+   468→    return await wrapped()
+   469→           ^^^^^^^^^^^^^^^
+   470→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/dispatcher.py", line 276, in _listen_update
+   471→    return await self.propagate_event(update_type=update_type, event=event, **kwargs)
+   472→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   473→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 146, in propagate_event
+   474→    return await observer.wrap_outer_middleware(_wrapped, event=event, data=kwargs)
+   475→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   476→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 141, in _wrapped
+   477→    return await self._propagate_event(
+   478→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   479→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 174, in _propagate_event
+   480→    response = await router.propagate_event(update_type=update_type, event=event, **kwargs)
+   481→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   482→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 146, in propagate_event
+   483→    return await observer.wrap_outer_middleware(_wrapped, event=event, data=kwargs)
+   484→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   485→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 141, in _wrapped
+   486→    return await self._propagate_event(
+   487→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   488→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 166, in _propagate_event
+   489→    response = await observer.trigger(event, **kwargs)
+   490→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   491→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/telegram.py", line 121, in trigger
+   492→    return await wrapped_inner(event, kwargs)
+   493→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   494→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/handler.py", line 43, in call
+   495→    return await wrapped()
+   496→           ^^^^^^^^^^^^^^^
+   497→  File "/home/runner/work/asya-bot/asya-bot/bot/handlers/chat.py", line 489, in handle_photo
+   498→    if not await _check_user(message):
+   499→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   500→  File "/home/runner/work/asya-bot/asya-bot/bot/handlers/chat.py", line 177, in _check_user
+   501→    user = await get_or_create_user(
+   502→           ^^^^^^^^^^^^^^^^^^^^^^^^^
+   503→  File "/home/runner/work/asya-bot/asya-bot/bot/database.py", line 186, in get_or_create_user
+   504→    await db.execute(
+   505→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiosqlite/core.py", line 193, in execute
+   506→    cursor = await self._execute(self._conn.execute, sql, parameters)
+   507→             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   508→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiosqlite/core.py", line 132, in _execute
+   509→    return await future
+   510→           ^^^^^^^^^^^^
+   511→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiosqlite/core.py", line 115, in run
+   512→    result = function()
+   513→             ^^^^^^^^^^
+   514→sqlite3.OperationalError: database is locked
+   515→Error: -13 10:59:59 [ERROR] aiogram.event: Cause exception while process update id=628838732 by bot id=8786860829
+   516→OperationalError: database is locked
+   517→Traceback (most recent call last):
+   518→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/dispatcher.py", line 309, in _process_update
+   519→    response = await self.feed_update(bot, update, **kwargs)
+   520→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   521→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/dispatcher.py", line 158, in feed_update
+   522→    response = await self.update.wrap_outer_middleware(
+   523→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   524→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/middlewares/error.py", line 25, in __call__
+   525→    return await handler(event, data)
+   526→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   527→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/middlewares/user_context.py", line 56, in __call__
+   528→    return await handler(event, data)
+   529→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   530→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/fsm/middleware.py", line 42, in __call__
+   531→    return await handler(event, data)
+   532→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   533→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/telegram.py", line 121, in trigger
+   534→    return await wrapped_inner(event, kwargs)
+   535→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   536→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/handler.py", line 43, in call
+   537→    return await wrapped()
+   538→           ^^^^^^^^^^^^^^^
+   539→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/dispatcher.py", line 276, in _listen_update
+   540→    return await self.propagate_event(update_type=update_type, event=event, **kwargs)
+   541→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   542→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 146, in propagate_event
+   543→    return await observer.wrap_outer_middleware(_wrapped, event=event, data=kwargs)
+   544→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   545→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 141, in _wrapped
+   546→    return await self._propagate_event(
+   547→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   548→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 174, in _propagate_event
+   549→    response = await router.propagate_event(update_type=update_type, event=event, **kwargs)
+   550→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   551→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 146, in propagate_event
+   552→    return await observer.wrap_outer_middleware(_wrapped, event=event, data=kwargs)
+   553→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   554→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 141, in _wrapped
+   555→    return await self._propagate_event(
+   556→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   557→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 166, in _propagate_event
+   558→    response = await observer.trigger(event, **kwargs)
+   559→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   560→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/telegram.py", line 121, in trigger
+   561→    return await wrapped_inner(event, kwargs)
+   562→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   563→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/handler.py", line 43, in call
+   564→    return await wrapped()
+   565→           ^^^^^^^^^^^^^^^
+   566→  File "/home/runner/work/asya-bot/asya-bot/bot/handlers/chat.py", line 489, in handle_photo
+   567→    if not await _check_user(message):
+   568→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   569→  File "/home/runner/work/asya-bot/asya-bot/bot/handlers/chat.py", line 177, in _check_user
+   570→    user = await get_or_create_user(
+   571→           ^^^^^^^^^^^^^^^^^^^^^^^^^
+   572→  File "/home/runner/work/asya-bot/asya-bot/bot/database.py", line 221, in get_or_create_user
+   573→    await db.execute(
+   574→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiosqlite/core.py", line 193, in execute
+   575→    cursor = await self._execute(self._conn.execute, sql, parameters)
+   576→             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   577→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiosqlite/core.py", line 132, in _execute
+   578→    return await future
+   579→           ^^^^^^^^^^^^
+   580→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiosqlite/core.py", line 115, in run
+   581→    result = function()
+   582→             ^^^^^^^^^^
+   583→sqlite3.OperationalError: database is locked
+   584→2026-06-13 10:59:59 [INFO] asya.ai.local: Loading local model: models/Qwen3-4B-Q4_K_M.gguf (n_ctx=4096, n_threads=4)
+   585→llama_context: n_ctx_seq (4096) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+   586→2026-06-13 11:00:04 [INFO] asya.ai.local: Local model loaded in 5.3s (Qwen3-4B Q4_K_M, ctx=4096, threads=4)
+   587→2026-06-13 11:00:04 [INFO] asya.ai.local: Loading local model: models/Qwen3-4B-Q4_K_M.gguf (n_ctx=4096, n_threads=4)
+   588→llama_context: n_ctx_seq (4096) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+   589→2026-06-13 11:00:13 [INFO] asya.ai.local: Local model loaded in 9.1s (Qwen3-4B Q4_K_M, ctx=4096, threads=4)
+   590→2026-06-13 11:00:25 [INFO] asya.ai.local: Local model response: 68 chars, 34.4s, tokens=100
+   591→2026-06-13 11:00:29 [INFO] asya.ai.local: Local model response: 68 chars, 34.7s, tokens=100
+   592→2026-06-13 11:00:35 [INFO] asya.ai.local: Local model response: 68 chars, 35.9s, tokens=100
+   593→2026-06-13 11:00:38 [INFO] asya.ai.local: Local model response: 68 chars, 34.2s, tokens=100
+   594→2026-06-13 11:00:40 [INFO] asya.ai.local: Local model response: 58 chars, 26.7s, tokens=100
+   595→2026-06-13 11:01:21 [INFO] asya.content_engine: AI discovery (openai-large): found 19 news items
+   596→2026-06-13 11:01:21 [INFO] asya.content_engine: AI discovery provided 19 items
+   597→2026-06-13 11:01:21 [INFO] asya.content_engine: Phase 1: Searching web for automotive news (SUPPLEMENTARY)
+   598→2026-06-13 11:01:21 [INFO] asya.content_engine: Searching web for auto news: unusual vehicles weird cars world
+   599→2026-06-13 11:01:29 [INFO] asya.content_engine: Searching web for auto news: авторынок аналитика 2026
+   600→2026-06-13 11:01:30 [INFO] asya.content_engine: Searching web for auto news: tire market news 2026
+   601→2026-06-13 11:01:37 [INFO] asya.content_engine: Phase 1.5: Google News RSS for global coverage
+   602→2026-06-13 11:01:38 [INFO] asya.content_engine: Search found 15 auto news items (Google News + web search)
+   603→2026-06-13 11:01:38 [INFO] asya.content_engine: Web search provided 15 items
+   604→2026-06-13 11:01:38 [INFO] asya.content_engine: Searching Russian auto news: автострахование ОСАГО КАСКО новости
+   605→2026-06-13 11:01:39 [INFO] asya.content_engine: Searching Russian auto news: BYD Chery Haval Geely Россия новости
+   606→2026-06-13 11:01:40 [INFO] asya.content_engine: Russian auto news search found 15 items
+   607→2026-06-13 11:01:40 [INFO] asya.content_engine: Russian auto search provided 15 items
+   608→2026-06-13 11:01:40 [INFO] asya.content_engine: Added 25 RSS unposted items as supplement
+   609→2026-06-13 11:01:42 [INFO] asya.ai.pollinations: Pollinations response (KEY1): model=mistralai/mistral-small-2603, tokens=316, time=1.2s, length=1
+   610→2026-06-13 11:01:42 [INFO] asya.content_engine: AI picked candidate #3 (model=mistral-4): Гибрид Chevrolet Volt не выдержал конкуренции с Toyota Prius
+   611→2026-06-13 11:01:42 [INFO] asya.content_engine: Selected news: interest=1.23, entity=toyota_prius, title=Гибрид Chevrolet Volt не выдержал конкуренции с Toyota Prius
+   612→2026-06-13 11:01:42 [INFO] asya.channel: post_news: content engine selected: Гибрид Chevrolet Volt не выдержал конкуренции с Toyota Prius
+   613→2026-06-13 11:01:42 [INFO] asya.image_fetcher: Scraped 0 candidate image URLs from https://news.google.com/rss/articles/CBMimgFBVV95cUxQTFpnWUR
+   614→2026-06-13 11:01:42 [INFO] asya.image_fetcher: No images found for 'Гибрид Chevrolet Volt не выдержал конкуренции с To' — post will be text-only
+   615→2026-06-13 11:01:42 [INFO] asya.channel: No images found for 'Гибрид Chevrolet Volt не выдержал конкуренции с To' — text-only post
+   616→2026-06-13 11:01:42 [INFO] asya.channel: Tone analysis: routine, brand=Toyota, model=PRIUS
+   617→2026-06-13 11:01:48 [INFO] asya.ai.pollinations: Pollinations response (KEY1): model=gpt-5.4-2026-03-05, tokens=6031, time=6.1s, length=999
+   618→2026-06-13 11:01:48 [INFO] asya.channel: Added tone joke for routine
+   619→2026-06-13 11:01:48 [INFO] asya.channel: Post has no media, text is 592 chars — publishing text-only.
+   620→2026-06-13 11:01:49 [INFO] asya.channel: Added reaction 💯 to message 89442
+   621→2026-06-13 11:01:49 [INFO] asya.channel: Posted news to channel: Гибрид Chevrolet Volt не выдержал конкуренции с To...
+   622→2026-06-13 11:01:49 [INFO] asya.main: Channel poster: post 2/3 published successfully
+   623→2026-06-13 11:01:49 [INFO] asya.main: Waiting 102s before next post in this cycle
+   624→2026-06-13 11:02:04 [INFO] asya.ai.local: Loading local model: models/Qwen3-4B-Q4_K_M.gguf (n_ctx=4096, n_threads=4)
+   625→llama_context: n_ctx_seq (4096) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+   626→2026-06-13 11:02:06 [INFO] asya.ai.local: Local model loaded in 1.6s (Qwen3-4B Q4_K_M, ctx=4096, threads=4)
+   627→2026-06-13 11:02:06 [INFO] asya.ai.local: Loading local model: models/Qwen3-4B-Q4_K_M.gguf (n_ctx=4096, n_threads=4)
+   628→llama_context: n_ctx_seq (4096) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+   629→2026-06-13 11:02:09 [INFO] asya.ai.local: Local model loaded in 3.1s (Qwen3-4B Q4_K_M, ctx=4096, threads=4)
+   630→2026-06-13 11:02:09 [INFO] asya.ai.local: Loading local model: models/Qwen3-4B-Q4_K_M.gguf (n_ctx=4096, n_threads=4)
+   631→llama_context: n_ctx_seq (4096) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+   632→2026-06-13 11:02:13 [INFO] asya.ai.local: Local model loaded in 4.0s (Qwen3-4B Q4_K_M, ctx=4096, threads=4)
+   633→2026-06-13 11:02:13 [INFO] asya.ai.local: Loading local model: models/Qwen3-4B-Q4_K_M.gguf (n_ctx=4096, n_threads=4)
+   634→llama_context: n_ctx_seq (4096) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+   635→2026-06-13 11:02:19 [INFO] asya.ai.local: Local model loaded in 6.2s (Qwen3-4B Q4_K_M, ctx=4096, threads=4)
+   636→2026-06-13 11:02:19 [INFO] asya.ai.local: Loading local model: models/Qwen3-4B-Q4_K_M.gguf (n_ctx=4096, n_threads=4)
+   637→llama_context: n_ctx_seq (4096) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+   638→2026-06-13 11:02:27 [INFO] asya.ai.local: Local model loaded in 7.6s (Qwen3-4B Q4_K_M, ctx=4096, threads=4)
+   639→2026-06-13 11:02:41 [INFO] asya.ai.local: Local model response: 68 chars, 31.8s, tokens=100
+   640→2026-06-13 11:02:42 [INFO] asya.ai.local: Local model response: 99 chars, 36.0s, tokens=100
+   641→2026-06-13 11:02:47 [INFO] asya.ai.local: Local model response: 68 chars, 34.3s, tokens=100
+   642→2026-06-13 11:02:50 [INFO] asya.ai.local: Local model response: 68 chars, 31.2s, tokens=100
+   643→2026-06-13 11:02:52 [INFO] asya.ai.local: Local model response: 68 chars, 24.9s, tokens=100
+   644→2026-06-13 11:03:19 [INFO] asya.ai.local: Loading local model: models/Qwen3-4B-Q4_K_M.gguf (n_ctx=4096, n_threads=4)
+   645→llama_context: n_ctx_seq (4096) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+   646→2026-06-13 11:03:21 [INFO] asya.ai.local: Local model loaded in 1.6s (Qwen3-4B Q4_K_M, ctx=4096, threads=4)
+   647→2026-06-13 11:03:21 [INFO] asya.ai.local: Loading local model: models/Qwen3-4B-Q4_K_M.gguf (n_ctx=4096, n_threads=4)
+   648→llama_context: n_ctx_seq (4096) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+   649→2026-06-13 11:03:24 [INFO] asya.ai.local: Local model loaded in 2.9s (Qwen3-4B Q4_K_M, ctx=4096, threads=4)
+   650→2026-06-13 11:03:24 [INFO] asya.ai.local: Loading local model: models/Qwen3-4B-Q4_K_M.gguf (n_ctx=4096, n_threads=4)
+   651→llama_context: n_ctx_seq (4096) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+   652→2026-06-13 11:03:29 [INFO] asya.ai.local: Local model loaded in 4.8s (Qwen3-4B Q4_K_M, ctx=4096, threads=4)
+   653→Error: -13 11:03:29 [ERROR] aiogram.event: Cause exception while process update id=628838745 by bot id=8786860829
+   654→OperationalError: database is locked
+   655→Traceback (most recent call last):
+   656→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/dispatcher.py", line 309, in _process_update
+   657→    response = await self.feed_update(bot, update, **kwargs)
+   658→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   659→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/dispatcher.py", line 158, in feed_update
+   660→    response = await self.update.wrap_outer_middleware(
+   661→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   662→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/middlewares/error.py", line 25, in __call__
+   663→    return await handler(event, data)
+   664→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   665→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/middlewares/user_context.py", line 56, in __call__
+   666→    return await handler(event, data)
+   667→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   668→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/fsm/middleware.py", line 42, in __call__
+   669→    return await handler(event, data)
+   670→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   671→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/telegram.py", line 121, in trigger
+   672→    return await wrapped_inner(event, kwargs)
+   673→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   674→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/handler.py", line 43, in call
+   675→    return await wrapped()
+   676→           ^^^^^^^^^^^^^^^
+   677→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/dispatcher.py", line 276, in _listen_update
+   678→    return await self.propagate_event(update_type=update_type, event=event, **kwargs)
+   679→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   680→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 146, in propagate_event
+   681→    return await observer.wrap_outer_middleware(_wrapped, event=event, data=kwargs)
+   682→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   683→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 141, in _wrapped
+   684→    return await self._propagate_event(
+   685→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   686→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 174, in _propagate_event
+   687→    response = await router.propagate_event(update_type=update_type, event=event, **kwargs)
+   688→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   689→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 146, in propagate_event
+   690→    return await observer.wrap_outer_middleware(_wrapped, event=event, data=kwargs)
+   691→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   692→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 141, in _wrapped
+   693→    return await self._propagate_event(
+   694→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   695→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 166, in _propagate_event
+   696→    response = await observer.trigger(event, **kwargs)
+   697→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   698→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/telegram.py", line 121, in trigger
+   699→    return await wrapped_inner(event, kwargs)
+   700→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   701→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/handler.py", line 43, in call
+   702→    return await wrapped()
+   703→           ^^^^^^^^^^^^^^^
+   704→  File "/home/runner/work/asya-bot/asya-bot/bot/handlers/chat.py", line 489, in handle_photo
+   705→    if not await _check_user(message):
+   706→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   707→  File "/home/runner/work/asya-bot/asya-bot/bot/handlers/chat.py", line 177, in _check_user
+   708→    user = await get_or_create_user(
+   709→           ^^^^^^^^^^^^^^^^^^^^^^^^^
+   710→  File "/home/runner/work/asya-bot/asya-bot/bot/database.py", line 221, in get_or_create_user
+   711→    await db.execute(
+   712→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiosqlite/core.py", line 193, in execute
+   713→    cursor = await self._execute(self._conn.execute, sql, parameters)
+   714→             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   715→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiosqlite/core.py", line 132, in _execute
+   716→    return await future
+   717→           ^^^^^^^^^^^^
+   718→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiosqlite/core.py", line 115, in run
+   719→    result = function()
+   720→             ^^^^^^^^^^
+   721→sqlite3.OperationalError: database is locked
+   722→2026-06-13 11:03:29 [INFO] asya.ai.local: Loading local model: models/Qwen3-4B-Q4_K_M.gguf (n_ctx=4096, n_threads=4)
+   723→llama_context: n_ctx_seq (4096) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+   724→2026-06-13 11:03:34 [INFO] asya.ai.local: Local model loaded in 5.4s (Qwen3-4B Q4_K_M, ctx=4096, threads=4)
+   725→Error: -13 11:03:34 [ERROR] aiogram.event: Cause exception while process update id=628838751 by bot id=8786860829
+   726→OperationalError: database is locked
+   727→Traceback (most recent call last):
+   728→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/dispatcher.py", line 309, in _process_update
+   729→    response = await self.feed_update(bot, update, **kwargs)
+   730→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   731→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/dispatcher.py", line 158, in feed_update
+   732→    response = await self.update.wrap_outer_middleware(
+   733→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   734→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/middlewares/error.py", line 25, in __call__
+   735→    return await handler(event, data)
+   736→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   737→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/middlewares/user_context.py", line 56, in __call__
+   738→    return await handler(event, data)
+   739→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   740→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/fsm/middleware.py", line 42, in __call__
+   741→    return await handler(event, data)
+   742→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   743→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/telegram.py", line 121, in trigger
+   744→    return await wrapped_inner(event, kwargs)
+   745→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   746→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/handler.py", line 43, in call
+   747→    return await wrapped()
+   748→           ^^^^^^^^^^^^^^^
+   749→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/dispatcher.py", line 276, in _listen_update
+   750→    return await self.propagate_event(update_type=update_type, event=event, **kwargs)
+   751→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   752→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 146, in propagate_event
+   753→    return await observer.wrap_outer_middleware(_wrapped, event=event, data=kwargs)
+   754→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   755→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 141, in _wrapped
+   756→    return await self._propagate_event(
+   757→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   758→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 174, in _propagate_event
+   759→    response = await router.propagate_event(update_type=update_type, event=event, **kwargs)
+   760→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   761→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 146, in propagate_event
+   762→    return await observer.wrap_outer_middleware(_wrapped, event=event, data=kwargs)
+   763→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   764→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 141, in _wrapped
+   765→    return await self._propagate_event(
+   766→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   767→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/router.py", line 166, in _propagate_event
+   768→    response = await observer.trigger(event, **kwargs)
+   769→               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   770→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/telegram.py", line 121, in trigger
+   771→    return await wrapped_inner(event, kwargs)
+   772→           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   773→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiogram/dispatcher/event/handler.py", line 43, in call
+   774→    return await wrapped()
+   775→           ^^^^^^^^^^^^^^^
+   776→  File "/home/runner/work/asya-bot/asya-bot/bot/handlers/chat.py", line 489, in handle_photo
+   777→    if not await _check_user(message):
+   778→           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   779→  File "/home/runner/work/asya-bot/asya-bot/bot/handlers/chat.py", line 177, in _check_user
+   780→    user = await get_or_create_user(
+   781→           ^^^^^^^^^^^^^^^^^^^^^^^^^
+   782→  File "/home/runner/work/asya-bot/asya-bot/bot/database.py", line 221, in get_or_create_user
+   783→    await db.execute(
+   784→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiosqlite/core.py", line 193, in execute
+   785→    cursor = await self._execute(self._conn.execute, sql, parameters)
+   786→             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   787→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiosqlite/core.py", line 132, in _execute
+   788→    return await future
+   789→           ^^^^^^^^^^^^
+   790→  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/aiosqlite/core.py", line 115, in run
+   791→    result = function()
+   792→             ^^^^^^^^^^
+   793→sqlite3.OperationalError: database is locked
+   794→
