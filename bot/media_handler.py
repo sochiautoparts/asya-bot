@@ -43,10 +43,10 @@ class MediaHandler:
     """Smart media handler with quality scoring and album support"""
     
     def __init__(self):
-        # Minimum requirements — relaxed to capture more article photos
-        self.MIN_WIDTH = 200
-        self.MIN_HEIGHT = 150
-        self.MIN_SIZE_KB = 15
+        # Minimum requirements — real article photos, not icons/thumbnails/avatars
+        self.MIN_WIDTH = 300
+        self.MIN_HEIGHT = 200
+        self.MIN_SIZE_KB = 5
         self.MAX_SIZE_KB = 5000  # 5MB max for fast loading
         
         # Bad keywords in URL (reject these images)

@@ -741,6 +741,16 @@ _JUNK_IMAGE_STEMS = {
     "no-image", "no_image", "coming-soon", "coming_soon",
     "spacer", "blank", "transparent", "pixel", "tracker",
     "1x1", "beacon", "spinner", "loading",
+    # v7.0: additional junk stems
+    "gravatar", "avatar", "userpic", "mugshot", "headshot",
+    "screenshot", "screen_shot", "infographic", "chart",
+    "emoji", "sticker", "clipart", "clip_art",
+    "icon", "logo", "badge", "favicon",
+    "banner", "ad_banner", "sponsor", "promo",
+    "author_photo", "author_img", "profile_photo",
+    "related_post", "related_article", "recommended",
+    "newsletter", "subscribe", "popup",
+    "sidebar", "widget", "footer_img", "header_img",
 }
 
 # Tiny thumbnail size patterns in URL query params — skip these
@@ -782,9 +792,17 @@ def _is_junk_image_url(url: str) -> bool:
         if any(skip in domain for skip in _SKIP_IMAGE_DOMAINS):
             return True
 
-        # Skip icon/logo/badge/button filenames in path
+        # Skip icon/logo/badge/button/social/author/junk filenames in path
+        # v7.0: Expanded list to catch more junk image patterns
         if any(kw in path_lower for kw in [
             "icon", "avatar", "logo", "favicon", "badge", "button", "banner",
+            "gravatar", "userpic", "headshot", "mugshot", "portrait",
+            "author-photo", "author-img", "author-image", "profile-photo", "profile-img",
+            "share", "social", "facebook", "twitter", "telegram", "whatsapp",
+            "sidebar", "widget", "related-post", "related-article", "recommended",
+            "newsletter", "subscribe", "popup", "screenshot", "screen-shot",
+            "chart", "infographic", "diagram", "emoji", "sticker", "clipart",
+            "advert", "sponsor", "promo", "doubleclick", "adsense",
         ]):
             return True
 

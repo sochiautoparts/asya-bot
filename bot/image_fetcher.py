@@ -1,4 +1,4 @@
-"""Smart Image Fetcher v6.0 — Clean article-first image sourcing for asya-bot.
+"""Smart Image Fetcher v7.0 — Clean article-first image sourcing for asya-bot.
 
 PHILOSOPHY: Automotive news articles ALREADY have photos attached.
 No need for image search engines, stock photos, or AI generation.
@@ -9,15 +9,16 @@ PRIORITY PIPELINE:
   2. Article page images — og:image, twitter:image, JSON-LD, <img> tags
   3. DONE — that's it. No search, no AI, no bullshit.
 
-v6.0 CHANGES:
-  - FIXED: HTML entity decoding (&amp; &#038; etc.) — was causing broken URLs
-  - FIXED: Tiny thumbnail filtering (width<200, /feed/ URLs, 108x108 patterns)
-  - FIXED: Default/generic image filtering (business_card, placeholder, etc.)
-  - FIXED: Normalized URL dedup (after unescape, same image no longer counted twice)
-  - ADDED: Thumbnail URL upgrade (BBC /240/→/640/, Autosport /s6/→/s12/, Reddit width=140→640)
-  - IMPROVED: Dimension check raised to 300x200 (real photos, not thumbnails)
-  - REMOVED: Duplicate extract_rss_images() — news.py handles this now with better filtering
-  - KEPT: SHA256 content deduplication, ImageCache, basic junk filtering
+v7.0 CHANGES:
+  - CRITICAL: Comprehensive junk image filtering — blocks avatars, social buttons,
+    charts, screenshots, infographics, author photos, sidebar widgets, related posts
+  - CRITICAL: Aspect ratio filtering — bans banner-shaped (728x90) and button-shaped images
+  - CRITICAL: Minimum dimension raised to 300x200 — no more tiny thumbnails
+  - CRITICAL: Content-based filtering — detects screenshots, charts, SVGs, UI elements
+  - IMPROVED: JUNK_PATH_KEYWORDS massively expanded (60+ patterns)
+  - IMPROVED: Dimension validation with aspect ratio check (must look like a photo)
+  - IMPROVED: Article scraping focuses on content areas, skips sidebar/footer/header
+  - KEPT: SHA256 content deduplication, ImageCache, thumbnail upgrades
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ logger = logging.getLogger("asya.image_fetcher")
 
 IMAGE_CACHE_DIR = Path("data/image_cache")
 IMAGE_CACHE_TTL_DAYS = 7
-IMAGE_MIN_SIZE_BYTES = 1_000          # 1 KB — relaxed to capture more article images
+IMAGE_MIN_SIZE_BYTES = 5_000          # 5 KB — below this is definitely an icon/tracker/pixel
 IMAGE_MAX_SIZE_BYTES = 5_242_880      # 5 MB — Telegram limit
 MAX_IMAGES_PER_POST = 10              # Telegram mediagroup limit
 IMAGE_FETCH_TIMEOUT = 15.0
@@ -59,14 +60,51 @@ JUNK_DOMAINS = {
 }
 
 JUNK_PATH_KEYWORDS = [
+    # ── UI elements & chrome ──
     "favicon", "avatar", "spinner", "loading", "placeholder",
     "pixel", "tracker", "beacon", "counter", "analytics",
     "1x1", "spacer", "blank", "transparent",
     "recaptcha", "captcha",
     "icon", "logo", "badge", "button", "btn",
-    "share", "facebook", "twitter", "vk.",
+    # ── Social media buttons & sharing ──
+    "share", "facebook", "twitter", "vk.", "vkontakte",
     "telegram", "whatsapp", "instagram", "youtube", "tiktok",
-    "banner", "ad-", "_ad_", "advert",
+    "pinterest", "linkedin", "reddit",
+    "social-media", "social_share", "share-btn",
+    # ── Ads & banners ──
+    "banner", "ad-", "_ad_", "advert", "sponsor", "promo",
+    "doubleclick", "adservice", "adsense",
+    # ── Author & profile ──
+    "gravatar", "author-photo", "author-img", "author-image",
+    "profile-photo", "profile-img", "userpic", "user-pic",
+    "mugshot", "headshot", "portrait",
+    # ── Sidebar, footer, header, navigation ──
+    "sidebar", "widget", "footer", "header", "navbar",
+    "navigation", "menu", "breadcrumb", "pagination",
+    "related-post", "related-article", "recommended",
+    "popular-post", "trending", "also-read", "read-more",
+    "newsletter", "subscribe", "popup", "modal", "overlay",
+    # ── Charts, graphs, infographics (not photos) ──
+    "chart", "graph", "infographic", "diagram",
+    "plot-", "pie-chart", "bar-chart", "line-chart",
+    "data-viz", "visualization",
+    # ── Screenshots & UI captures (not real photos) ──
+    "screenshot", "screen-shot", "screen_capture",
+    "ui-element", "mockup", "wireframe",
+    # ── Emoji, stickers, clipart ──
+    "emoji", "sticker", "clipart", "clip-art",
+    "smiley", "emoticon",
+    # ── Generic / default images ──
+    "default-image", "default_image", "no-image", "no_image",
+    "coming-soon", "coming_soon", "image-not-found",
+    "placeholder-image", "dummy-image",
+    # ── Comment section ──
+    "comment-avatar", "comment-img", "disqus",
+    # ── Weather, maps (not car photos) ──
+    "weather-icon", "map-marker", "map-pin",
+    # ── Rating / review stars ──
+    "star-rating", "rating-star", "review-star",
+    "upvote", "downvote", "karma",
 ]
 
 # Generic/default image filenames — not real content
@@ -359,12 +397,26 @@ async def _download_image(client: httpx.AsyncClient, url: str) -> Optional[bytes
             import io
             img = Image.open(io.BytesIO(img_bytes))
             w, h = img.size
-            # Real article photos are at least 200x150
-            # (was 300x200 but that rejected many valid article photos)
-            if w < 200 or h < 150:
+            # Minimum dimensions: 300x200 — real photos are at least this size
+            # Anything smaller is an icon, avatar, thumbnail, or tracking pixel
+            if w < 300 or h < 200:
+                logger.debug(f"Image too small: {w}x{h} — skipping")
                 return None
-            # Skip banners (extreme aspect ratios)
-            if w / max(h, 1) > 4.0 or h / max(w, 1) > 4.0:
+            # Skip banners (extreme aspect ratios like 728x90, 320x50, etc.)
+            # Normal photos are between 1:2.5 and 2.5:1
+            aspect = w / max(h, 1)
+            if aspect > 3.0 or aspect < 0.33:
+                logger.debug(f"Image bad aspect ratio: {w}x{h} (ratio={aspect:.2f}) — skipping banner/button")
+                return None
+            # Skip square images between 300-400px — usually avatars or icons
+            # Real car photos are almost never perfectly square
+            if abs(w - h) < 20 and w < 500:
+                logger.debug(f"Image too square (probably avatar/icon): {w}x{h} — skipping")
+                return None
+            # Skip very small images even if they pass 300x200 — small area = junk
+            area = w * h
+            if area < 40000:  # 200x200 = 40000 — below this is definitely not a real photo
+                logger.debug(f"Image area too small: {area}px ({w}x{h}) — skipping")
                 return None
         except ImportError:
             pass  # PIL not available

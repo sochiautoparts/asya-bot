@@ -761,9 +761,10 @@ class NewsConfig:
         # Industry analysis (no RSS images — relies on article page scraping)
         NewsSource("Automotive World", "https://www.automotiveworld.com/feed/", "en", "auto"),
         # Reddit communities — user-generated automotive content
-        NewsSource("Reddit r/cars", "https://www.reddit.com/r/cars/.rss", "en", "auto"),
+        # NOTE: Reddit rate-limits RSS aggressively (429). Only r/MechanicAdvice works reliably.
+        # r/Justrolledintotheshop: REMOVED — persistent 429 errors (June 2026)
+        # r/cars: REMOVED — 429 errors + no images in RSS (requires scraping)
         NewsSource("Reddit r/MechanicAdvice", "https://www.reddit.com/r/MechanicAdvice/.rss", "en", "auto"),
-        NewsSource("Reddit r/Justrolledintotheshop", "https://www.reddit.com/r/Justrolledintotheshop/.rss", "en", "auto"),
     ])
 
     # Google News RSS query strings for global automotive coverage
