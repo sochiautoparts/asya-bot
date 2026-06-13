@@ -35,7 +35,6 @@ from bot.database import (
 )
 from ai.router import ai_router
 from bot.partners import partner_manager
-from bot.web_search import web_search, search_news, SearchResult
 from bot.content_engine import (
     get_best_news_item, get_date_context,
     _is_topic_covered, _extract_entities, _score_interest,
@@ -768,42 +767,75 @@ class ChannelManager:
         return images[0] if images else None
 
     async def _get_post_images(self, news_item: Dict) -> tuple:
-        """Get images for a news post — simple article-first approach.
+        """Get images for a news post — download directly from JSON URLs.
 
-        v5.0: No search engines, no AI generation, no NSFW moderation.
-        Just take the photos that are already in the article/RSS feed.
-
-        1. RSS images (media:content, enclosures, <img> in content)
-        2. Article page images (og:image, JSON-LD, <img> tags)
-        3. Done. If no images — post goes text-only.
+        v6.0: Images come pre-extracted from the external parser (news.json).
+        No RSS scraping, no article page crawling, no search engines.
+        Just download the image URLs from the JSON data.
 
         Returns (image_list: List[bytes], source: str)
-        source is 'rss', 'article', 'cache', or 'none'.
+        source is 'json', 'cache', or 'none'.
         """
         title = news_item.get("title", "")
-        # Use resolved_url (from Google News redirect resolution) if available
-        article_url = news_item.get("resolved_url", "") or news_item.get("url", "")
         image_urls = news_item.get("image_urls", [])
 
-        try:
-            from bot.image_fetcher import ImageFetcher
-            if not hasattr(self, '_image_fetcher'):
-                self._image_fetcher = ImageFetcher()
+        if not image_urls:
+            logger.info(f"No image URLs in JSON for '{title[:50]}' — text-only post")
+            return [], "none"
 
-            images, source = await self._image_fetcher.fetch(
-                topic=title,
-                article_url=article_url,
-                image_urls=image_urls,
-                max_images=MAX_IMAGES_PER_POST,
-            )
-            if images:
-                logger.info(f"Got {len(images)} images for '{title[:50]}' (source={source})")
-            else:
-                logger.info(f"No images found for '{title[:50]}' — text-only post")
-            return images, source
+        images = []
+        downloaded = 0
+        failed = 0
 
-        except Exception as e:
-            logger.warning(f"ImageFetcher failed: {e} — text-only post")
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            for url in image_urls[:MAX_IMAGES_PER_POST]:
+                try:
+                    # Skip obviously bad URLs
+                    url_lower = url.lower()
+                    bad_patterns = ['logo', 'icon', 'banner', 'ad.', 'pixel',
+                                    'tracking', '1x1', 'spacer', 'favicon',
+                                    'avatar', 'badge', 'newsletter', 'subscribe']
+                    if any(bp in url_lower for bp in bad_patterns):
+                        continue
+
+                    resp = await client.get(url)
+                    if resp.status_code != 200:
+                        failed += 1
+                        continue
+
+                    content_type = resp.headers.get("content-type", "")
+                    if not any(ft in content_type for ft in ["image/jpeg", "image/png", "image/webp", "image/jpg"]):
+                        # Check magic bytes if content-type is missing
+                        if not (resp.content[:3] == b'\xff\xd8\xff' or  # JPEG
+                                resp.content[:4] == b'\x89PNG' or        # PNG
+                                (resp.content[:4] == b'RIFF' and resp.content[8:12] == b'WEBP')):
+                            failed += 1
+                            continue
+
+                    # Size check — skip tiny (icons) and huge (might OOM) images
+                    size_kb = len(resp.content) / 1024
+                    if size_kb < 5:  # Too small — probably icon/tracking
+                        continue
+                    if size_kb > 5000:  # Too large — skip
+                        continue
+
+                    images.append(resp.content)
+                    downloaded += 1
+
+                except (httpx.TimeoutException, httpx.HTTPError) as e:
+                    failed += 1
+                    logger.debug(f"Image download failed for {url[:60]}: {e}")
+                    continue
+                except Exception as e:
+                    failed += 1
+                    logger.debug(f"Image error for {url[:60]}: {e}")
+                    continue
+
+        if images:
+            logger.info(f"Downloaded {downloaded}/{len(image_urls)} images for '{title[:50]}' ({failed} failed)")
+            return images, "json"
+        else:
+            logger.info(f"No valid images downloaded for '{title[:50]}' ({failed} failed) — text-only post")
             return [], "none"
 
     async def _download_partner_image(self, image_url: str) -> Optional[bytes]:
@@ -1027,7 +1059,7 @@ class ChannelManager:
 
         # Generate post content using AI
         source_text = ""
-        # Use full_text if available (from article_fetcher), otherwise summary
+        # Use full_text if available (from external parser), otherwise summary
         if news_item.get("full_text"):
             source_text = news_item["full_text"]
         elif news_item.get("summary"):
@@ -1095,7 +1127,7 @@ class ChannelManager:
         image_source = "none"
         has_media = False
 
-        # Check if content_engine already fetched images (second-pass enrichment)
+        # Check if images were already pre-downloaded
         pre_fetched = news_item.get("_fetched_images", [])
         if pre_fetched:
             image_list = pre_fetched
@@ -1106,7 +1138,7 @@ class ChannelManager:
             try:
                 image_list, image_source = await self._get_post_images(news_item)
             except Exception as e:
-                logger.warning(f"Image retrieval skipped: {e}")
+                logger.warning(f"Image download skipped: {e}")
 
             has_media = len(image_list) > 0
         else:
