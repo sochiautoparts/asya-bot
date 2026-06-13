@@ -1,0 +1,225 @@
+﻿2026-06-13T18:18:51.6676726Z ##[group]Run python parser.py
+2026-06-13T18:18:51.6677079Z python parser.py
+2026-06-13T18:18:51.6700491Z shell: /usr/bin/bash -e {0}
+2026-06-13T18:18:51.6700759Z env:
+2026-06-13T18:18:51.6701231Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-06-13T18:18:51.6701656Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib/pkgconfig
+2026-06-13T18:18:51.6702062Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-06-13T18:18:51.6702435Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-06-13T18:18:51.6702804Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-06-13T18:18:51.6703171Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib
+2026-06-13T18:18:51.6703487Z   MAX_NEWS_PER_RUN: 50
+2026-06-13T18:18:51.6703709Z   MAX_PHOTOS_PER_NEWS: 5
+2026-06-13T18:18:51.6703925Z ##[endgroup]
+2026-06-13T18:18:51.8555005Z 2026-06-13 18:18:51 [INFO] ============================================================
+2026-06-13T18:18:51.8556265Z 2026-06-13 18:18:51 [INFO] Auto News Parser — starting...
+2026-06-13T18:18:51.8557066Z 2026-06-13 18:18:51 [INFO] Max news per run: 50
+2026-06-13T18:18:51.8557713Z 2026-06-13 18:18:51 [INFO] Max photos per news: 5
+2026-06-13T18:18:51.8558246Z 2026-06-13 18:18:51 [INFO] ============================================================
+2026-06-13T18:18:52.2276503Z 2026-06-13 18:18:52 [INFO] Phase 1: Fetching RSS feeds...
+2026-06-13T18:18:53.2513601Z 2026-06-13 18:18:53 [INFO] HTTP Request: GET https://tass.ru/rss/v2.xml?sections=%D0%90%D0%B2%D1%82%D0%BE "HTTP/1.1 200 OK"
+2026-06-13T18:18:53.4111056Z 2026-06-13 18:18:53 [INFO] [ТАСС Авто] Fetched 15 items
+2026-06-13T18:18:55.7524730Z 2026-06-13 18:18:55 [INFO] HTTP Request: GET https://auto.mail.ru/rss/ "HTTP/1.1 200 OK"
+2026-06-13T18:18:55.7588838Z 2026-06-13 18:18:55 [INFO] [Авто Mail.ru] Fetched 15 items
+2026-06-13T18:18:56.8433254Z 2026-06-13 18:18:56 [INFO] HTTP Request: GET https://www.kommersant.ru/RSS/auto.xml "HTTP/1.1 301 Moved Permanently"
+2026-06-13T18:18:57.0901648Z 2026-06-13 18:18:57 [INFO] HTTP Request: GET https://www.kommersant.ru/rss/auto.xml "HTTP/1.1 200 OK"
+2026-06-13T18:18:57.1307014Z 2026-06-13 18:18:57 [INFO] [Коммерсант Авто] Fetched 15 items
+2026-06-13T18:18:58.8888004Z 2026-06-13 18:18:58 [INFO] HTTP Request: GET https://5koleso.ru/rss/ "HTTP/1.1 301 Moved Permanently"
+2026-06-13T18:18:59.7574334Z 2026-06-13 18:18:59 [INFO] HTTP Request: GET https://5koleso.ru/feed/ "HTTP/1.1 200 OK"
+2026-06-13T18:19:00.2450759Z 2026-06-13 18:19:00 [INFO] [5Колесо] Fetched 15 items
+2026-06-13T18:19:01.0110782Z 2026-06-13 18:19:01 [INFO] HTTP Request: GET https://www.autocar.co.uk/rss/News "HTTP/1.1 200 OK"
+2026-06-13T18:19:01.2531558Z 2026-06-13 18:19:01 [INFO] [Autocar UK] Fetched 15 items
+2026-06-13T18:19:02.2294566Z 2026-06-13 18:19:02 [INFO] HTTP Request: GET https://www.carmagazine.co.uk/api/rss "HTTP/1.1 301 Moved Permanently"
+2026-06-13T18:19:02.2866311Z 2026-06-13 18:19:02 [INFO] HTTP Request: GET http://www.carmagazine.co.uk/api/rss/ "HTTP/1.1 301 Moved Permanently"
+2026-06-13T18:19:03.7385914Z 2026-06-13 18:19:03 [INFO] HTTP Request: GET https://www.carmagazine.co.uk/api/rss/ "HTTP/1.1 200 OK"
+2026-06-13T18:19:04.9258053Z 2026-06-13 18:19:04 [INFO] [CAR Magazine] Fetched 15 items
+2026-06-13T18:19:05.8368333Z 2026-06-13 18:19:05 [INFO] HTTP Request: GET https://cnevpost.com/feed/ "HTTP/1.1 200 OK"
+2026-06-13T18:19:05.9303766Z 2026-06-13 18:19:05 [INFO] [CnEVPost] Fetched 15 items
+2026-06-13T18:19:06.8265589Z 2026-06-13 18:19:06 [INFO] HTTP Request: GET https://paultan.org/feed/ "HTTP/1.1 200 OK"
+2026-06-13T18:19:07.0260765Z 2026-06-13 18:19:07 [INFO] [PaulTan] Fetched 15 items
+2026-06-13T18:19:07.6470126Z 2026-06-13 18:19:07 [INFO] HTTP Request: GET https://www.autosport.com/rss/f1/news/ "HTTP/1.1 200 OK"
+2026-06-13T18:19:07.6769029Z 2026-06-13 18:19:07 [INFO] [Autosport] Fetched 15 items
+2026-06-13T18:19:08.2877348Z 2026-06-13 18:19:08 [INFO] HTTP Request: GET https://carexpert.com.au/feed/ "HTTP/1.1 301 Moved Permanently"
+2026-06-13T18:19:08.6224046Z 2026-06-13 18:19:08 [INFO] HTTP Request: GET https://www.carexpert.com.au/feed/ "HTTP/1.1 200 OK"
+2026-06-13T18:19:08.7667015Z 2026-06-13 18:19:08 [INFO] [CarExpert] Fetched 15 items
+2026-06-13T18:19:09.4517571Z 2026-06-13 18:19:09 [INFO] HTTP Request: GET https://www.thedrive.com/feed "HTTP/1.1 200 OK"
+2026-06-13T18:19:09.5146699Z 2026-06-13 18:19:09 [INFO] [TheDrive] Fetched 13 items
+2026-06-13T18:19:10.2098945Z 2026-06-13 18:19:10 [INFO] HTTP Request: GET https://jalopnik.com/rss "HTTP/1.1 301 Moved Permanently"
+2026-06-13T18:19:10.3915359Z 2026-06-13 18:19:10 [INFO] HTTP Request: GET https://www.jalopnik.com/rss/ "HTTP/1.1 301 Moved Permanently"
+2026-06-13T18:19:10.4230583Z 2026-06-13 18:19:10 [INFO] HTTP Request: GET https://www.jalopnik.com/feed/ "HTTP/1.1 200 OK"
+2026-06-13T18:19:10.4382181Z 2026-06-13 18:19:10 [INFO] [Jalopnik] Fetched 15 items
+2026-06-13T18:19:11.0794125Z 2026-06-13 18:19:11 [INFO] HTTP Request: GET https://www.autoexpress.co.uk/rss "HTTP/1.1 301 Moved Permanently"
+2026-06-13T18:19:11.1457556Z 2026-06-13 18:19:11 [INFO] HTTP Request: GET https://www.autoexpress.co.uk/feed/all "HTTP/1.1 200 OK"
+2026-06-13T18:19:11.1698082Z 2026-06-13 18:19:11 [INFO] [AutoExpress] Fetched 15 items
+2026-06-13T18:19:12.0252655Z 2026-06-13 18:19:12 [INFO] HTTP Request: GET https://theautopian.com/feed/ "HTTP/1.1 301 Moved Permanently"
+2026-06-13T18:19:12.3522624Z 2026-06-13 18:19:12 [INFO] HTTP Request: GET https://www.theautopian.com/feed/ "HTTP/1.1 200 OK"
+2026-06-13T18:19:12.5740847Z 2026-06-13 18:19:12 [INFO] [The Autopian] Fetched 10 items
+2026-06-13T18:19:13.2429703Z 2026-06-13 18:19:13 [INFO] HTTP Request: GET https://www.carscoops.com/feed/ "HTTP/1.1 200 OK"
+2026-06-13T18:19:13.4413139Z 2026-06-13 18:19:13 [INFO] [CarScoops] Fetched 15 items
+2026-06-13T18:19:14.0707743Z 2026-06-13 18:19:14 [INFO] HTTP Request: GET https://www.motorsport.com/rss/all/news/ "HTTP/1.1 200 OK"
+2026-06-13T18:19:14.1006861Z 2026-06-13 18:19:14 [INFO] [Motorsport.com] Fetched 15 items
+2026-06-13T18:19:15.1283596Z 2026-06-13 18:19:15 [INFO] HTTP Request: GET https://feeds.bbci.co.uk/sport/formula1/rss.xml "HTTP/1.1 200 OK"
+2026-06-13T18:19:15.1742634Z 2026-06-13 18:19:15 [INFO] [BBC Sport F1] Fetched 15 items
+2026-06-13T18:19:16.3927205Z 2026-06-13 18:19:16 [INFO] HTTP Request: GET https://carnewschina.com/feed/ "HTTP/1.1 200 OK"
+2026-06-13T18:19:16.4032932Z 2026-06-13 18:19:16 [INFO] [CarNewsChina] Fetched 10 items
+2026-06-13T18:19:17.0361987Z 2026-06-13 18:19:17 [INFO] HTTP Request: GET https://electrek.co/feed/ "HTTP/1.1 200 OK"
+2026-06-13T18:19:17.1328514Z 2026-06-13 18:19:17 [INFO] [Electrek] Fetched 15 items
+2026-06-13T18:19:17.8268108Z 2026-06-13 18:19:17 [INFO] HTTP Request: GET https://www.caranddriver.com/rss/news.xml "HTTP/1.1 200 OK"
+2026-06-13T18:19:17.8461960Z 2026-06-13 18:19:17 [INFO] [Car & Driver] Fetched 15 items
+2026-06-13T18:19:19.6493708Z 2026-06-13 18:19:19 [INFO] HTTP Request: GET https://www.reddit.com/r/MechanicAdvice/.rss "HTTP/1.1 200 OK"
+2026-06-13T18:19:19.7079331Z 2026-06-13 18:19:19 [INFO] [Reddit MechanicAdvice] Fetched 15 items
+2026-06-13T18:19:20.2127916Z 2026-06-13 18:19:20 [INFO] Phase 2: Fetching Google News RSS...
+2026-06-13T18:19:20.6930857Z 2026-06-13 18:19:20 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=%D0%B0%D0%B2%D1%82%D0%BE%D0%BC%D0%BE%D0%B1%D0%B8%D0%BB%D0%B8+%D0%BD%D0%BE%D0%B2%D0%BE%D1%81%D1%82%D0%B8&hl=ru&gl=RU&ceid=RU:ru "HTTP/1.1 200 OK"
+2026-06-13T18:19:20.7780667Z 2026-06-13 18:19:20 [INFO] [GoogleNews_автомобили новости] Fetched 15 items
+2026-06-13T18:19:22.1502004Z 2026-06-13 18:19:22 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=%D0%B0%D0%B2%D1%82%D0%BE%D0%B7%D0%B0%D0%BF%D1%87%D0%B0%D1%81%D1%82%D0%B8+%D1%80%D1%8B%D0%BD%D0%BE%D0%BA&hl=ru&gl=RU&ceid=RU:ru "HTTP/1.1 200 OK"
+2026-06-13T18:19:22.1915364Z 2026-06-13 18:19:22 [INFO] [GoogleNews_автозапчасти рынок] Fetched 15 items
+2026-06-13T18:19:23.6680388Z 2026-06-13 18:19:23 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=%D0%BA%D0%B8%D1%82%D0%B0%D0%B9%D1%81%D0%BA%D0%B8%D0%B5+%D0%B0%D0%B2%D1%82%D0%BE%D0%BC%D0%BE%D0%B1%D0%B8%D0%BB%D0%B8+%D1%8D%D0%BA%D1%81%D0%BF%D0%BE%D1%80%D1%82&hl=ru&gl=RU&ceid=RU:ru "HTTP/1.1 200 OK"
+2026-06-13T18:19:23.7321954Z 2026-06-13 18:19:23 [INFO] [GoogleNews_китайские автомобили] Fetched 15 items
+2026-06-13T18:19:25.1756295Z 2026-06-13 18:19:25 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=%D1%8D%D0%BB%D0%B5%D0%BA%D1%82%D1%80%D0%BE%D0%BC%D0%BE%D0%B1%D0%B8%D0%BB%D0%B8+%D0%B7%D0%B0%D1%80%D1%8F%D0%B4%D0%BD%D1%8B%D0%B5+%D1%81%D1%82%D0%B0%D0%BD%D1%86%D0%B8%D0%B8&hl=ru&gl=RU&ceid=RU:ru "HTTP/1.1 200 OK"
+2026-06-13T18:19:25.2400682Z 2026-06-13 18:19:25 [INFO] [GoogleNews_электромобили зарядн] Fetched 15 items
+2026-06-13T18:19:26.9192134Z 2026-06-13 18:19:26 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=%D0%9F%D0%94%D0%94+%D0%B8%D0%B7%D0%BC%D0%B5%D0%BD%D0%B5%D0%BD%D0%B8%D1%8F+%D1%88%D1%82%D1%80%D0%B0%D1%84%D1%8B&hl=ru&gl=RU&ceid=RU:ru "HTTP/1.1 200 OK"
+2026-06-13T18:19:26.9820372Z 2026-06-13 18:19:26 [INFO] [GoogleNews_ПДД изменения штрафы] Fetched 15 items
+2026-06-13T18:19:28.3373131Z 2026-06-13 18:19:28 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=%D0%B0%D0%B2%D1%82%D0%BE%D0%BA%D1%80%D0%B5%D0%B4%D0%B8%D1%82+%D1%81%D1%82%D1%80%D0%B0%D1%85%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5+%D0%9E%D0%A1%D0%90%D0%93%D0%9E&hl=ru&gl=RU&ceid=RU:ru "HTTP/1.1 200 OK"
+2026-06-13T18:19:28.3744375Z 2026-06-13 18:19:28 [INFO] [GoogleNews_автокредит страхован] Fetched 15 items
+2026-06-13T18:19:29.4272796Z 2026-06-13 18:19:29 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=automotive+industry+news&hl=en&gl=US&ceid=US:en "HTTP/1.1 302 Found"
+2026-06-13T18:19:29.9679935Z 2026-06-13 18:19:29 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=automotive+industry+news&hl=en-US&gl=US&ceid=US:en "HTTP/1.1 200 OK"
+2026-06-13T18:19:30.0248964Z 2026-06-13 18:19:30 [INFO] [GoogleNews_automotive industry ] Fetched 15 items
+2026-06-13T18:19:31.0756695Z 2026-06-13 18:19:31 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=electric+vehicles+2026&hl=en&gl=US&ceid=US:en "HTTP/1.1 302 Found"
+2026-06-13T18:19:31.6897192Z 2026-06-13 18:19:31 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=electric+vehicles+2026&hl=en-US&gl=US&ceid=US:en "HTTP/1.1 200 OK"
+2026-06-13T18:19:31.7444165Z 2026-06-13 18:19:31 [INFO] [GoogleNews_electric vehicles 20] Fetched 15 items
+2026-06-13T18:19:32.7940270Z 2026-06-13 18:19:32 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=autonomous+driving+self+driving&hl=en&gl=US&ceid=US:en "HTTP/1.1 302 Found"
+2026-06-13T18:19:33.2413971Z 2026-06-13 18:19:33 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=autonomous+driving+self+driving&hl=en-US&gl=US&ceid=US:en "HTTP/1.1 200 OK"
+2026-06-13T18:19:33.2975033Z 2026-06-13 18:19:33 [INFO] [GoogleNews_autonomous driving s] Fetched 15 items
+2026-06-13T18:19:34.3488949Z 2026-06-13 18:19:34 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=car+recalls+safety&hl=en&gl=US&ceid=US:en "HTTP/1.1 302 Found"
+2026-06-13T18:19:35.0080751Z 2026-06-13 18:19:35 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=car+recalls+safety&hl=en-US&gl=US&ceid=US:en "HTTP/1.1 200 OK"
+2026-06-13T18:19:35.0635086Z 2026-06-13 18:19:35 [INFO] [GoogleNews_car recalls safety] Fetched 15 items
+2026-06-13T18:19:36.1138755Z 2026-06-13 18:19:36 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=auto+shows+2026&hl=en&gl=US&ceid=US:en "HTTP/1.1 302 Found"
+2026-06-13T18:19:36.6955850Z 2026-06-13 18:19:36 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=auto+shows+2026&hl=en-US&gl=US&ceid=US:en "HTTP/1.1 200 OK"
+2026-06-13T18:19:36.7501283Z 2026-06-13 18:19:36 [INFO] [GoogleNews_auto shows 2026] Fetched 15 items
+2026-06-13T18:19:37.8046101Z 2026-06-13 18:19:37 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=hydrogen+fuel+cell+vehicle&hl=en&gl=US&ceid=US:en "HTTP/1.1 302 Found"
+2026-06-13T18:19:38.4031238Z 2026-06-13 18:19:38 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=hydrogen+fuel+cell+vehicle&hl=en-US&gl=US&ceid=US:en "HTTP/1.1 200 OK"
+2026-06-13T18:19:38.4578176Z 2026-06-13 18:19:38 [INFO] [GoogleNews_hydrogen fuel cell v] Fetched 15 items
+2026-06-13T18:19:39.5101764Z 2026-06-13 18:19:39 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=EV+battery+technology+solid+state&hl=en&gl=US&ceid=US:en "HTTP/1.1 302 Found"
+2026-06-13T18:19:40.1497874Z 2026-06-13 18:19:40 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=EV+battery+technology+solid+state&hl=en-US&gl=US&ceid=US:en "HTTP/1.1 200 OK"
+2026-06-13T18:19:40.2050765Z 2026-06-13 18:19:40 [INFO] [GoogleNews_EV battery technolog] Fetched 15 items
+2026-06-13T18:19:41.2564821Z 2026-06-13 18:19:41 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=supply+chain+automotive+chips&hl=en&gl=US&ceid=US:en "HTTP/1.1 302 Found"
+2026-06-13T18:19:41.8300446Z 2026-06-13 18:19:41 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=supply+chain+automotive+chips&hl=en-US&gl=US&ceid=US:en "HTTP/1.1 200 OK"
+2026-06-13T18:19:41.8833584Z 2026-06-13 18:19:41 [INFO] [GoogleNews_supply chain automot] Fetched 15 items
+2026-06-13T18:19:42.9396928Z 2026-06-13 18:19:42 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=used+car+market+prices&hl=en&gl=US&ceid=US:en "HTTP/1.1 302 Found"
+2026-06-13T18:19:43.3756117Z 2026-06-13 18:19:43 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=used+car+market+prices&hl=en-US&gl=US&ceid=US:en "HTTP/1.1 200 OK"
+2026-06-13T18:19:43.4284878Z 2026-06-13 18:19:43 [INFO] [GoogleNews_used car market pric] Fetched 15 items
+2026-06-13T18:19:44.4853385Z 2026-06-13 18:19:44 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=Chinese+cars+global+expansion&hl=en&gl=US&ceid=US:en "HTTP/1.1 302 Found"
+2026-06-13T18:19:45.1891236Z 2026-06-13 18:19:45 [INFO] HTTP Request: GET https://news.google.com/rss/search?q=Chinese+cars+global+expansion&hl=en-US&gl=US&ceid=US:en "HTTP/1.1 200 OK"
+2026-06-13T18:19:45.2461366Z 2026-06-13 18:19:45 [INFO] [GoogleNews_Chinese cars global ] Fetched 15 items
+2026-06-13T18:19:46.2547305Z 2026-06-13 18:19:46 [INFO] Total new items after dedup: 499
+2026-06-13T18:19:46.2548605Z 2026-06-13 18:19:46 [INFO] Phase 3: Fetching article images...
+2026-06-13T18:19:46.8002770Z 2026-06-13 18:19:46 [INFO] HTTP Request: GET https://tass.ru/proisshestviya/27749741 "HTTP/1.1 200 OK"
+2026-06-13T18:19:47.3023062Z 2026-06-13 18:19:47 [INFO]   [1/50] ВСУ атаковали гараж больницы в Херсонской области... — NO IMAGES
+2026-06-13T18:19:47.4238516Z 2026-06-13 18:19:47 [INFO] HTTP Request: GET https://tass.ru/proisshestviya/27749727 "HTTP/1.1 200 OK"
+2026-06-13T18:19:47.9249583Z 2026-06-13 18:19:47 [INFO]   [2/50] В Тульской области утонули двое детей... — NO IMAGES
+2026-06-13T18:19:48.0471079Z 2026-06-13 18:19:48 [INFO] HTTP Request: GET https://tass.ru/proisshestviya/27749721 "HTTP/1.1 200 OK"
+2026-06-13T18:19:48.5485299Z 2026-06-13 18:19:48 [INFO]   [3/50] Минздрав: 19 пострадавших в ДТП в Одинцове госпитализировали... — NO IMAGES
+2026-06-13T18:19:48.6693061Z 2026-06-13 18:19:48 [INFO] HTTP Request: GET https://tass.ru/mezhdunarodnaya-panorama/27749719 "HTTP/1.1 200 OK"
+2026-06-13T18:19:49.1701499Z 2026-06-13 18:19:49 [INFO]   [4/50] Yle: в Финляндии пропустившие из-за БПЛА работу сотрудники с... — NO IMAGES
+2026-06-13T18:19:49.2900791Z 2026-06-13 18:19:49 [INFO] HTTP Request: GET https://tass.ru/proisshestviya/27749711 "HTTP/1.1 200 OK"
+2026-06-13T18:19:49.7908716Z 2026-06-13 18:19:49 [INFO]   [5/50] В Одинцово после ДТП погибли два человека... — NO IMAGES
+2026-06-13T18:19:49.9129707Z 2026-06-13 18:19:49 [INFO] HTTP Request: GET https://tass.ru/obschestvo/27749709 "HTTP/1.1 200 OK"
+2026-06-13T18:19:50.4139163Z 2026-06-13 18:19:50 [INFO]   [6/50] Пасечник: в ЛНР доступность социальных услуг выросла на 70% ... — 1 images
+2026-06-13T18:19:50.5331600Z 2026-06-13 18:19:50 [INFO] HTTP Request: GET https://tass.ru/proisshestviya/27749673 "HTTP/1.1 200 OK"
+2026-06-13T18:19:51.0341793Z 2026-06-13 18:19:51 [INFO]   [7/50] Худрук Новороссийского драмтеатра Кушпель погиб в автомобиль... — NO IMAGES
+2026-06-13T18:19:51.1570216Z 2026-06-13 18:19:51 [INFO] HTTP Request: GET https://tass.ru/obschestvo/27749683 "HTTP/1.1 200 OK"
+2026-06-13T18:19:51.6579727Z 2026-06-13 18:19:51 [INFO]   [8/50] В Карелии родственники нашли пропавшего подростка... — NO IMAGES
+2026-06-13T18:19:51.7858848Z 2026-06-13 18:19:51 [INFO] HTTP Request: GET https://tass.ru/armiya-i-opk/27749687 "HTTP/1.1 200 OK"
+2026-06-13T18:19:52.2868301Z 2026-06-13 18:19:52 [INFO]   [9/50] Над регионами России и над акваторией Черного моря сбили 109... — 1 images
+2026-06-13T18:19:52.4102973Z 2026-06-13 18:19:52 [INFO] HTTP Request: GET https://tass.ru/politika/27749675 "HTTP/1.1 200 OK"
+2026-06-13T18:19:52.9113087Z 2026-06-13 18:19:52 [INFO]   [10/50] Мирошник: выпускающей БПЛА Hornet для атак на РФ фирмой влад... — 1 images
+2026-06-13T18:19:53.0328388Z 2026-06-13 18:19:53 [INFO] HTTP Request: GET https://tass.ru/obschestvo/27749665 "HTTP/1.1 200 OK"
+2026-06-13T18:19:53.5336335Z 2026-06-13 18:19:53 [INFO]   [11/50] В Геленджике открылся первый в России и в мире винный город... — NO IMAGES
+2026-06-13T18:19:53.6533099Z 2026-06-13 18:19:53 [INFO] HTTP Request: GET https://tass.ru/ekonomika/27749635 "HTTP/1.1 200 OK"
+2026-06-13T18:19:54.1545732Z 2026-06-13 18:19:54 [INFO]   [12/50] В социально-экономическое развитие ЛНР за три года вложили б... — NO IMAGES
+2026-06-13T18:19:54.2754318Z 2026-06-13 18:19:54 [INFO] HTTP Request: GET https://tass.ru/obschestvo/27749659 "HTTP/1.1 200 OK"
+2026-06-13T18:19:54.7768326Z 2026-06-13 18:19:54 [INFO]   [13/50] Пропавший несколько дней назад в Петрозаводске подросток вер... — NO IMAGES
+2026-06-13T18:19:54.8957291Z 2026-06-13 18:19:54 [INFO] HTTP Request: GET https://tass.ru/mezhdunarodnaya-panorama/27749649 "HTTP/1.1 200 OK"
+2026-06-13T18:19:55.3969437Z 2026-06-13 18:19:55 [INFO]   [14/50] BFMTV: авианосец Charles de Gaulle возвращается во Францию... — NO IMAGES
+2026-06-13T18:19:55.5177183Z 2026-06-13 18:19:55 [INFO] HTTP Request: GET https://tass.ru/proisshestviya/27749645 "HTTP/1.1 200 OK"
+2026-06-13T18:19:56.0185296Z 2026-06-13 18:19:56 [INFO]   [15/50] В Балашихе неизвестный наехал на ребенка на самокате и скрыл... — NO IMAGES
+2026-06-13T18:19:57.1226634Z 2026-06-13 18:19:57 [INFO] HTTP Request: GET https://auto.mail.ru/article/125018-zapchasti-dlya-legkovushek-novyih-rossijskih-marok-podorozhali/ "HTTP/1.1 200 OK"
+2026-06-13T18:19:57.6343038Z 2026-06-13 18:19:57 [INFO]   [16/50] Запчасти для легковушек новых российских марок подорожали... — 4 images
+2026-06-13T18:19:58.0082367Z 2026-06-13 18:19:58 [INFO] HTTP Request: GET https://auto.mail.ru/article/125021-bespilotnoe-taksi-pomoglo-voru-skryitsya-a-politsiya-ostalas-ni-s-chem/ "HTTP/1.1 200 OK"
+2026-06-13T18:19:58.6700608Z 2026-06-13 18:19:58 [INFO]   [17/50] Беспилотное такси помогло вору скрыться, а полиция осталась ... — 4 images
+2026-06-13T18:19:58.9756043Z 2026-06-13 18:19:58 [INFO] HTTP Request: GET https://auto.mail.ru/article/125020-tyuneryi-prevratili-gelendvagen-v-kabriolet-s-neobyichnoj-perednej-chastyu/ "HTTP/1.1 200 OK"
+2026-06-13T18:19:59.6375755Z 2026-06-13 18:19:59 [INFO]   [18/50] Тюнеры превратили Гелендваген в кабриолет с необычной передн... — 5 images
+2026-06-13T18:19:59.9492176Z 2026-06-13 18:19:59 [INFO] HTTP Request: GET https://auto.mail.ru/article/125017-v-moskve-nazvali-glavnyie-prichinyi-dtp-s-mototsiklistami/ "HTTP/1.1 200 OK"
+2026-06-13T18:20:00.6110820Z 2026-06-13 18:20:00 [INFO]   [19/50] В Москве назвали главные причины ДТП с мотоциклистами... — 4 images
+2026-06-13T18:20:01.1986398Z 2026-06-13 18:20:01 [INFO] HTTP Request: GET https://auto.mail.ru/article/125015-skolko-voditelej-v-rf-stalkivalis-s-nekachestvennyim-motornyim-maslom/ "HTTP/1.1 200 OK"
+2026-06-13T18:20:01.7104336Z 2026-06-13 18:20:01 [INFO]   [20/50] Сколько водителей в РФ сталкивались с некачественным моторны... — 5 images
+2026-06-13T18:20:02.2362367Z 2026-06-13 18:20:02 [INFO] HTTP Request: GET https://auto.mail.ru/article/125024-rassell-vyiigral-kvalifikatsiyu-gran-pri-barselonyi-katalonii-formulyi-1/ "HTTP/1.1 200 OK"
+2026-06-13T18:20:02.7474205Z 2026-06-13 18:20:02 [INFO]   [21/50] Расселл выиграл квалификацию Гран-при Барселоны-Каталонии «Ф... — 4 images
+2026-06-13T18:20:03.3454165Z 2026-06-13 18:20:03 [INFO] HTTP Request: GET https://auto.mail.ru/article/125014-v-sochi-usilili-kontrol-za-soblyudeniem-pdd-i-prokatom-sim/ "HTTP/1.1 200 OK"
+2026-06-13T18:20:03.8566560Z 2026-06-13 18:20:03 [INFO]   [22/50] В Сочи усилили контроль за соблюдением ПДД и прокатом СИМ... — 4 images
+2026-06-13T18:20:04.3732832Z 2026-06-13 18:20:04 [INFO] HTTP Request: GET https://auto.mail.ru/article/125016-bmw-pokazala-pervyij-elektricheskij-m3/ "HTTP/1.1 200 OK"
+2026-06-13T18:20:04.8856461Z 2026-06-13 18:20:04 [INFO]   [23/50] BMW показала первый электрический M3... — 5 images
+2026-06-13T18:20:05.3608348Z 2026-06-13 18:20:05 [INFO] HTTP Request: GET https://auto.mail.ru/article/125013-mintrans-voditelej-osvobodyat-ot-platyi-za-parkovki-v-sluchae-sboev/ "HTTP/1.1 200 OK"
+2026-06-13T18:20:05.8727658Z 2026-06-13 18:20:05 [INFO]   [24/50] Минтранс: Водителей освободят от платы за парковки в случае ... — 4 images
+2026-06-13T18:20:06.3769468Z 2026-06-13 18:20:06 [INFO] HTTP Request: GET https://auto.mail.ru/article/125012-v-rf-produmayut-kak-umenshit-faktoryi-otvlecheniya-vnimaniya-voditelej/ "HTTP/1.1 200 OK"
+2026-06-13T18:20:06.8883525Z 2026-06-13 18:20:06 [INFO]   [25/50] В РФ продумают, как уменьшить факторы отвлечения внимания во... — 4 images
+2026-06-13T18:20:07.3917145Z 2026-06-13 18:20:07 [INFO] HTTP Request: GET https://auto.mail.ru/article/125011-yurist-predupredil-o-shtrafah-za-pachkayuschuyu-i-zlovonnuyu-odezhdu-v-metro/ "HTTP/1.1 200 OK"
+2026-06-13T18:20:07.9031796Z 2026-06-13 18:20:07 [INFO]   [26/50] Юрист предупредил о штрафах за пачкающую и зловонную одежду ... — 4 images
+2026-06-13T18:20:08.4999526Z 2026-06-13 18:20:08 [INFO] HTTP Request: GET https://auto.mail.ru/article/125010-prodazhi-avtomobilej-evropejskih-marok-vyirosli-vdvoe-v-rossii/ "HTTP/1.1 200 OK"
+2026-06-13T18:20:09.0118159Z 2026-06-13 18:20:09 [INFO]   [27/50] Продажи автомобилей европейских марок выросли вдвое в России... — 4 images
+2026-06-13T18:20:09.4594193Z 2026-06-13 18:20:09 [INFO] HTTP Request: GET https://auto.mail.ru/article/125009-rossiyan-budut-motivirovat-k-soobscheniyu-o-narusheniyah-pdd/ "HTTP/1.1 200 OK"
+2026-06-13T18:20:09.9708024Z 2026-06-13 18:20:09 [INFO]   [28/50] Россиян будут мотивировать к сообщению о нарушениях ПДД... — 4 images
+2026-06-13T18:20:10.4961337Z 2026-06-13 18:20:10 [INFO] HTTP Request: GET https://auto.mail.ru/article/125008-v-rossii-mogut-vvesti-markirovku-kontenta-s-narusheniyami-pdd/ "HTTP/1.1 200 OK"
+2026-06-13T18:20:11.0082458Z 2026-06-13 18:20:11 [INFO]   [29/50] В России могут ввести маркировку контента с нарушениями ПДД... — 4 images
+2026-06-13T18:20:11.4814526Z 2026-06-13 18:20:11 [INFO] HTTP Request: GET https://auto.mail.ru/article/125007-v-op-predlozhili-voobsche-ne-evakuirovat-mashinyi-ne-meshayuschie-dvizheniyu/ "HTTP/1.1 200 OK"
+2026-06-13T18:20:11.9936655Z 2026-06-13 18:20:11 [INFO]   [30/50] В ОП предложили вообще не эвакуировать машины, не мешающие д... — 4 images
+2026-06-13T18:20:12.6652915Z 2026-06-13 18:20:12 [INFO] HTTP Request: GET https://www.kommersant.ru/doc/6070773 "HTTP/1.1 200 OK"
+2026-06-13T18:20:13.2064139Z 2026-06-13 18:20:13 [INFO]   [31/50] Хоть потоп // Спецпроект «Фото на документы». Карточка № 41... — 5 images
+2026-06-13T18:20:13.5353367Z 2026-06-13 18:20:13 [INFO] HTTP Request: GET https://www.kommersant.ru/doc/6111313 "HTTP/1.1 200 OK"
+2026-06-13T18:20:14.0484016Z 2026-06-13 18:20:14 [INFO]   [32/50] Доска почета... — 5 images
+2026-06-13T18:20:14.3932582Z 2026-06-13 18:20:14 [INFO] HTTP Request: GET https://www.kommersant.ru/doc/6122809 "HTTP/1.1 200 OK"
+2026-06-13T18:20:15.0294718Z 2026-06-13 18:20:15 [INFO]   [33/50] Слово главного редактора... — 5 images
+2026-06-13T18:20:15.2870673Z 2026-06-13 18:20:15 [INFO] HTTP Request: GET https://www.kommersant.ru/doc/6111317 "HTTP/1.1 200 OK"
+2026-06-13T18:20:15.9391344Z 2026-06-13 18:20:15 [INFO]   [34/50] Распутать берега // Кроссовер Omoda С5 на бездорожье Кольско... — 5 images
+2026-06-13T18:20:16.2582743Z 2026-06-13 18:20:16 [INFO] HTTP Request: GET https://www.kommersant.ru/doc/6111319 "HTTP/1.1 200 OK"
+2026-06-13T18:20:16.7714020Z 2026-06-13 18:20:16 [INFO]   [35/50] Корона мотоимперии // BMW R18 The Crown... — 5 images
+2026-06-13T18:20:17.0791617Z 2026-06-13 18:20:17 [INFO] HTTP Request: GET https://www.kommersant.ru/doc/6111320 "HTTP/1.1 200 OK"
+2026-06-13T18:20:17.5929111Z 2026-06-13 18:20:17 [INFO]   [36/50] Оса родила мышь // Piaggio Vespa Disney Mickey Mouse Edition... — 5 images
+2026-06-13T18:20:17.9037634Z 2026-06-13 18:20:17 [INFO] HTTP Request: GET https://www.kommersant.ru/doc/6122791 "HTTP/1.1 200 OK"
+2026-06-13T18:20:18.4279198Z 2026-06-13 18:20:18 [INFO]   [37/50] Верхний регистр // Новый Exeed RX. Автомобиль, сыгранный по ... — 5 images
+2026-06-13T18:20:18.6693077Z 2026-06-13 18:20:18 [INFO] HTTP Request: GET https://www.kommersant.ru/doc/6111321 "HTTP/1.1 200 OK"
+2026-06-13T18:20:19.3094065Z 2026-06-13 18:20:19 [INFO]   [38/50] Увлеченным мечтой о свободе // Что делать с тремя моделями у... — 5 images
+2026-06-13T18:20:19.6349156Z 2026-06-13 18:20:19 [INFO] HTTP Request: GET https://www.kommersant.ru/doc/6111323 "HTTP/1.1 200 OK"
+2026-06-13T18:20:20.1572219Z 2026-06-13 18:20:20 [INFO]   [39/50] Мода на седаны // И как ей потрафила марка Omoda... — 5 images
+2026-06-13T18:20:20.4938375Z 2026-06-13 18:20:20 [INFO] HTTP Request: GET https://www.kommersant.ru/doc/6111325 "HTTP/1.1 200 OK"
+2026-06-13T18:20:21.0194642Z 2026-06-13 18:20:21 [INFO]   [40/50] Дальнего следования // Опыты с гибридом Skywell HT-i... — 5 images
+2026-06-13T18:20:21.2574133Z 2026-06-13 18:20:21 [INFO] HTTP Request: GET https://www.kommersant.ru/doc/6111327 "HTTP/1.1 200 OK"
+2026-06-13T18:20:21.7828066Z 2026-06-13 18:20:21 [INFO]   [41/50] Жизнь продолжается // Ладно скроенная Lada... — 5 images
+2026-06-13T18:20:22.0367893Z 2026-06-13 18:20:22 [INFO] HTTP Request: GET https://www.kommersant.ru/doc/6122793 "HTTP/1.1 200 OK"
+2026-06-13T18:20:22.5538205Z 2026-06-13 18:20:22 [INFO]   [42/50] «Восемь» пишем, NEXT в уме // О пользе эволюционного развити... — 5 images
+2026-06-13T18:20:22.8078745Z 2026-06-13 18:20:22 [INFO] HTTP Request: GET https://www.kommersant.ru/doc/6122795 "HTTP/1.1 200 OK"
+2026-06-13T18:20:23.3276582Z 2026-06-13 18:20:23 [INFO]   [43/50] Даже если дом далеко // Исследуем Teboil, новую для России с... — 5 images
+2026-06-13T18:20:23.5732299Z 2026-06-13 18:20:23 [INFO] HTTP Request: GET https://www.kommersant.ru/doc/6111330 "HTTP/1.1 200 OK"
+2026-06-13T18:20:24.0983389Z 2026-06-13 18:20:24 [INFO]   [44/50] Очная ставка // Чего нам ждать от возрождения «Оки»... — 5 images
+2026-06-13T18:20:24.3423103Z 2026-06-13 18:20:24 [INFO] HTTP Request: GET https://www.kommersant.ru/doc/6111331 "HTTP/1.1 200 OK"
+2026-06-13T18:20:24.8731270Z 2026-06-13 18:20:24 [INFO]   [45/50] Болотное дело // На Suzuki Jimny туда, где только мокрое мес... — 5 images
+2026-06-13T18:20:25.7849389Z 2026-06-13 18:20:25 [INFO] HTTP Request: GET https://5koleso.ru/articles/novosti/evropejskie-avtobrendy-rezko-uvelichili-prodazhi-v-rossii-spros-vyros-v-2-raza/ "HTTP/1.1 200 OK"
+2026-06-13T18:20:26.2925942Z 2026-06-13 18:20:26 [INFO]   [46/50] Европейские автобренды резко увеличили продажи в России: спр... — 4 images
+2026-06-13T18:20:26.7630740Z 2026-06-13 18:20:26 [INFO] HTTP Request: GET https://5koleso.ru/articles/novosti/premera-hyundai-i20-novogo-pokoleniya-dva-motora-novyj-dizajn-i-dostupnaya-czena/ "HTTP/1.1 200 OK"
+2026-06-13T18:20:27.2715586Z 2026-06-13 18:20:27 [INFO]   [47/50] Премьера Hyundai i20 нового поколения: два мотора, новый диз... — 5 images
+2026-06-13T18:20:27.7525606Z 2026-06-13 18:20:27 [INFO] HTTP Request: GET https://5koleso.ru/articles/novosti/premera-bmw-m-neue-klasse-novaya-emka-stala-elektromobilem-obzor-modeli/ "HTTP/1.1 200 OK"
+2026-06-13T18:20:28.2643571Z 2026-06-13 18:20:28 [INFO]   [48/50] Премьера BMW M Neue Klasse: новая «эмка» стала электромобиле... — 5 images
+2026-06-13T18:20:28.7400125Z 2026-06-13 18:20:28 [INFO] HTTP Request: GET https://5koleso.ru/articles/novosti/nissan-sokrashhaet-vremya-razrabotki-avtomobilej-v-2-raza-i-gotovit-rossyp-novinok/ "HTTP/1.1 200 OK"
+2026-06-13T18:20:29.2482062Z 2026-06-13 18:20:29 [INFO]   [49/50] Nissan сокращает время разработки автомобилей в 2 раза и гот... — 5 images
+2026-06-13T18:20:29.6844634Z 2026-06-13 18:20:29 [INFO] HTTP Request: GET https://5koleso.ru/articles/novosti/ford-otzyvaet-250-000-hetchbekov-i-sedanov-focus-u-nih-mozhet-vnezapno-ostanovitsya-dvigatel/ "HTTP/1.1 200 OK"
+2026-06-13T18:20:30.1921912Z 2026-06-13 18:20:30 [INFO]   [50/50] Ford отзывает 250 000 хэтчбеков и седанов Focus: у них может... — 5 images
+2026-06-13T18:20:30.1922892Z 2026-06-13 18:20:30 [INFO] Phase 4: Saving results...
+2026-06-13T18:20:30.1933944Z 2026-06-13 18:20:30 [INFO] Saved 50 new items, total 50 in data/news.json
+2026-06-13T18:20:30.1949952Z 2026-06-13 18:20:30 [INFO] ============================================================
+2026-06-13T18:20:30.1950708Z 2026-06-13 18:20:30 [INFO] PARSING COMPLETE
+2026-06-13T18:20:30.1953791Z 2026-06-13 18:20:30 [INFO]   New items: 50
+2026-06-13T18:20:30.1954380Z 2026-06-13 18:20:30 [INFO]   With photos: 38
+2026-06-13T18:20:30.1954899Z 2026-06-13 18:20:30 [INFO]   Without photos: 12
+2026-06-13T18:20:30.1955249Z 2026-06-13 18:20:30 [INFO]   Total images: 165
+2026-06-13T18:20:30.1955590Z 2026-06-13 18:20:30 [INFO]   Total in JSON: 50
+2026-06-13T18:20:30.1955991Z 2026-06-13 18:20:30 [INFO] ============================================================
