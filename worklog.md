@@ -39,3 +39,29 @@ Stage Summary:
 - Database locked errors fixed (WAL mode + busy_timeout everywhere)
 - Comments already use local model only (verified)
 - PAT token expired — can't manually trigger, but push to main now auto-triggers
+
+---
+Task ID: 1
+Agent: Main Agent
+Task: Audit and fix Asya VK bot — photos, LocalProvider, scoring, GitHub Actions
+
+Work Log:
+- Tested _extract_entry_images() — CONFIRMED WORKING, extracts photos from all RSS feeds
+- Root cause of missing photos: CDN hotlink protection returning 403 without Referer header
+- Fixed LocalProvider singleton — was creating new instance each time (3-7s model reload)
+- Added photo priority scoring in content_engine.py (+0.15 to +0.4 bonus for items with photos)
+- Added Referer header to image_fetcher for CDN hotlink protection
+- Updated Google News RSS to extract images via _extract_entry_images()
+- Added image_urls field to SearchResult class
+- Verified all 4 Russian RSS sources work (ТАСС Авто, Авто Mail.ru, Коммерсант, 5Колесо)
+- 6 unwanted RSS sources already removed (РБК Авто, За Рулем, Колёса.ру, Дром — from previous session)
+- Pushed fix commit to GitHub, triggered GitHub Actions workflow
+- Bot is running on GitHub Actions (run 27467012818, status: in_progress)
+
+Stage Summary:
+- Key fix: image_fetcher now sends Referer header → CAR Magazine, CarExpert, etc. work
+- Key fix: LocalProvider uses ai_router._local singleton → no more 3-7s model reloads
+- Key fix: Photo bonus scoring → RSS items with photos beat web search items without photos
+- All syntax checks passed
+- Commit: fb1ea11 pushed to main
+- GitHub Actions: workflow triggered and running
