@@ -1,0 +1,1388 @@
+     1→"""Smart Image Fetcher v4.0 — Original-first image sourcing for asya-bot.
+     2→
+     3→PRIORITY PIPELINE:
+     4→  1. Article images — og:image / twitter:image / JSON-LD / <img> from source URL
+     5→  2. RSS enclosures — <enclosure> / <media:content> from RSS feed
+     6→  3. Image search — Unsplash → Pexels → Bing Images → Google Images → SearXNG (concurrent)
+     7→  4. AI generation — Pollinations (LAST RESORT ONLY, handled by caller)
+     8→
+     9→KEY FEATURES:
+    10→  - Extracts original photos from article pages (og:image, twitter:image, JSON-LD)
+    11→  - Parses RSS enclosures and media:content (using news._extract_entry_images)
+    12→  - Validates images: min size, content-type, dimensions (PIL when available)
+    13→  - **DEDUPLICATES images by SHA256 hash** — no duplicate photos in a post!
+    14→  - Caches images by topic/entity with 7-day TTL
+    15→  - Blacklist of junk image domains and patterns
+    16→  - Returns image bytes ready for Telegram (compatible with channel.py)
+    17→
+    18→NOTE: This module returns image BYTES (not base64) because that's what
+    19→channel.py expects for Telegram posting.
+    20→"""
+    21→
+    22→from __future__ import annotations
+    23→
+    24→import asyncio
+    25→import base64
+    26→import hashlib
+    27→import json
+    28→import logging
+    29→import os
+    30→import re
+    31→import time
+    32→from pathlib import Path
+    33→from typing import Any, Dict, List, Optional, Tuple
+    34→from urllib.parse import quote_plus, urlparse
+    35→
+    36→import httpx
+    37→
+    38→logger = logging.getLogger("asya.image_fetcher")
+    39→
+    40→# ── Configuration ─────────────────────────────────────────────────────────────
+    41→
+    42→IMAGE_CACHE_DIR = Path("data/image_cache")
+    43→IMAGE_CACHE_TTL_DAYS = 7
+    44→IMAGE_MIN_SIZE_BYTES = 3_000         # 3 KB — lower threshold for news images
+    45→IMAGE_MAX_SIZE_BYTES = 5_242_880     # 5 MB — matching channel.py limit
+    46→IMAGE_MIN_WIDTH = 320
+    47→IMAGE_MIN_HEIGHT = 240
+    48→IMAGE_FETCH_TIMEOUT = 15.0
+    49→ARTICLE_FETCH_TIMEOUT = 20.0
+    50→MAX_IMAGES_PER_SOURCE = 10           # Telegram mediagroup limit
+    51→MAX_IMAGES_PER_POST = 4              # Optimal for news posts (2-4 unique images)
+    52→IMAGE_HASH_THRESHOLD = 0.95          # Similarity threshold for near-duplicate detection
+    53→
+    54→# ── Blacklist — junk image URLs that should never be used ─────────────────────
+    55→
+    56→JUNK_DOMAINS = {
+    57→    "pixel", "tracker", "analytics", "counter", "beacon",
+    58→    "mc.yandex.ru", "mc.yandex.com", "google-analytics.com",
+    59→    "facebook.com/tr", "connect.facebook.net",
+    60→    "feeds.feedburner.com", "feedburner.google.com",
+    61→    "pixel.wp.com", "stats.wordpress.com",
+    62→    "doubleclick.net", "adservice.google.com",
+    63→    "pagead2.googlesyndication.com", "ad.doubleclick.net",
+    64→    "platform.twitter.com", "apis.google.com",
+    65→}
+    66→
+    67→JUNK_PATTERNS = [
+    68→    r"[\?&](utm_|ref|share|action|callback|client_id)=.*$",
+    69→    r"/(icon|logo|favicon|badge|avatar|spinner|loading|placeholder|blank|pixel)\b",
+    70→    r"\d+x\d+\.(gif|png)$",
+    71→    r"tracker|beacon|pixel|counter|analytics",
+    72→    r"gravatar|avatar|profile.*photo",
+    73→    r"(button|btn|icon|logo|badge|spinner)\.(png|gif|svg|webp)$",
+    74→]
+    75→
+    76→# These keywords match channel.py _is_junk_image_url — keeping consistent
+    77→JUNK_KEYWORDS = [
+    78→    "icon", "logo", "favicon", "avatar", "badge", "button", "btn",
+    79→    "spinner", "loading", "placeholder", "pixel", "tracker",
+    80→    "analytics", "share", "facebook", "twitter", "vk.",
+    81→    "telegram", "whatsapp", "instagram", "youtube", "tiktok",
+    82→    # NOTE: "ads/" removed — was blocking /uploads/ in WordPress URLs!
+    83→    # Use JUNK_DOMAINS for ad-specific domains instead.
+    84→    "advert", "sponsor", "ad_banner", "ad_image",
+    85→    "emoji", "smileys", "captcha", "recaptcha",
+    86→    "1x1", "spacer", "blank", "transparent", "dot.",
+    87→    # NOTE: "watermark" removed — many real news photos have watermarks
+    88→    # It's better to use a real photo with a watermark than no photo at all.
+    89→]
+    90→
+    91→JUNK_EXTENSIONS = {".gif", ".svg"}
+    92→
+    93→# ── NSFW / Adult content filter for image search ─────────────────────────────
+    94→# These keywords are BLOCKED from being used as image search queries.
+    95→# If a topic contains any of these words, image search is SKIPPED entirely.
+    96→# This prevents any possibility of pornographic/explicit images reaching the channel.
+    97→
+    98→NSFW_KEYWORDS_RU = [
+    99→    "порн", "секс", "эрот", "голая", "голые", "обнажён", "обнажен",
+   100→    "интим", "проститут", "путан", "бордель", "публичн дом",
+   101→    "клизьм", "фистинг", "анальн", "оральн", "минет",
+   102→    "изнасилован", "насил", "педофил", "растлен",
+   103→    "пикантн", "горячая дев", "горячие дев", "сочные",
+   104→    "письк", "хуй", "пизд", "ебать", "ебан", "ёбан",
+   105→    "сосать", "кончить", "сперм", "оргазм",
+   106→    "стриптиз", "постел", "камасутр",
+   107→    "ню", "nude", "xxx", "18+", "порно",
+   108→    "обнажённ", "голое тел", "раздевает",
+   109→    "вулканск", "вулканская", "порно-", "секс-",
+   110→]
+   111→
+   112→NSFW_KEYWORDS_EN = [
+   113→    "porn", "sex", "erotic", "nude", "naked", "nsfw", "xxx",
+   114→    "boob", "tit ", "tits", "pussy", "dick", "cock", "ass ",
+   115→    "fuck", "slut", "whore", "hentai", "milf", "milfs",
+   116→    "anal", "oral", "blowjob", "cum ", "orgasm",
+   117→    "strip", "brothel", "prostitut",
+   118→    "genital", "penis", "vagina",
+   119→    "fetish", "bdsm", "bondage",
+   120→    "intimate", "provocative",
+   121→    "18+", "adult content", "explicit",
+   122→]
+   123→
+   124→# Domains known to host adult/pornographic content — BLOCKED entirely
+   125→NSFW_DOMAINS = {
+   126→    "pornhub.com", "xvideos.com", "xnxx.com", "xhamster.com",
+   127→    "redtube.com", "youporn.com", "tube8.com", "spankbang.com",
+   128→    "chaturbate.com", "bongacams.com", "livejasmin.com",
+   129→    "onlyfans.com", "playboy.com", "hustler.com",
+   130→    "eporner.com", "fuq.com", "thumbzilla.com",
+   131→    "sex.com", "porntrex.com", "daftsex.com",
+   132→    "r34", "rule34", "gelbooru.com", "danbooru.donmai.us",
+   133→    "imgur.com/a/",  # Imgur albums can have anything
+   134→    "t.co/",  # Twitter short links — unpredictable content
+   135→}
+   136→
+   137→
+   138→def _is_nsfw_query(topic: str) -> bool:
+   139→    """Check if an image search query contains NSFW/adult keywords.
+   140→
+   141→    If True, image search MUST be skipped entirely to prevent
+   142→    pornographic content from reaching the channel.
+   143→    This is a HARD BLOCK — no search should be performed.
+   144→    """
+   145→    topic_lower = topic.lower()
+   146→
+   147→    for kw in NSFW_KEYWORDS_RU:
+   148→        if kw in topic_lower:
+   149→            logger.warning(f"NSFW QUERY BLOCKED: keyword '{kw}' found in topic '{topic[:60]}'")
+   150→            return True
+   151→
+   152→    for kw in NSFW_KEYWORDS_EN:
+   153→        if kw in topic_lower:
+   154→            logger.warning(f"NSFW QUERY BLOCKED: keyword '{kw}' found in topic '{topic[:60]}'")
+   155→            return True
+   156→
+   157→    return False
+   158→
+   159→
+   160→def _is_nsfw_image_url(url: str) -> bool:
+   161→    """Check if an image URL comes from a known adult/pornographic domain."""
+   162→    url_lower = url.lower()
+   163→    for domain in NSFW_DOMAINS:
+   164→        if domain in url_lower:
+   165→            logger.warning(f"NSFW DOMAIN BLOCKED: '{domain}' in URL '{url[:80]}'")
+   166→            return True
+   167→    return False
+   168→
+   169→
+   170→# ── Image Cache ───────────────────────────────────────────────────────────────
+   171→
+   172→class ImageCache:
+   173→    """File-based image cache with TTL. Key = entity/topic, Value = image data."""
+   174→
+   175→    def __init__(self, cache_dir: Path = IMAGE_CACHE_DIR, ttl_days: int = IMAGE_CACHE_TTL_DAYS):
+   176→        self.cache_dir = cache_dir
+   177→        self.ttl_days = ttl_days
+   178→        self._index_path = cache_dir / "index.json"
+   179→        self._index: Dict[str, Dict[str, Any]] = {}
+   180→        self._load_index()
+   181→
+   182→    def _load_index(self) -> None:
+   183→        try:
+   184→            if self._index_path.exists():
+   185→                with open(self._index_path, "r", encoding="utf-8") as f:
+   186→                    self._index = json.load(f)
+   187→        except Exception as e:
+   188→            logger.debug(f"Failed to load image cache index: {e}")
+   189→            self._index = {}
+   190→
+   191→    def _save_index(self) -> None:
+   192→        try:
+   193→            self.cache_dir.mkdir(parents=True, exist_ok=True)
+   194→            with open(self._index_path, "w", encoding="utf-8") as f:
+   195→                json.dump(self._index, f, ensure_ascii=False, indent=2)
+   196→        except Exception as e:
+   197→            logger.debug(f"Failed to save image cache index: {e}")
+   198→
+   199→    def _cache_key(self, topic: str) -> str:
+   200→        return hashlib.md5(topic.lower().strip().encode()).hexdigest()
+   201→
+   202→    def get(self, topic: str) -> Optional[List[bytes]]:
+   203→        """Get cached image bytes for a topic."""
+   204→        key = self._cache_key(topic)
+   205→        entry = self._index.get(key)
+   206→        if not entry:
+   207→            return None
+   208→
+   209→        cached_at = entry.get("cached_at", 0)
+   210→        age_days = (time.time() - cached_at) / 86400
+   211→        if age_days > self.ttl_days:
+   212→            self.delete(topic)
+   213→            return None
+   214→
+   215→        # Load all cached files for this topic
+   216→        results = []
+   217→        for filename in entry.get("filenames", []):
+   218→            file_path = self.cache_dir / filename
+   219→            if file_path.exists():
+   220→                try:
+   221→                    with open(file_path, "rb") as f:
+   222→                        results.append(f.read())
+   223→                except Exception:
+   224→                    continue
+   225→
+   226→        return results if results else None
+   227→
+   228→    def put(self, topic: str, images: List[bytes], source: str) -> None:
+   229→        """Store images in cache."""
+   230→        try:
+   231→            self.cache_dir.mkdir(parents=True, exist_ok=True)
+   232→            key = self._cache_key(topic)
+   233→            filenames = []
+   234→
+   235→            for i, img_bytes in enumerate(images):
+   236→                filename = f"{key}_{i}.jpg"
+   237→                file_path = self.cache_dir / filename
+   238→                with open(file_path, "wb") as f:
+   239→                    f.write(img_bytes)
+   240→                filenames.append(filename)
+   241→
+   242→            self._index[key] = {
+   243→                "topic": topic[:100],
+   244→                "filenames": filenames,
+   245→                "source": source,
+   246→                "cached_at": time.time(),
+   247→            }
+   248→            self._save_index()
+   249→        except Exception as e:
+   250→            logger.debug(f"Failed to cache images: {e}")
+   251→
+   252→    def delete(self, topic: str) -> None:
+   253→        key = self._cache_key(topic)
+   254→        entry = self._index.pop(key, None)
+   255→        if entry:
+   256→            for filename in entry.get("filenames", []):
+   257→                try:
+   258→                    file_path = self.cache_dir / filename
+   259→                    if file_path.exists():
+   260→                        file_path.unlink()
+   261→                except Exception:
+   262→                    pass
+   263→            self._save_index()
+   264→
+   265→
+   266→# ── Validation ────────────────────────────────────────────────────────────────
+   267→
+   268→def _is_junk_url(url: str) -> bool:
+   269→    """Check if a URL is a junk/tracking/icon image.
+   270→    
+   271→    Consistent with channel.py _is_junk_image_url but enhanced.
+   272→    """
+   273→    url_lower = url.lower()
+   274→    parsed = urlparse(url_lower)
+   275→    hostname = parsed.hostname or ""
+   276→
+   277→    # Check junk domains
+   278→    for junk in JUNK_DOMAINS:
+   279→        if junk in hostname:
+   280→            return True
+   281→
+   282→    # Check junk keywords (from channel.py)
+   283→    for kw in JUNK_KEYWORDS:
+   284→        if kw in url_lower:
+   285→            return True
+   286→
+   287→    # Check junk patterns
+   288→    for pattern in JUNK_PATTERNS:
+   289→        if re.search(pattern, url_lower):
+   290→            return True
+   291→
+   292→    # Check junk extensions
+   293→    path = parsed.path.lower()
+   294→    for ext in JUNK_EXTENSIONS:
+   295→        if path.endswith(ext):
+   296→            return True
+   297→
+   298→    # Skip URLs with very small size indicators
+   299→    # NOTE: h=0 means "auto height" (proportional) — common in image CDNs
+   300→    # like TopSpeed (_800x0.webp = width 800, height auto). Do NOT block these.
+   301→    size_pattern = re.compile(r'[/=_x](\d{1,4})x(\d{1,4})[/._]')
+   302→    size_match = size_pattern.search(url_lower)
+   303→    if size_match:
+   304→        w, h = int(size_match.group(1)), int(size_match.group(2))
+   305→        # 0 = auto/proportional height — valid image size indicator
+   306→        if w < 100 or (0 < h < 100):
+   307→            return True
+   308→
+   309→    return False
+   310→
+   311→
+   312→def _is_content_image(image_data: bytes) -> bool:
+   313→    """Validate that image data represents a proper content photo.
+   314→    
+   315→    Uses PIL when available (checks dimensions, aspect ratio).
+   316→    Falls back to soft check when PIL is not available.
+   317→    """
+   318→    if len(image_data) < IMAGE_MIN_SIZE_BYTES:
+   319→        return False
+   320→
+   321→    try:
+   322→        from PIL import Image
+   323→        import io
+   324→
+   325→        img = Image.open(io.BytesIO(image_data))
+   326→        width, height = img.size
+   327→
+   328→        if width < IMAGE_MIN_WIDTH or height < IMAGE_MIN_HEIGHT:
+   329→            return False
+   330→        if width / max(height, 1) > 3.0:
+   331→            return False
+   332→        if height / max(width, 1) > 3.0:
+   333→            return False
+   334→        if width * height < 76800:  # 320*240 = 76800
+   335→            return False
+   336→
+   337→        return True
+   338→    except ImportError:
+   339→        logger.warning("PIL not available, accepting image without dimension check")
+   340→        return True
+   341→    except Exception:
+   342→        return True  # Soft check — accept if can't read
+   343→
+   344→
+   345→async def _validate_and_download(
+   346→    client: httpx.AsyncClient,
+   347→    url: str,
+   348→) -> Optional[bytes]:
+   349→    """Download and validate an image URL. Returns image bytes or None."""
+   350→    if _is_junk_url(url):
+   351→        return None
+   352→    
+   353→    # BLOCK: NSFW domain check — never download from porn/adult sites
+   354→    if _is_nsfw_image_url(url):
+   355→        return None
+   356→
+   357→    try:
+   358→        # Quick HEAD check
+   359→        try:
+   360→            head_resp = await client.head(url, timeout=6.0, follow_redirects=True)
+   361→            content_type = head_resp.headers.get("content-type", "").lower()
+   362→            content_length = int(head_resp.headers.get("content-length", "0"))
+   363→
+   364→            if content_type and not any(ct in content_type for ct in [
+   365→                "image/jpeg", "image/png", "image/webp", "image/jpg",
+   366→            ]):
+   367→                # Some servers don't return proper content-type on HEAD
+   368→                if not content_type.startswith("image/"):
+   369→                    return None
+   370→
+   371→            if 0 < content_length < IMAGE_MIN_SIZE_BYTES:
+   372→                return None
+   373→            if content_length > IMAGE_MAX_SIZE_BYTES:
+   374→                return None
+   375→        except Exception:
+   376→            pass
+   377→
+   378→        # Full GET
+   379→        resp = await client.get(url, timeout=IMAGE_FETCH_TIMEOUT, follow_redirects=True)
+   380→        if resp.status_code != 200:
+   381→            return None
+   382→
+   383→        img_bytes = resp.content
+   384→
+   385→        if len(img_bytes) < IMAGE_MIN_SIZE_BYTES:
+   386→            return None
+   387→        if len(img_bytes) > IMAGE_MAX_SIZE_BYTES:
+   388→            return None
+   389→
+   390→        # Content-type check
+   391→        content_type = resp.headers.get("content-type", "").lower()
+   392→        if content_type and not any(ct in content_type for ct in [
+   393→            "image/jpeg", "image/png", "image/webp", "image/jpg",
+   394→            "application/octet-stream",
+   395→        ]):
+   396→            return None
+   397→
+   398→        # Skip SVG
+   399→        if b'<svg' in img_bytes[:500] or 'svg' in content_type:
+   400→            return None
+   401→
+   402→        # Magic bytes check
+   403→        is_valid_format = (
+   404→            img_bytes[:3] == b'\xff\xd8\xff'  # JPEG
+   405→            or img_bytes[:4] == b'\x89PNG'     # PNG
+   406→            or img_bytes[:4] == b'RIFF'        # WebP
+   407→            or img_bytes[:6] in (b'GIF87a', b'GIF89a')  # GIF
+   408→        )
+   409→        if not is_valid_format:
+   410→            return None
+   411→
+   412→        # Dimension check (PIL when available)
+   413→        if not _is_content_image(img_bytes):
+   414→            return None
+   415→
+   416→        return img_bytes
+   417→
+   418→    except Exception as e:
+   419→        logger.debug(f"Image download failed for {url[:60]}: {e}")
+   420→        return None
+   421→
+   422→
+   423→# ── Strategy 1: Article page image extraction ────────────────────────────────
+   424→
+   425→async def fetch_article_images(url: str, max_count: int = 10) -> List[bytes]:
+   426→    """Fetch original images from an article page.
+   427→
+   428→    Extracts images in priority order:
+   429→    1. og:image / og:image:url / og:image:secure_url
+   430→    2. twitter:image
+   431→    3. JSON-LD structured data (schema.org image field)
+   432→    4. <picture>/<source srcset> elements
+   433→    5. <img> tags from article body (src + data-src for lazy loading)
+   434→    """
+   435→    images: List[bytes] = []
+   436→
+   437→    if not url or not url.startswith(("http://", "https://")):
+   438→        return images
+   439→
+   440→    try:
+   441→        _SCRAPE_HEADERS = {
+   442→            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+   443→            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+   444→            "Accept-Language": "en-US,en;q=0.5",
+   445→        }
+   446→
+   447→        async with httpx.AsyncClient(
+   448→            timeout=ARTICLE_FETCH_TIMEOUT,
+   449→            follow_redirects=True,
+   450→            max_redirects=5,
+   451→        ) as client:
+   452→            resp = await client.get(url, headers=_SCRAPE_HEADERS)
+   453→            if resp.status_code != 200:
+   454→                return images
+   455→
+   456→            html = resp.text
+   457→
+   458→            # Collect candidate URLs in priority order
+   459→            candidate_urls: List[str] = []
+   460→            seen: set = set()
+   461→
+   462→            # 1. og:image
+   463→            for pattern in [
+   464→                r'<meta[^>]+property=["\x27]og:image["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]',
+   465→                r'<meta[^>]+content=["\x27]([^"\x27]+)["\x27][^>]+property=["\x27]og:image["\x27]',
+   466→                r'<meta[^>]+property=["\x27]og:image:url["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]',
+   467→                r'<meta[^>]+property=["\x27]og:image:secure_url["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]',
+   468→            ]:
+   469→                for m in re.finditer(pattern, html, re.IGNORECASE):
+   470→                    u = m.group(1).replace("&amp;", "&")
+   471→                    if u and u not in seen and not _is_junk_url(u):
+   472→                        seen.add(u)
+   473→                        candidate_urls.append(u)
+   474→
+   475→            # 2. twitter:image
+   476→            for pattern in [
+   477→                r'<meta[^>]+name=["\x27]twitter:image["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]',
+   478→                r'<meta[^>]+content=["\x27]([^"\x27]+)["\x27][^>]+name=["\x27]twitter:image["\x27]',
+   479→            ]:
+   480→                for m in re.finditer(pattern, html, re.IGNORECASE):
+   481→                    u = m.group(1).replace("&amp;", "&")
+   482→                    if u and u not in seen and not _is_junk_url(u):
+   483→                        seen.add(u)
+   484→                        candidate_urls.append(u)
+   485→
+   486→            # 3. JSON-LD structured data (schema.org)
+   487→            jsonld_urls = _extract_jsonld_images(html)
+   488→            for u in jsonld_urls:
+   489→                if u not in seen and not _is_junk_url(u):
+   490→                    seen.add(u)
+   491→                    candidate_urls.append(u)
+   492→
+   493→            # 4. <picture>/<source srcset> elements
+   494→            picture_blocks = re.findall(r'<picture[^>]*>(.*?)</picture>', html, re.IGNORECASE | re.DOTALL)
+   495→            for block in picture_blocks:
+   496→                srcsets = re.findall(r'srcset=["\x27]([^"\x27]+)["\x27]', block, re.IGNORECASE)
+   497→                for srcset in srcsets:
+   498→                    for part in srcset.split(','):
+   499→                        u = part.strip().split()[0] if part.strip() else ''
+   500→                        if u and u not in seen and not _is_junk_url(u):
+   501→                            seen.add(u)
+   502→                            candidate_urls.append(u)
+   503→
+   504→            # 5. <img> tags from article body
+   505→            article_html = ""
+   506→            for pattern in [
+   507→                r'<article[^>]*>(.*?)</article>',
+   508→                r'<main[^>]*>(.*?)</main>',
+   509→                r'<div[^>]+class=["\x27][^"\x27]*(?:content|article|post|entry)[^"\x27]*["\x27][^>]*>(.*?)</div>',
+   510→            ]:
+   511→                matches = re.findall(pattern, html, re.IGNORECASE | re.DOTALL)
+   512→                for match in matches:
+   513→                    article_html += match + "\n"
+   514→
+   515→            search_html = article_html if article_html else html
+   516→
+   517→            # Lazy-loaded images first (often higher quality)
+   518→            lazy_urls = re.findall(r'<img[^>]+data-src=["\x27]([^"\x27]+)["\x27]', search_html, re.IGNORECASE)
+   519→            lazy_urls += re.findall(r'<img[^>]+data-lazy-src=["\x27]([^"\x27]+)["\x27]', search_html, re.IGNORECASE)
+   520→            regular_urls = re.findall(r'<img[^>]+src=["\x27]([^"\x27]+)["\x27]', search_html, re.IGNORECASE)
+   521→
+   522→            for u in lazy_urls + regular_urls:
+   523→                if u.startswith("//"):
+   524→                    u = "https:" + u
+   525→                if u and len(u) > 10 and u not in seen and not _is_junk_url(u):
+   526→                    seen.add(u)
+   527→                    candidate_urls.append(u)
+   528→
+   529→            logger.info(f"Scraped {len(candidate_urls)} candidate image URLs from {url[:60]}")
+   530→
+   531→            # Download and validate
+   532→            for img_url in candidate_urls[:max_count * 3]:
+   533→                if len(images) >= max_count:
+   534→                    break
+   535→                img_bytes = await _validate_and_download(client, img_url)
+   536→                if img_bytes:
+   537→                    images.append(img_bytes)
+   538→                    logger.info(f"Downloaded article image: {img_url[:80]} ({len(img_bytes)} bytes)")
+   539→
+   540→    except Exception as e:
+   541→        logger.debug(f"Article image extraction failed for {url[:60]}: {e}")
+   542→
+   543→    return images
+   544→
+   545→
+   546→def _extract_jsonld_images(html: str) -> List[str]:
+   547→    """Extract image URLs from JSON-LD structured data in HTML."""
+   548→    images = []
+   549→    try:
+   550→        jsonld_blocks = re.findall(
+   551→            r'<script[^>]+type=["\x27]application/ld\+json["\x27][^>]*>(.*?)</script>',
+   552→            html, re.IGNORECASE | re.DOTALL,
+   553→        )
+   554→        for block in jsonld_blocks:
+   555→            try:
+   556→                data = json.loads(block)
+   557→                items = data if isinstance(data, list) else [data]
+   558→                for item in items:
+   559→                    if not isinstance(item, dict):
+   560→                        continue
+   561→                    img_field = item.get("image") or item.get("images")
+   562→                    if not img_field:
+   563→                        continue
+   564→                    if isinstance(img_field, str):
+   565→                        images.append(img_field)
+   566→                    elif isinstance(img_field, dict):
+   567→                        url = img_field.get("url") or img_field.get("contentUrl") or img_field.get("@id", "")
+   568→                        if url:
+   569→                            images.append(url)
+   570→                    elif isinstance(img_field, list):
+   571→                        for img_item in img_field:
+   572→                            if isinstance(img_item, str):
+   573→                                images.append(img_item)
+   574→                            elif isinstance(img_item, dict):
+   575→                                url = img_item.get("url") or img_item.get("contentUrl") or img_item.get("@id", "")
+   576→                                if url:
+   577→                                    images.append(url)
+   578→            except Exception:
+   579→                continue
+   580→    except Exception:
+   581→        pass
+   582→    return images
+   583→
+   584→
+   585→# ── Strategy 2: RSS enclosure / media:content extraction ─────────────────────
+   586→
+   587→def extract_rss_images(entry: Any) -> List[str]:
+   588→    """Extract image URLs from a feedparser entry.
+   589→    
+   590→    Delegates to news._extract_entry_images for consistency with existing code.
+   591→    """
+   592→    try:
+   593→        from news import _extract_entry_images
+   594→        return _extract_entry_images(entry)
+   595→    except ImportError:
+   596→        # Fallback if news module not available
+   597→        return _fallback_extract_rss_images(entry)
+   598→
+   599→
+   600→def _fallback_extract_rss_images(entry: Any) -> List[str]:
+   601→    """Fallback RSS image extraction."""
+   602→    image_urls: List[str] = []
+   603→
+   604→    # enclosures
+   605→    for enc in getattr(entry, "enclosures", []) or []:
+   606→        url = enc.get("href", "") or enc.get("url", "")
+   607→        enc_type = enc.get("type", "").lower()
+   608→        if url and ("image" in enc_type or any(ext in url.lower() for ext in [".jpg", ".jpeg", ".png", ".webp"])):
+   609→            if not _is_junk_url(url) and url not in image_urls:
+   610→                image_urls.append(url)
+   611→
+   612→    # media:content
+   613→    for mc in getattr(entry, "media_content", []) or []:
+   614→        url = mc.get("url", "")
+   615→        medium = mc.get("medium", "").lower()
+   616→        mc_type = mc.get("type", "").lower()
+   617→        if url and (medium == "image" or "image" in mc_type):
+   618→            if not _is_junk_url(url) and url not in image_urls:
+   619→                image_urls.append(url)
+   620→
+   621→    # media:thumbnail
+   622→    for mt in getattr(entry, "media_thumbnail", []) or []:
+   623→        url = mt.get("url", "")
+   624→        if url and not _is_junk_url(url) and url not in image_urls:
+   625→            image_urls.append(url)
+   626→
+   627→    # <img> in content/summary
+   628→    for field_name in ("content", "summary", "description"):
+   629→        content_value = getattr(entry, field_name, None)
+   630→        if isinstance(content_value, list):
+   631→            content_value = content_value[0].get("value", "") if content_value else ""
+   632→        elif content_value is None:
+   633→            continue
+   634→        for m in re.finditer(r'<img[^>]+src=["\x27]([^"\x27]+)["\x27]', str(content_value), re.IGNORECASE):
+   635→            url = m.group(1).replace("&amp;", "&")
+   636→            if not _is_junk_url(url) and url not in image_urls:
+   637→                image_urls.append(url)
+   638→
+   639→    return image_urls[:10]
+   640→
+   641→
+   642→# ── Strategy 3: Image search — MULTI-PROVIDER with reliable sources ───────────
+   643→
+   644→# Unsplash API — free, 50 req/hour, no key required for demo access
+   645→UNSPLASH_ACCESS_KEY = os.environ.get("UNSPLASH_ACCESS_KEY", "")
+   646→UNSPLASH_BASE_URL = "https://api.unsplash.com"
+   647→
+   648→# Pexels API — free, 200 req/hour, requires API key
+   649→PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY", "")
+   650→PEXELS_BASE_URL = "https://api.pexels.com/v1"
+   651→
+   652→# Bing Image Search — scraping approach (no API key needed)
+   653→BING_IMAGE_URL = "https://www.bing.com/images/search"
+   654→
+   655→# Google Images — scraping approach (no API key needed)
+   656→GOOGLE_IMAGES_URL = "https://www.google.com/search"
+   657→
+   658→
+   659→async def _search_unsplash(topic: str, max_images: int = 5) -> List[str]:
+   660→    """Search Unsplash for high-quality photos.
+   661→    
+   662→    Unsplash provides free API access (50 requests/hour for demo, 
+   663→    unlimited for approved apps). Photos are high-quality, properly licensed,
+   664→    and ideal for news posts. Falls back gracefully when no API key is set.
+   665→    """
+   666→    image_urls: List[str] = []
+   667→    
+   668→    try:
+   669→        clean_topic = re.sub(r'[^\w\s]', '', topic)[:60]
+   670→        
+   671→        headers = {
+   672→            "Accept": "application/json",
+   673→        }
+   674→        if UNSPLASH_ACCESS_KEY:
+   675→            headers["Authorization"] = f"Client-ID {UNSPLASH_ACCESS_KEY}"
+   676→        
+   677→        params = {
+   678→            "query": clean_topic,
+   679→            "per_page": min(max_images, 10),
+   680→            "orientation": "landscape",
+   681→        }
+   682→        
+   683→        # If no API key, use the public search page approach
+   684→        if not UNSPLASH_ACCESS_KEY:
+   685→            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+   686→                scrape_headers = {
+   687→                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+   688→                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+   689→                }
+   690→                resp = await client.get(
+   691→                    f"https://unsplash.com/s/photos/{quote_plus(clean_topic)}",
+   692→                    headers=scrape_headers,
+   693→                )
+   694→                if resp.status_code == 200:
+   695→                    # Extract image URLs from the page HTML
+   696→                    # Unsplash embeds images as og:image and in JSON data
+   697→                    for pattern in [
+   698→                        r'"raw":\s*"([^"]+)"',
+   699→                        r'"full":\s*"([^"]+)"',
+   700→                        r'"regular":\s*"([^"]+)"',
+   701→                        r'<img[^>]+src=["\x27](https://images\.unsplash\.com/[^"\x27]+)["\x27]',
+   702→                    ]:
+   703→                        for m in re.finditer(pattern, resp.text):
+   704→                            url = m.group(1).replace("\\u0026", "&")
+   705→                            if url and not _is_junk_url(url) and url not in image_urls:
+   706→                                # Add quality parameter for reasonable size
+   707→                                if "?" not in url:
+   708→                                    url += "?w=1200&q=80"
+   709→                                image_urls.append(url)
+   710→                                if len(image_urls) >= max_images:
+   711→                                    return image_urls
+   712→                return image_urls
+   713→        
+   714→        # With API key — proper API call
+   715→        async with httpx.AsyncClient(timeout=10.0) as client:
+   716→            resp = await client.get(
+   717→                f"{UNSPLASH_BASE_URL}/search/photos",
+   718→                params=params,
+   719→                headers=headers,
+   720→            )
+   721→            if resp.status_code == 200:
+   722→                data = resp.json()
+   723→                for item in data.get("results", [])[:max_images]:
+   724→                    # Use the "regular" size (1080px) — good for Telegram
+   725→                    url = item.get("urls", {}).get("regular", "")
+   726→                    if url and not _is_junk_url(url):
+   727→                        image_urls.append(url)
+   728→            elif resp.status_code == 403:
+   729→                logger.debug("Unsplash API rate limit hit")
+   730→            else:
+   731→                logger.debug(f"Unsplash API returned {resp.status_code}")
+   732→    
+   733→    except Exception as e:
+   734→        logger.debug(f"Unsplash search failed for '{topic[:40]}': {e}")
+   735→    
+   736→    return image_urls
+   737→
+   738→
+   739→async def _search_pexels(topic: str, max_images: int = 5) -> List[str]:
+   740→    """Search Pexels for high-quality stock photos.
+   741→    
+   742→    Pexels API is free with 200 requests/hour. Requires API key.
+   743→    If no key is set, uses scraping as fallback.
+   744→    """
+   745→    image_urls: List[str] = []
+   746→    
+   747→    try:
+   748→        clean_topic = re.sub(r'[^\w\s]', '', topic)[:60]
+   749→        
+   750→        if PEXELS_API_KEY:
+   751→            # Proper API call
+   752→            headers = {"Authorization": PEXELS_API_KEY}
+   753→            params = {
+   754→                "query": clean_topic,
+   755→                "per_page": min(max_images, 10),
+   756→                "orientation": "landscape",
+   757→            }
+   758→            async with httpx.AsyncClient(timeout=10.0) as client:
+   759→                resp = await client.get(
+   760→                    f"{PEXELS_BASE_URL}/search",
+   761→                    params=params,
+   762→                    headers=headers,
+   763→                )
+   764→                if resp.status_code == 200:
+   765→                    data = resp.json()
+   766→                    for item in data.get("photos", [])[:max_images]:
+   767→                        # Use "large" size (max 1080px) — good for Telegram
+   768→                        url = item.get("src", {}).get("large", "")
+   769→                        if url and not _is_junk_url(url):
+   770→                            image_urls.append(url)
+   771→                elif resp.status_code == 403:
+   772→                    logger.debug("Pexels API rate limit hit")
+   773→                else:
+   774→                    logger.debug(f"Pexels API returned {resp.status_code}")
+   775→        else:
+   776→            # Fallback: scraping Pexels search page
+   777→            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+   778→                scrape_headers = {
+   779→                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+   780→                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+   781→                }
+   782→                resp = await client.get(
+   783→                    f"https://www.pexels.com/search/{quote_plus(clean_topic)}/",
+   784→                    headers=scrape_headers,
+   785→                )
+   786→                if resp.status_code == 200:
+   787→                    # Extract image URLs from page
+   788→                    for pattern in [
+   789→                        r'<img[^>]+srcset=["\x27]([^"\x27]+)\s+1x',
+   790→                        r'<img[^>]+src=["\x27](https://images\.pexels\.com/[^"\x27]+)["\x27]',
+   791→                    ]:
+   792→                        for m in re.finditer(pattern, resp.text, re.IGNORECASE):
+   793→                            url = m.group(1).replace("\\u0026", "&")
+   794→                            if url and not _is_junk_url(url) and url not in image_urls:
+   795→                                image_urls.append(url)
+   796→                                if len(image_urls) >= max_images:
+   797→                                    return image_urls
+   798→    
+   799→    except Exception as e:
+   800→        logger.debug(f"Pexels search failed for '{topic[:40]}': {e}")
+   801→    
+   802→    return image_urls
+   803→
+   804→
+   805→async def _search_bing_images(topic: str, max_images: int = 5) -> List[str]:
+   806→    """Search Bing Images for photos.
+   807→    
+   808→    Bing Images is more reliable than SearXNG for direct image search.
+   809→    Extracts full-size original image URLs from Bing's search results.
+   810→    The "mediaurl" parameter in Bing's HTML contains the original image URL
+   811→    (URL-encoded). No API key needed.
+   812→    Works well from cloud IPs (less aggressive blocking than Google).
+   813→    """
+   814→    image_urls: List[str] = []
+   815→    
+   816→    try:
+   817→        clean_topic = re.sub(r'[^\w\s]', '', topic)[:80]
+   818→        
+   819→        headers = {
+   820→            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+   821→            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+   822→            "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8",
+   823→        }
+   824→        
+   825→        params = {
+   826→            "q": f"{clean_topic} фото",
+   827→            "first": 1,
+   828→            "count": min(max_images * 3, 35),
+   829→            "qft": "+filterui:photo-photo",  # Filter: photos only
+   830→            "safe": "Strict",  # SAFESEARCH: Block all adult content
+   831→        }
+   832→        
+   833→        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+   834→            resp = await client.get(BING_IMAGE_URL, params=params, headers=headers)
+   835→            if resp.status_code != 200:
+   836→                logger.debug(f"Bing Images returned {resp.status_code}")
+   837→                return image_urls
+   838→            
+   839→            html = resp.text
+   840→            seen = set()
+   841→            
+   842→            # Method 1: Extract mediaurl (URL-encoded original image URLs)
+   843→            # This is the most reliable method — Bing embeds the original source URL
+   844→            # as a URL-encoded parameter in the HTML
+   845→            from urllib.parse import unquote
+   846→            for m in re.finditer(r'mediaurl=(https?%3[aA]%2[fF][^&"\']+)', html):
+   847→                url = unquote(m.group(1))
+   848→                if url and url not in seen and not _is_junk_url(url):
+   849→                    if '.mm.bing.net/' in url:
+   850→                        continue
+   851→                    seen.add(url)
+   852→                    image_urls.append(url)
+   853→                    if len(image_urls) >= max_images:
+   854→                        return image_urls
+   855→            
+   856→            # Method 2: Extract murl from JSON embedded data
+   857→            for m in re.finditer(r'"murl"\s*:\s*"(https?://[^"]+)"', html):
+   858→                url = m.group(1).replace("\\u0026", "&").replace("\\/", "/")
+   859→                if url and url not in seen and not _is_junk_url(url):
+   860→                    if '.mm.bing.net/' in url:
+   861→                        continue
+   862→                    seen.add(url)
+   863→                    image_urls.append(url)
+   864→                    if len(image_urls) >= max_images:
+   865→                        return image_urls
+   866→            
+   867→            # Method 3: Extract from m= attribute (contains rich metadata with murl)
+   868→            m_attrs = re.findall(r'm="([^"]{100,})"', html)
+   869→            for attr in m_attrs:
+   870→                attr = attr.replace('&amp;', '&').replace('&quot;', '"')
+   871→                for m in re.finditer(r'murl:(https?://[^\s,"]+)', attr):
+   872→                    url = m.group(1)
+   873→                    if url and url not in seen and not _is_junk_url(url):
+   874→                        if '.mm.bing.net/' in url:
+   875→                            continue
+   876→                        seen.add(url)
+   877→                        image_urls.append(url)
+   878→                        if len(image_urls) >= max_images:
+   879→                            return image_urls
+   880→        
+   881→        if image_urls:
+   882→            logger.info(f"Bing Images: found {len(image_urls)} full-size URLs for '{topic[:40]}'")
+   883→        else:
+   884→            logger.debug(f"Bing Images: no images found for '{topic[:40]}'")
+   885→    
+   886→    except Exception as e:
+   887→        logger.debug(f"Bing Images search failed for '{topic[:40]}': {e}")
+   888→    
+   889→    return image_urls
+   890→
+   891→
+   892→async def _search_google_images(topic: str, max_images: int = 5) -> List[str]:
+   893→    """Search Google Images for photos.
+   894→    
+   895→    Google Images is the most comprehensive image search.
+   896→    Scrapes the results page — no API key needed.
+   897→    May be blocked from cloud IPs, so it's a secondary source after Bing.
+   898→    """
+   899→    image_urls: List[str] = []
+   900→    
+   901→    try:
+   902→        clean_topic = re.sub(r'[^\w\s]', '', topic)[:80]
+   903→        
+   904→        params = {
+   905→            "q": f"{clean_topic} фото",
+   906→            "tbm": "isch",  # Image search
+   907→            "hl": "ru",
+   908→            "gl": "RU",
+   909→            "safe": "active",  # SAFESEARCH: Block all adult content
+   910→        }
+   911→        
+   912→        headers = {
+   913→            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+   914→            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+   915→            "Accept-Language": "ru-RU,ru;q=0.9",
+   916→        }
+   917→        
+   918→        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+   919→            resp = await client.get(GOOGLE_IMAGES_URL, params=params, headers=headers)
+   920→            if resp.status_code != 200:
+   921→                logger.debug(f"Google Images returned {resp.status_code}")
+   922→                return image_urls
+   923→            
+   924→            html = resp.text
+   925→            
+   926→            # Google Images stores image URLs in various ways
+   927→            seen = set()
+   928→            
+   929→            # Pattern 1: Direct image URLs in data attributes
+   930→            for pattern in [
+   931→                r'"originalUrl"\s*:\s*"(https?://[^"]+)"',
+   932→                r'"ou"\s*:\s*"(https?://[^"]+)"',
+   933→                r'"src"\s*:\s*"(https?://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"',
+   934→                r'data-src\s*=\s*"(https?://[^"]+)"',
+   935→            ]:
+   936→                for m in re.finditer(pattern, html):
+   937→                    url = m.group(1).replace("\\u0026", "&").replace("\\/", "/")
+   938→                    if url and url not in seen and not _is_junk_url(url):
+   939→                        seen.add(url)
+   940→                        image_urls.append(url)
+   941→                        if len(image_urls) >= max_images:
+   942→                            return image_urls
+   943→            
+   944→            # Pattern 2: img tags with data attributes
+   945→            for m in re.finditer(r'<img[^>]+data-src=["\x27](https?://[^"\x27]+)["\x27]', html, re.IGNORECASE):
+   946→                url = m.group(1).replace("&amp;", "&")
+   947→                if url and url not in seen and not _is_junk_url(url):
+   948→                    seen.add(url)
+   949→                    image_urls.append(url)
+   950→                    if len(image_urls) >= max_images:
+   951→                        return image_urls
+   952→    
+   953→    except Exception as e:
+   954→        logger.debug(f"Google Images search failed for '{topic[:40]}': {e}")
+   955→    
+   956→    return image_urls
+   957→
+   958→
+   959→async def _search_searxng_images(topic: str, max_images: int = 5) -> List[str]:
+   960→    """Search SearXNG for images — DEPRECATED as primary, used as LAST fallback.
+   961→    
+   962→    SearXNG public instances are unreliable (frequent downtime, rate limits).
+   963→    Only used when all other image sources fail.
+   964→    """
+   965→    image_urls: List[str] = []
+   966→    seen_urls: set = set()
+   967→    
+   968→    try:
+   969→        from bot.web_search import search_searxng
+   970→        
+   971→        clean_topic = re.sub(r'[^\w\s]', '', topic)[:80]
+   972→        
+   973→        search_queries = [
+   974→            f"{clean_topic} фото",
+   975→            f"{clean_topic} photo",
+   976→        ]
+   977→        
+   978→        for query in search_queries:
+   979→            if len(image_urls) >= max_images:
+   980→                break
+   981→            try:
+   982→                results = await search_searxng(
+   983→                    query,
+   984→                    max_results=8,
+   985→                    language="ru",
+   986→                    categories="images",
+   987→                    safesearch=2,  # SAFESEARCH: Strict — block all adult content
+   988→                )
+   989→                for r in results:
+   990→                    if r.url and r.url not in seen_urls:
+   991→                        url_lower = r.url.lower()
+   992→                        is_image_url = any(ext in url_lower for ext in ['.jpg', '.jpeg', '.png', '.webp'])
+   993→                        is_image_host = any(domain in url_lower for domain in [
+   994→                            'imgur.com', 'flickr.com', 'unsplash.com',
+   995→                            'pexels.com', 'shutterstock.com', 'istockphoto.com',
+   996→                        ])
+   997→                        if (is_image_url or is_image_host) and not _is_junk_url(r.url):
+   998→                            seen_urls.add(r.url)
+   999→                            image_urls.append(r.url)
+  1000→            except Exception as e:
+  1001→                logger.debug(f"SearXNG image search failed for query '{query[:40]}': {e}")
+  1002→    
+  1003→    except Exception as e:
+  1004→        logger.debug(f"SearXNG image search failed for '{topic[:40]}': {e}")
+  1005→    
+  1006→    return image_urls
+  1007→
+  1008→
+  1009→async def search_images(topic: str, max_images: int = 5) -> List[str]:
+  1010→    """Search for images using MULTI-PROVIDER pipeline with CONCURRENT fallback.
+  1011→    
+  1012→    v4.1: Added NSFW protection:
+  1013→      - HARD BLOCK: If topic contains NSFW keywords, search is SKIPPED entirely
+  1014→      - All providers use SafeSearch (Strict mode)
+  1015→      - NSFW domains are blocked from results
+  1016→      - AI Vision content moderation before posting (in channel.py)
+  1017→    
+  1018→    Providers:
+  1019→      1. Unsplash — high-quality stock photos (free API or scraping)
+  1020→      2. Pexels — stock photos (free API or scraping)
+  1021→      3. Bing Images — comprehensive image search (scraping, cloud-friendly)
+  1022→      4. Google Images — most comprehensive (scraping, may be blocked from cloud)
+  1023→      5. SearXNG — LAST RESORT only (unreliable public instances)
+  1024→    
+  1025→    All providers (except SearXNG) are queried CONCURRENTLY for speed.
+  1026→    Results are merged and deduplicated.
+  1027→    """
+  1028→    # ── HARD BLOCK: Skip image search entirely for NSFW topics ────────
+  1029→    # This is the most important safety check. If the topic contains
+  1030→    # any adult/sexual keywords, we MUST NOT search for images at all.
+  1031→    # Even with SafeSearch, some explicit images can slip through.
+  1032→    if _is_nsfw_query(topic):
+  1033→        logger.error(f"IMAGE SEARCH BLOCKED: NSFW topic detected — '{topic[:60]}'")
+  1034→        return []
+  1035→    
+  1036→    image_urls: List[str] = []
+  1037→    seen_urls: set = set()
+  1038→    
+  1039→    clean_topic = re.sub(r'[^\w\s]', '', topic)[:80]
+  1040→    
+  1041→    # ── Phase 1: Concurrent search across reliable providers ──────────
+  1042→    # Run Unsplash, Pexels, and Bing Images in parallel for maximum speed
+  1043→    search_tasks = [
+  1044→        _search_unsplash(topic, max_images=max_images),
+  1045→        _search_pexels(topic, max_images=max_images),
+  1046→        _search_bing_images(topic, max_images=max_images),
+  1047→    ]
+  1048→    
+  1049→    results = await asyncio.gather(*search_tasks, return_exceptions=True)
+  1050→    
+  1051→    # Collect results from all providers (priority: Unsplash > Pexels > Bing)
+  1052→    for provider_results in results:
+  1053→        if isinstance(provider_results, list):
+  1054→            for url in provider_results:
+  1055→                if url and url not in seen_urls and not _is_junk_url(url) and not _is_nsfw_image_url(url):
+  1056→                    seen_urls.add(url)
+  1057→                    image_urls.append(url)
+  1058→    
+  1059→    # ── Phase 2: Google Images (secondary — may be blocked from cloud) ──
+  1060→    if len(image_urls) < 2:
+  1061→        try:
+  1062→            google_results = await _search_google_images(topic, max_images=max(3, max_images - len(image_urls)))
+  1063→            for url in google_results:
+  1064→                if url and url not in seen_urls and not _is_junk_url(url) and not _is_nsfw_image_url(url):
+  1065→                    seen_urls.add(url)
+  1066→                    image_urls.append(url)
+  1067→        except Exception as e:
+  1068→            logger.debug(f"Google Images fallback failed for '{topic[:40]}': {e}")
+  1069→    
+  1070→    # ── Phase 3: SearXNG — LAST RESORT (unreliable public instances) ──
+  1071→    if len(image_urls) < 2:
+  1072→        try:
+  1073→            searxng_results = await _search_searxng_images(topic, max_images=max(3, max_images - len(image_urls)))
+  1074→            for url in searxng_results:
+  1075→                if url and url not in seen_urls and not _is_junk_url(url) and not _is_nsfw_image_url(url):
+  1076→                    seen_urls.add(url)
+  1077→                    image_urls.append(url)
+  1078→        except Exception as e:
+  1079→            logger.debug(f"SearXNG last-resort fallback failed for '{topic[:40]}': {e}")
+  1080→    
+  1081→    # ── Phase 4: General web search for image pages ──
+  1082→    if not image_urls:
+  1083→        try:
+  1084→            from bot.web_search import web_search
+  1085→            results = await web_search(f"{clean_topic} фото image", max_results=5)
+  1086→            for r in results:
+  1087→                url = r.get("url", "") if isinstance(r, dict) else getattr(r, "url", "")
+  1088→                if url and url not in seen_urls and not _is_junk_url(url) and not _is_nsfw_image_url(url):
+  1089→                    seen_urls.add(url)
+  1090→                    image_urls.append(url)
+  1091→        except Exception as e:
+  1092→            logger.debug(f"Web search image fallback failed for '{topic[:40]}': {e}")
+  1093→    
+  1094→    if image_urls:
+  1095→        logger.info(f"Image search found {len(image_urls)} URLs for '{topic[:50]}' (multi-provider)")
+  1096→    else:
+  1097→        logger.warning(f"Image search found 0 URLs for '{topic[:50]}' — ALL providers failed!")
+  1098→    
+  1099→    return image_urls[:max_images]
+  1100→
+  1101→
+  1102→# ── Main fetcher class ───────────────────────────────────────────────────────
+  1103→
+  1104→def _image_hash(img_bytes: bytes) -> str:
+  1105→    """Compute SHA256 hash of image bytes for deduplication."""
+  1106→    return hashlib.sha256(img_bytes).hexdigest()
+  1107→
+  1108→
+  1109→def _images_are_similar(img1: bytes, img2: bytes) -> bool:
+  1110→    """Check if two images are identical or near-identical.
+  1111→
+  1112→    Uses SHA256 hash for exact match. For near-duplicates (resized/compressed
+  1113→    versions of the same photo), uses a simple pixel sampling heuristic.
+  1114→    Returns True if images are likely the same photo.
+  1115→    """
+  1116→    # Exact match — fastest check
+  1117→    if img1 == img2:
+  1118→        return True
+  1119→
+  1120→    h1, h2 = _image_hash(img1), _image_hash(img2)
+  1121→    if h1 == h2:
+  1122→        return True
+  1123→
+  1124→    # Size-based quick reject: if sizes differ by >3x, very unlikely same image
+  1125→    ratio = len(img1) / max(len(img2), 1)
+  1126→    if ratio < 0.3 or ratio > 3.3:
+  1127→        return False
+  1128→
+  1129→    # Try PIL-based comparison for near-duplicates (resized/recompressed same photo)
+  1130→    try:
+  1131→        from PIL import Image
+  1132→        import io
+  1133→
+  1134→        pil1 = Image.open(io.BytesIO(img1))
+  1135→        pil2 = Image.open(io.BytesIO(img2))
+  1136→
+  1137→        # If dimensions are very different, probably different images
+  1138→        w1, h1_dim = pil1.size
+  1139→        w2, h2_dim = pil2.size
+  1140→        if abs(w1 - w2) > max(w1, w2) * 0.3 or abs(h1_dim - h2_dim) > max(h1_dim, h2_dim) * 0.3:
+  1141→            return False
+  1142→
+  1143→        # Resize both to tiny thumbnail and compare pixel values
+  1144→        thumb_size = (16, 16)
+  1145→        t1 = pil1.convert("L").resize(thumb_size)
+  1146→        t2 = pil2.convert("L").resize(thumb_size)
+  1147→
+  1148→        pixels1 = list(t1.getdata())
+  1149→        pixels2 = list(t2.getdata())
+  1150→
+  1151→        # Compare average pixel difference
+  1152→        total_diff = sum(abs(p1 - p2) for p1, p2 in zip(pixels1, pixels2))
+  1153→        avg_diff = total_diff / len(pixels1)
+  1154→
+  1155→        # Low average difference = same image with different compression/resize
+  1156→        if avg_diff < 15:  # Threshold: very similar greyscale thumbnails
+  1157→            return True
+  1158→
+  1159→    except Exception:
+  1160→        pass  # If PIL comparison fails, only exact hash match counts
+  1161→
+  1162→    return False
+  1163→
+  1164→
+  1165→def deduplicate_images(images: List[bytes]) -> List[bytes]:
+  1166→    """Remove duplicate and near-duplicate images from a list.
+  1167→
+  1168→    Uses both exact SHA256 hash matching and PIL-based perceptual comparison
+  1169→    to catch resized/compressed versions of the same photo.
+  1170→    Returns deduplicated list preserving original order.
+  1171→    """
+  1172→    if not images:
+  1173→        return images
+  1174→
+  1175→    unique: List[bytes] = []
+  1176→    for img in images:
+  1177→        is_dup = False
+  1178→        for existing in unique:
+  1179→            if _images_are_similar(img, existing):
+  1180→                is_dup = True
+  1181→                break
+  1182→        if not is_dup:
+  1183→            unique.append(img)
+  1184→        else:
+  1185→            logger.debug(f"Dedup: removed duplicate image ({len(img)} bytes)")
+  1186→
+  1187→    removed = len(images) - len(unique)
+  1188→    if removed > 0:
+  1189→        logger.info(f"Image dedup: {len(images)} → {len(unique)} (removed {removed} duplicates)")
+  1190→
+  1191→    return unique
+  1192→
+  1193→
+  1194→class ImageFetcher:
+  1195→    """Smart image fetcher with original-first priority pipeline.
+  1196→
+  1197→    Returns image BYTES (not base64) for compatibility with channel.py.
+  1198→
+  1199→    v3.0: Includes image deduplication by hash + perceptual comparison
+  1200→    to prevent duplicate photos in Telegram posts.
+  1201→
+  1202→    Usage:
+  1203→        fetcher = ImageFetcher()
+  1204→        images = await fetcher.fetch(
+  1205→            topic="BMW M5 G90 debut",
+  1206→            article_url="https://bmwblog.com/...",
+  1207→            rss_entry=feed_entry,
+  1208→        )
+  1209→        # images = [bytes, bytes, ...] or [] (deduplicated!)
+  1210→    """
+  1211→
+  1212→    def __init__(self) -> None:
+  1213→        self.cache = ImageCache()
+  1214→        self._client: Optional[httpx.AsyncClient] = None
+  1215→        self._seen_hashes: set = set()  # Track hashes within a single fetch() call
+  1216→
+  1217→    def _get_client(self) -> httpx.AsyncClient:
+  1218→        if self._client is None or self._client.is_closed:
+  1219→            self._client = httpx.AsyncClient(
+  1220→                timeout=IMAGE_FETCH_TIMEOUT,
+  1221→                follow_redirects=True,
+  1222→                headers={
+  1223→                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  1224→                    "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+  1225→                },
+  1226→            )
+  1227→        return self._client
+  1228→
+  1229→    def _add_unique(self, img_bytes: bytes) -> bool:
+  1230→        """Add image to list only if it's not a duplicate. Returns True if added."""
+  1231→        img_hash = _image_hash(img_bytes)
+  1232→        if img_hash in self._seen_hashes:
+  1233→            logger.debug(f"Skipping exact duplicate image (hash={img_hash[:12]}...)")
+  1234→            return False
+  1235→        self._seen_hashes.add(img_hash)
+  1236→        return True
+  1237→
+  1238→    async def fetch(
+  1239→        self,
+  1240→        topic: str,
+  1241→        article_url: str = "",
+  1242→        rss_entry: Any = None,
+  1243→        image_urls: List[str] = None,
+  1244→        max_images: int = MAX_IMAGES_PER_POST,
+  1245→    ) -> Tuple[List[bytes], str]:
+  1246→        """Fetch images using the priority pipeline with deduplication.
+  1247→
+  1248→        Returns (image_list: List[bytes], source: str)
+  1249→        source is 'rss', 'article', 'search', or 'cache' for logging.
+  1250→        Images are deduplicated by hash to prevent duplicates in posts.
+  1251→        NSFW protection: If topic contains adult keywords, returns empty list.
+  1252→        """
+  1253→        # Reset seen hashes for this fetch call
+  1254→        self._seen_hashes = set()
+  1255→
+  1256→        # ── HARD BLOCK: Skip image fetch entirely for NSFW topics ────────
+  1257→        if _is_nsfw_query(topic):
+  1258→            logger.error(f"IMAGE FETCH BLOCKED: NSFW topic detected — '{topic[:60]}'")
+  1259→            return [], "nsfw_blocked"
+  1260→
+  1261→        # ── Step 0: Check cache ───────────────────────────────────────────
+  1262→        cached = self.cache.get(topic)
+  1263→        if cached:
+  1264→            # Deduplicate cached images too (cache may have been polluted)
+  1265→            deduped = deduplicate_images(cached)
+  1266→            if deduped:
+  1267→                logger.info(f"Image cache HIT for '{topic[:50]}' — {len(deduped)} images (after dedup)")
+  1268→                return deduped, "cache"
+  1269→            else:
+  1270→                logger.warning(f"Image cache had only duplicates for '{topic[:50]}', re-fetching")
+  1271→                self.cache.delete(topic)
+  1272→
+  1273→        all_images: List[bytes] = []
+  1274→        source = "none"
+  1275→
+  1276→        # ── Step 1: RSS image URLs (passed from news._extract_entry_images) ─
+  1277→        if image_urls:
+  1278→            client = self._get_client()
+  1279→            for url in image_urls[:max_images * 3]:
+  1280→                if len(all_images) >= max_images:
+  1281→                    break
+  1282→                img_bytes = await _validate_and_download(client, url)
+  1283→                if img_bytes and self._add_unique(img_bytes):
+  1284→                    all_images.append(img_bytes)
+  1285→            if all_images:
+  1286→                source = "rss"
+  1287→                logger.info(f"Got {len(all_images)} unique images from RSS for '{topic[:50]}'")
+  1288→
+  1289→        # ── Step 2: RSS entry enclosures (if entry provided) ──────────────
+  1290→        if rss_entry is not None and len(all_images) < max_images:
+  1291→            entry_urls = extract_rss_images(rss_entry)
+  1292→            if entry_urls:
+  1293→                client = self._get_client()
+  1294→                for url in entry_urls:
+  1295→                    if len(all_images) >= max_images:
+  1296→                        break
+  1297→                    if url not in (image_urls or []):
+  1298→                        img_bytes = await _validate_and_download(client, url)
+  1299→                        if img_bytes and self._add_unique(img_bytes):
+  1300→                            all_images.append(img_bytes)
+  1301→                if all_images and source == "none":
+  1302→                    source = "rss"
+  1303→
+  1304→        # ── Step 3: Article page images ───────────────────────────────────
+  1305→        if article_url and len(all_images) < max_images:
+  1306→            article_images = await fetch_article_images(article_url, max_count=max_images - len(all_images) + 2)
+  1307→            if article_images:
+  1308→                added = 0
+  1309→                for img in article_images:
+  1310→                    if len(all_images) >= max_images:
+  1311→                        break
+  1312→                    if self._add_unique(img):
+  1313→                        all_images.append(img)
+  1314→                        added += 1
+  1315→                if added:
+  1316→                    source = "article" if source == "none" else source + "+article"
+  1317→                    logger.info(f"Scraped {added} unique article images for '{topic[:50]}'")
+  1318→
+  1319→        # ── Step 4: Image search (if we still need more images) ───────────
+  1320→        if len(all_images) < 2:
+  1321→            search_urls = await search_images(topic, max_images=max(3, max_images - len(all_images)))
+  1322→            if search_urls:
+  1323→                client = self._get_client()
+  1324→                downloaded = 0
+  1325→                for url in search_urls:
+  1326→                    if len(all_images) >= max_images:
+  1327→                        break
+  1328→                    img_bytes = await _validate_and_download(client, url)
+  1329→                    if img_bytes and self._add_unique(img_bytes):
+  1330→                        all_images.append(img_bytes)
+  1331→                        downloaded += 1
+  1332→                if downloaded:
+  1333→                    if source == "none":
+  1334→                        source = "search"
+  1335→                    else:
+  1336→                        source += "+search"
+  1337→                    logger.info(f"Downloaded {downloaded} images from search providers for '{topic[:50]}'")
+  1338→                elif search_urls:
+  1339→                    logger.warning(f"Found {len(search_urls)} image URLs from search but 0 passed validation for '{topic[:50]}'")
+  1340→            else:
+  1341→                logger.warning(f"Image search returned 0 URLs for '{topic[:50]}' — all providers may be down")
+  1342→
+  1343→        # ── Final deduplication pass (catches near-duplicates across sources) ──
+  1344→        all_images = deduplicate_images(all_images)
+  1345→
+  1346→        # ── Cache result ──────────────────────────────────────────────────
+  1347→        if all_images:
+  1348→            self.cache.put(topic, all_images, source=source)
+  1349→            logger.info(f"ImageFetcher: {len(all_images)} unique images for '{topic[:50]}' (source={source})")
+  1350→        else:
+  1351→            logger.info(f"No real images found for '{topic[:50]}' — AI generation will be fallback")
+  1352→
+  1353→        return all_images, source
+  1354→
+  1355→    async def close(self) -> None:
+  1356→        if self._client and not self._client.is_closed:
+  1357→            await self._client.aclose()
+  1358→            self._client = None
+  1359→
+  1360→
+  1361→# ── Module-level convenience ─────────────────────────────────────────────────
+  1362→
+  1363→_fetcher: Optional[ImageFetcher] = None
+  1364→
+  1365→
+  1366→async def fetch_images_for_post(
+  1367→    topic: str,
+  1368→    article_url: str = "",
+  1369→    rss_entry: Any = None,
+  1370→    image_urls: List[str] = None,
+  1371→    max_images: int = MAX_IMAGES_PER_POST,
+  1372→) -> Tuple[List[bytes], str]:
+  1373→    """Module-level convenience function to fetch images for a post.
+  1374→
+  1375→    Images are automatically deduplicated by hash to prevent duplicates.
+  1376→    Default max_images=4 (optimal for news posts — 2-4 unique images).
+  1377→    """
+  1378→    global _fetcher
+  1379→    if _fetcher is None:
+  1380→        _fetcher = ImageFetcher()
+  1381→    return await _fetcher.fetch(
+  1382→        topic=topic,
+  1383→        article_url=article_url,
+  1384→        rss_entry=rss_entry,
+  1385→        image_urls=image_urls,
+  1386→        max_images=max_images,
+  1387→    )
+  1388→
