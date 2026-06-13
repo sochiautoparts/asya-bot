@@ -14,6 +14,32 @@ from bot.config import config
 
 DB_PATH = config.DB_PATH
 
+# ── Database connection helper ──────────────────────────────────────────────────
+# WAL mode + busy_timeout fix "database is locked" errors when multiple
+# async tasks (news fetcher, poster, bot handlers) access the DB concurrently.
+
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def _connect_db():
+    """Open a DB connection with WAL mode and busy_timeout.
+
+    WAL mode allows concurrent reads while a write is in progress.
+    busy_timeout=5000 makes SQLite wait up to 5 seconds for a lock
+    instead of raising OperationalError immediately.
+
+    Usage:  async with _connect_db() as db:  ...
+    """
+    db = await aiosqlite.connect(DB_PATH)
+    await db.execute("PRAGMA journal_mode=WAL")
+    await db.execute("PRAGMA busy_timeout=5000")
+    await db.execute("PRAGMA synchronous=NORMAL")
+    db.row_factory = aiosqlite.Row
+    try:
+        yield db
+    finally:
+        await db.close()
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
@@ -132,8 +158,11 @@ CREATE INDEX IF NOT EXISTS idx_topic_registry_last ON topic_registry(last_posted
 
 
 async def init_db() -> None:
-    """Initialize database — create all tables."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    """Initialize database — create all tables.
+
+    WAL mode and busy_timeout are set automatically by _connect_db().
+    """
+    async with _connect_db() as db:
         await db.executescript(SCHEMA)
         await db.commit()
 
@@ -147,7 +176,7 @@ async def get_or_create_user(user_id: int, username: str = "", first_name: str =
     INSERT + catch IntegrityError.
     """
     now = time.time()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)) as cursor:
             row = await cursor.fetchone()
@@ -200,7 +229,7 @@ async def get_or_create_user(user_id: int, username: str = "", first_name: str =
 
 async def is_user_blocked(user_id: int) -> bool:
     """Check if a user is blocked."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         async with db.execute("SELECT is_blocked FROM users WHERE user_id = ?", (user_id,)) as cursor:
             row = await cursor.fetchone()
             return bool(row and row[0])
@@ -208,7 +237,7 @@ async def is_user_blocked(user_id: int) -> bool:
 
 async def set_user_admin(user_id: int, is_admin: bool = True) -> None:
     """Set or unset a user as admin."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         await db.execute("UPDATE users SET is_admin = ? WHERE user_id = ?", (int(is_admin), user_id))
         await db.commit()
 
@@ -217,7 +246,7 @@ async def is_user_admin(user_id: int) -> bool:
     """Check if a user is admin (or is the owner)."""
     if user_id == config.OWNER_ID:
         return True
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         async with db.execute("SELECT is_admin FROM users WHERE user_id = ?", (user_id,)) as cursor:
             row = await cursor.fetchone()
             return bool(row and row[0])
@@ -225,21 +254,21 @@ async def is_user_admin(user_id: int) -> bool:
 
 async def block_user(user_id: int, blocked: bool = True) -> None:
     """Block or unblock a user."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         await db.execute("UPDATE users SET is_blocked = ? WHERE user_id = ?", (int(blocked), user_id))
         await db.commit()
 
 
 async def set_chat_mode(user_id: int, mode: str) -> None:
     """Set chat mode for a user (normal, diagnostic, parts)."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         await db.execute("UPDATE users SET chat_mode = ? WHERE user_id = ?", (mode, user_id))
         await db.commit()
 
 
 async def get_chat_mode(user_id: int) -> str:
     """Get current chat mode for a user."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         async with db.execute("SELECT chat_mode FROM users WHERE user_id = ?", (user_id,)) as cursor:
             row = await cursor.fetchone()
             return row[0] if row else "normal"
@@ -248,7 +277,7 @@ async def get_chat_mode(user_id: int) -> str:
 async def add_chat_message(user_id: int, role: str, content: str) -> None:
     """Add a message to chat history."""
     now = time.time()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         await db.execute(
             "INSERT INTO chat_history (user_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
             (user_id, role, content, now),
@@ -274,7 +303,7 @@ async def _prune_chat_history(db: aiosqlite.Connection, user_id: int) -> None:
 async def get_chat_history(user_id: int, limit: Optional[int] = None) -> List[Dict[str, Any]]:
     """Get chat history for a user, most recent first."""
     limit = limit or config.CHAT_HISTORY_LIMIT
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT role, content, timestamp FROM chat_history WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?",
@@ -286,7 +315,7 @@ async def get_chat_history(user_id: int, limit: Optional[int] = None) -> List[Di
 
 async def clear_chat_history(user_id: int) -> None:
     """Clear chat history for a user."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         await db.execute("DELETE FROM chat_history WHERE user_id = ?", (user_id,))
         await db.commit()
 
@@ -301,7 +330,7 @@ async def add_news_item(source: str, title: str, url: str, summary: str = "",
     now = time.time()
     image_urls_json = json.dumps(image_urls or [], ensure_ascii=False)
     try:
-        async with aiosqlite.connect(DB_PATH) as db:
+        async with _connect_db() as db:
             await db.execute(
                 """INSERT INTO news_items (source, title, url, summary, published, fetched_at, category, lang, image_urls)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -313,7 +342,7 @@ async def add_news_item(source: str, title: str, url: str, summary: str = "",
         # If already exists, update image_urls if we have new ones
         if image_urls:
             try:
-                async with aiosqlite.connect(DB_PATH) as db:
+                async with _connect_db() as db:
                     await db.execute(
                         "UPDATE news_items SET image_urls = ? WHERE url = ? AND image_urls = '[]'",
                         (image_urls_json, url),
@@ -329,7 +358,7 @@ async def get_unposted_news(limit: int = 10, category: str = "") -> List[Dict[st
     
     Parses image_urls JSON field back into a Python list.
     """
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         db.row_factory = aiosqlite.Row
         if category:
             async with db.execute(
@@ -362,7 +391,7 @@ async def get_unposted_news(limit: int = 10, category: str = "") -> List[Dict[st
 
 async def mark_news_posted(url: str) -> None:
     """Mark a news item as posted to channel."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         await db.execute("UPDATE news_items SET is_posted = 1 WHERE url = ?", (url,))
         await db.commit()
 
@@ -371,7 +400,7 @@ async def add_channel_post(content: str, message_id: int = 0, post_type: str = "
                             source_url: str = "", partner_program: str = "") -> int:
     """Add a channel post record. Returns post ID."""
     now = time.time()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         cursor = await db.execute(
             """INSERT INTO channel_posts (message_id, content, post_type, source_url, created_at, partner_program)
                VALUES (?, ?, ?, ?, ?, ?)""",
@@ -384,7 +413,7 @@ async def add_channel_post(content: str, message_id: int = 0, post_type: str = "
 async def get_today_post_count() -> int:
     """Get number of posts made today."""
     today_start = time.time() - (time.time() % 86400)
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         async with db.execute(
             "SELECT COUNT(*) FROM channel_posts WHERE created_at >= ?", (today_start,),
         ) as cursor:
@@ -395,7 +424,7 @@ async def get_today_post_count() -> int:
 async def get_hourly_post_count() -> int:
     """Get number of posts made in the last hour."""
     hour_ago = time.time() - 3600
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         async with db.execute(
             "SELECT COUNT(*) FROM channel_posts WHERE created_at >= ?", (hour_ago,),
         ) as cursor:
@@ -406,7 +435,7 @@ async def get_hourly_post_count() -> int:
 async def get_ai_cached(query_hash: str) -> Optional[str]:
     """Get cached AI response if available and fresh (< 1 hour)."""
     max_age = time.time() - 3600
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         async with db.execute(
             "SELECT response FROM ai_cache WHERE query_hash = ? AND created_at > ?",
             (query_hash, max_age),
@@ -425,7 +454,7 @@ async def get_ai_cached(query_hash: str) -> Optional[str]:
 async def set_ai_cached(query_hash: str, query: str, response: str, model: str = "") -> None:
     """Cache an AI response."""
     now = time.time()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         await db.execute(
             """INSERT OR REPLACE INTO ai_cache (query_hash, query, response, model, created_at, hit_count)
                VALUES (?, ?, ?, ?, ?, 0)""",
@@ -439,7 +468,7 @@ async def add_partner_post(program_id: str, program_name: str, category: str,
                             message_id: int = 0) -> int:
     """Add a partner post record."""
     now = time.time()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         cursor = await db.execute(
             """INSERT INTO partner_posts (program_id, program_name, category, affiliate_url,
                post_content, posted_at, message_id)
@@ -453,7 +482,7 @@ async def add_partner_post(program_id: str, program_name: str, category: str,
 async def get_today_partner_post_count() -> int:
     """Get number of partner posts made today."""
     today_start = time.time() - (time.time() % 86400)
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         async with db.execute(
             "SELECT COUNT(*) FROM partner_posts WHERE posted_at >= ?", (today_start,),
         ) as cursor:
@@ -466,7 +495,7 @@ async def add_user_car(user_id: int, brand: str = "", model: str = "", year: int
                        notes: str = "") -> int:
     """Add a car to user's profile. Returns car ID."""
     now = time.time()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         cursor = await db.execute(
             """INSERT INTO user_cars (user_id, brand, model, year, vin, engine, mileage, notes, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -478,7 +507,7 @@ async def add_user_car(user_id: int, brand: str = "", model: str = "", year: int
 
 async def get_user_cars(user_id: int) -> List[Dict[str, Any]]:
     """Get all cars for a user."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM user_cars WHERE user_id = ? ORDER BY created_at DESC",
@@ -490,7 +519,7 @@ async def get_user_cars(user_id: int) -> List[Dict[str, Any]]:
 
 async def delete_user_car(car_id: int, user_id: int) -> bool:
     """Delete a car from user's profile. Returns True if deleted."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         cursor = await db.execute(
             "DELETE FROM user_cars WHERE id = ? AND user_id = ?",
             (car_id, user_id),
@@ -501,7 +530,7 @@ async def delete_user_car(car_id: int, user_id: int) -> bool:
 
 async def update_car_mileage(car_id: int, user_id: int, mileage: int) -> bool:
     """Update mileage for a user's car."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         cursor = await db.execute(
             "UPDATE user_cars SET mileage = ? WHERE id = ? AND user_id = ?",
             (mileage, car_id, user_id),
@@ -545,7 +574,7 @@ async def add_post_fingerprint(title: str, content: str, post_id: int = 0) -> No
     title_hash = _make_title_hash(title)
     content_hash = _make_content_hash(content)
     title_prefix = _normalize_text(title)[:30]
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         await db.execute(
             """INSERT INTO post_fingerprints (title_hash, content_hash, title_prefix, post_id, created_at)
                VALUES (?, ?, ?, ?, ?)""",
@@ -581,7 +610,7 @@ async def is_duplicate_post(title: str, content: str = "", hours: int = 48,
     title_hash = _make_title_hash(title)
     title_prefix = _normalize_text(title)[:30]
 
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         # Check 1: Source URL match — same article from different RSS feeds
         # Compares the path component of URLs (ignores www/http/https differences)
         if source_url:
@@ -687,7 +716,7 @@ async def is_duplicate_post(title: str, content: str = "", hours: int = 48,
 async def get_recent_post_titles(hours: int = 48, limit: int = 50) -> List[str]:
     """Get titles of recently posted news items for similarity checking."""
     cutoff = time.time() - (hours * 3600)
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             """SELECT content, source_url FROM channel_posts
@@ -948,7 +977,7 @@ def _make_content_hash(content: str) -> str:
 async def cleanup_old_fingerprints(max_age_days: int = 7) -> int:
     """Remove fingerprints older than max_age_days. Returns count of removed rows."""
     cutoff = time.time() - (max_age_days * 86400)
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         cursor = await db.execute(
             "DELETE FROM post_fingerprints WHERE created_at < ?", (cutoff,)
         )
@@ -958,7 +987,7 @@ async def cleanup_old_fingerprints(max_age_days: int = 7) -> int:
 
 async def get_stats() -> Dict[str, Any]:
     """Get bot statistics."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _connect_db() as db:
         stats = {}
         async with db.execute("SELECT COUNT(*) FROM users") as cursor:
             stats["total_users"] = (await cursor.fetchone())[0]
@@ -989,7 +1018,7 @@ async def load_topic_registry() -> Dict:
     cutoff = time.time() - max_age
     registry = {}
     try:
-        async with aiosqlite.connect(DB_PATH) as db:
+        async with _connect_db() as db:
             async with db.execute(
                 "SELECT entity_key, first_seen, last_posted, post_count, titles FROM topic_registry WHERE last_posted >= ?",
                 (cutoff,),
@@ -1021,7 +1050,7 @@ async def save_topic_to_registry(entity_key: str, first_seen: float, last_posted
         return
     titles_json = json.dumps(titles[-20:], ensure_ascii=False)  # Keep last 20 titles
     try:
-        async with aiosqlite.connect(DB_PATH) as db:
+        async with _connect_db() as db:
             await db.execute(
                 """INSERT INTO topic_registry (entity_key, first_seen, last_posted, post_count, titles)
                    VALUES (?, ?, ?, ?, ?)
@@ -1041,7 +1070,7 @@ async def cleanup_topic_registry(max_age_hours: int = 48) -> int:
     """Remove expired topics from the DB registry. Returns count of removed rows."""
     cutoff = time.time() - (max_age_hours * 3600)
     try:
-        async with aiosqlite.connect(DB_PATH) as db:
+        async with _connect_db() as db:
             cursor = await db.execute(
                 "DELETE FROM topic_registry WHERE last_posted < ?", (cutoff,)
             )

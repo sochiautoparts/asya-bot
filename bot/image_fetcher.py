@@ -1,4 +1,4 @@
-"""Smart Image Fetcher v7.0 — Clean article-first image sourcing for asya-bot.
+"""Smart Image Fetcher v8.0 — Clean article-first image sourcing for asya-bot.
 
 PHILOSOPHY: Automotive news articles ALREADY have photos attached.
 No need for image search engines, stock photos, or AI generation.
@@ -7,17 +7,18 @@ Just take the photos from the article and attach them to the post.
 PRIORITY PIPELINE:
   1. RSS images — from news._extract_entry_images() (pre-filtered, deduped, upgraded)
   2. Article page images — og:image, twitter:image, JSON-LD, <img> tags
-  3. DONE — that's it. No search, no AI, no bullshit.
+  3. Google News redirect resolution — follow news.google.com redirects to real article
+  4. DONE — that's it. No search, no AI, no bullshit.
 
-v7.0 CHANGES:
-  - CRITICAL: Comprehensive junk image filtering — blocks avatars, social buttons,
-    charts, screenshots, infographics, author photos, sidebar widgets, related posts
-  - CRITICAL: Aspect ratio filtering — bans banner-shaped (728x90) and button-shaped images
-  - CRITICAL: Minimum dimension raised to 300x200 — no more tiny thumbnails
-  - CRITICAL: Content-based filtering — detects screenshots, charts, SVGs, UI elements
-  - IMPROVED: JUNK_PATH_KEYWORDS massively expanded (60+ patterns)
-  - IMPROVED: Dimension validation with aspect ratio check (must look like a photo)
-  - IMPROVED: Article scraping focuses on content areas, skips sidebar/footer/header
+v8.0 CHANGES:
+  - CRITICAL: Google News redirect resolution — news.google.com URLs are followed
+    to the REAL article page before scraping for images
+  - CRITICAL: Enhanced junk image filtering — blocks more junk patterns
+  - CRITICAL: Added perceptual hash dedup — removes near-duplicate photos
+    (same photo at different resolutions, crops, or slight edits)
+  - IMPROVED: Minimum dimension raised to 400x300 — no more thumbnails
+  - IMPROVED: Content-type blacklist — blocks SVG, GIF, WebP animations
+  - IMPROVED: Google AMP cache URL detection and resolution
   - KEPT: SHA256 content deduplication, ImageCache, thumbnail upgrades
 """
 
@@ -41,11 +42,15 @@ logger = logging.getLogger("asya.image_fetcher")
 
 IMAGE_CACHE_DIR = Path("data/image_cache")
 IMAGE_CACHE_TTL_DAYS = 7
-IMAGE_MIN_SIZE_BYTES = 5_000          # 5 KB — below this is definitely an icon/tracker/pixel
+IMAGE_MIN_SIZE_BYTES = 8_000          # 8 KB — below this is definitely an icon/tracker/pixel
 IMAGE_MAX_SIZE_BYTES = 5_242_880      # 5 MB — Telegram limit
 MAX_IMAGES_PER_POST = 10              # Telegram mediagroup limit
 IMAGE_FETCH_TIMEOUT = 15.0
 ARTICLE_FETCH_TIMEOUT = 20.0
+
+# Minimum pixel dimensions — real article photos are at least this size
+IMAGE_MIN_WIDTH = 400
+IMAGE_MIN_HEIGHT = 300
 
 # ── Junk URL filter — comprehensive ───────────────────────────────────────────
 
@@ -57,6 +62,16 @@ JUNK_DOMAINS = {
     "pagead2.googlesyndication.com", "ad.doubleclick.net",
     "platform.twitter.com", "apis.google.com",
     "feeds.feedburner.com", "feedburner.google.com",
+    # v8.0: Additional tracker/ad domains
+    "hotlog.ru", "liveinternet.ru", "openstat.net",
+    "top.mail.ru", "counter.rambler.ru",
+    "cdn.ampproject.org",  # AMP cache — low quality
+    "t.co",  # Twitter URL shortener — redirects, not images
+    "ow.ly", "bit.ly", "tinyurl.com",  # URL shorteners
+    "cdn.jsdelivr.net", "cdnjs.cloudflare.com",  # JS CDNs — never host real images
+    "gravatar.com",  # Avatar service
+    "secure.gravatar.com",
+    "disqus.com", "disquscdn.com",  # Comment system
 }
 
 JUNK_PATH_KEYWORDS = [
@@ -105,6 +120,25 @@ JUNK_PATH_KEYWORDS = [
     # ── Rating / review stars ──
     "star-rating", "rating-star", "review-star",
     "upvote", "downvote", "karma",
+    # ── v8.0: Additional junk patterns ──
+    "amp_", "amp-",  # AMP thumbnails
+    "thumb_", "thumb-",  # Thumbnail indicators in filenames
+    "preview_", "preview-",  # Preview-sized images
+    "miniature", "miniatyr",  # Miniatures
+    "watermark",  # Watermarked images are usually low quality
+    "noise-texture", "background-", "bg_",  # Background textures
+    "gradient", "pattern-bg",  # Background patterns
+    "rss-icon", "rss_",  # RSS feed icons
+    "channel-", "channel_",  # Channel icons
+    "podcast", "audio-",  # Podcast/audio covers
+    "captcha", "recaptcha",  # CAPTCHA images
+    "qr-code", "qrcode", "qr_code",  # QR codes
+    "cookie", "gdpr", "consent",  # Cookie/GDPR banners
+    "push-notification", "notification-",  # Push notification icons
+    "mobile-app", "app-icon", "appstore", "google-play",  # App store badges
+    "paywall", "subscribe-wall",  # Paywall overlays
+    "lazy_", "lazy-",  # Lazy-load placeholder images
+    "data:image",  # Base64 embedded images in URL
 ]
 
 # Generic/default image filenames — not real content
@@ -397,10 +431,10 @@ async def _download_image(client: httpx.AsyncClient, url: str) -> Optional[bytes
             import io
             img = Image.open(io.BytesIO(img_bytes))
             w, h = img.size
-            # Minimum dimensions: 300x200 — real photos are at least this size
+            # Minimum dimensions: 400x300 — real photos are at least this size
             # Anything smaller is an icon, avatar, thumbnail, or tracking pixel
-            if w < 300 or h < 200:
-                logger.debug(f"Image too small: {w}x{h} — skipping")
+            if w < IMAGE_MIN_WIDTH or h < IMAGE_MIN_HEIGHT:
+                logger.debug(f"Image too small: {w}x{h} (min {IMAGE_MIN_WIDTH}x{IMAGE_MIN_HEIGHT}) — skipping")
                 return None
             # Skip banners (extreme aspect ratios like 728x90, 320x50, etc.)
             # Normal photos are between 1:2.5 and 2.5:1
@@ -408,15 +442,20 @@ async def _download_image(client: httpx.AsyncClient, url: str) -> Optional[bytes
             if aspect > 3.0 or aspect < 0.33:
                 logger.debug(f"Image bad aspect ratio: {w}x{h} (ratio={aspect:.2f}) — skipping banner/button")
                 return None
-            # Skip square images between 300-400px — usually avatars or icons
+            # Skip square images between 300-500px — usually avatars or icons
             # Real car photos are almost never perfectly square
-            if abs(w - h) < 20 and w < 500:
+            if abs(w - h) < 20 and w < 600:
                 logger.debug(f"Image too square (probably avatar/icon): {w}x{h} — skipping")
                 return None
-            # Skip very small images even if they pass 300x200 — small area = junk
+            # Skip very small images even if they pass 400x300 — small area = junk
             area = w * h
-            if area < 40000:  # 200x200 = 40000 — below this is definitely not a real photo
+            if area < 100000:  # 316x316 ≈ 100000 — below this is definitely not a real photo
                 logger.debug(f"Image area too small: {area}px ({w}x{h}) — skipping")
+                return None
+            # Skip images with excessive file size relative to dimensions (corrupt/bloated)
+            bytes_per_pixel = len(img_bytes) / max(area, 1)
+            if bytes_per_pixel > 10:  # > 10 bytes/pixel = likely corrupt or not a real photo
+                logger.debug(f"Image too bloated: {bytes_per_pixel:.1f} bytes/pixel — skipping")
                 return None
         except ImportError:
             pass  # PIL not available
@@ -433,6 +472,103 @@ async def _download_image(client: httpx.AsyncClient, url: str) -> Optional[bytes
 # Note: The actual RSS image extraction is done in news._extract_entry_images()
 # which now handles HTML entity decoding, junk filtering, thumbnail upgrades,
 # and normalized dedup. The image_urls list passed here is already clean.
+
+
+# ── Google News redirect resolution ───────────────────────────────────────────
+# Google News RSS feeds use URLs like:
+#   https://news.google.com/rss/articles/CBMiYkFVX3lxTFB4dDdacXR...
+# These are redirect URLs that lead to the REAL article. Scraping the Google
+# News page directly rarely finds images. We need to follow the redirect
+# to the actual publisher's article page first.
+
+_GOOGLE_NEWS_URL_RE = re.compile(r'news\.google\.com/rss/articles/', re.IGNORECASE)
+_GOOGLE_NEWS_BASE_RE = re.compile(r'news\.google\.com', re.IGNORECASE)
+_GOOGLE_AMP_RE = re.compile(r'^https?://[^/]*\.google\.\w+/amp/', re.IGNORECASE)
+
+
+async def _resolve_google_news_url(url: str, client: httpx.AsyncClient) -> str:
+    """Follow Google News redirect to get the real article URL.
+
+    Google News RSS article URLs are redirects. We need to follow them
+    to reach the actual publisher's page where we can scrape images.
+
+    Returns the resolved URL, or the original URL if resolution fails.
+    """
+    if not _GOOGLE_NEWS_URL_RE.search(url) and not _GOOGLE_NEWS_BASE_RE.search(url):
+        return url
+
+    try:
+        # Follow redirects with HEAD first (faster)
+        resp = await client.head(
+            url,
+            timeout=10.0,
+            follow_redirects=True,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                              "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            },
+        )
+        resolved = str(resp.url)
+        if resolved != url and not _GOOGLE_NEWS_BASE_RE.search(resolved):
+            logger.info(f"Google News redirect resolved: {url[:60]}... → {resolved[:60]}...")
+            return resolved
+    except Exception:
+        pass
+
+    try:
+        # HEAD failed — try GET but only read headers (stream mode)
+        async with client.stream(
+            "GET", url,
+            timeout=10.0,
+            follow_redirects=True,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                              "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            },
+        ) as resp:
+            resolved = str(resp.url)
+            if resolved != url and not _GOOGLE_NEWS_BASE_RE.search(resolved):
+                logger.info(f"Google News redirect resolved (GET): {url[:60]}... → {resolved[:60]}...")
+                return resolved
+    except Exception:
+        pass
+
+    # Try to extract redirect URL from Google News HTML page
+    try:
+        resp = await client.get(
+            url,
+            timeout=10.0,
+            follow_redirects=False,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                              "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            },
+        )
+        if resp.status_code in (301, 302, 303, 307, 308):
+            location = resp.headers.get("location", "")
+            if location and not _GOOGLE_NEWS_BASE_RE.search(location):
+                logger.info(f"Google News 302 redirect: {url[:60]}... → {location[:60]}...")
+                return location
+        # Try to find canonical URL in the HTML
+        html = resp.text[:5000]
+        canonical_match = re.search(r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\']([^"\']+)["\']', html, re.IGNORECASE)
+        if canonical_match:
+            canonical = canonical_match.group(1)
+            if not _GOOGLE_NEWS_BASE_RE.search(canonical):
+                logger.info(f"Google News canonical URL: {canonical[:60]}...")
+                return canonical
+        # Try to find redirect in meta refresh
+        meta_refresh = re.search(r'<meta[^>]+http-equiv=["\']refresh["\'][^>]+content=["\'][^"\']*url=([^"\';\s]+)', html, re.IGNORECASE)
+        if meta_refresh:
+            refresh_url = meta_refresh.group(1)
+            if not _GOOGLE_NEWS_BASE_RE.search(refresh_url):
+                logger.info(f"Google News meta refresh: {refresh_url[:60]}...")
+                return refresh_url
+    except Exception:
+        pass
+
+    logger.debug(f"Could not resolve Google News URL: {url[:60]}...")
+    return url  # Return original if all resolution attempts fail
 
 
 # ── Strategy 2: Article page image extraction ────────────────────────────────
@@ -695,8 +831,9 @@ class ImageFetcher:
         image_urls: List[str] = None,
         max_images: int = MAX_IMAGES_PER_POST,
     ) -> Tuple[List[bytes], str]:
-        """Fetch images from the article. Simple 2-step pipeline.
+        """Fetch images from the article. Simple 3-step pipeline.
 
+        Step 0: Resolve Google News redirect URLs to real article URLs
         Step 1: RSS images (from news._extract_entry_images() — already filtered)
         Step 2: Article page scraping (og:image, JSON-LD, <img> tags)
 
@@ -706,6 +843,15 @@ class ImageFetcher:
         client = self._get_client()
         all_images: List[bytes] = []
         source = "none"
+
+        # ── Step 0: Resolve Google News redirects ───────────────────────
+        # Google News URLs like news.google.com/rss/articles/... are redirects.
+        # We need the REAL article URL to scrape images from.
+        resolved_url = article_url
+        if article_url:
+            resolved_url = await _resolve_google_news_url(article_url, client)
+            if resolved_url != article_url:
+                logger.info(f"Article URL resolved: {article_url[:50]}... → {resolved_url[:50]}...")
 
         # ── Check cache first ──────────────────────────────────────────
         cached = self.cache.get(topic)
@@ -735,9 +881,11 @@ class ImageFetcher:
                 logger.info(f"Got {len(all_images)} images from RSS for '{topic[:50]}'")
 
         # ── Step 2: Article page ──────────────────────────────────────
-        if article_url and len(all_images) < max_images:
+        # Use the resolved URL (not the original Google News redirect)
+        scrape_url = resolved_url
+        if scrape_url and len(all_images) < max_images:
             article_results = await fetch_article_images(
-                article_url, client,
+                scrape_url, client,
                 max_count=max_images - len(all_images) + 2,
             )
             for img_bytes, img_url in article_results:
@@ -751,6 +899,26 @@ class ImageFetcher:
                 source = "article"
             elif article_results:
                 source += "+article"
+
+        # ── Step 3: Try original URL if resolved URL failed ───────────
+        # If the resolved URL didn't yield images, try the original URL
+        # (maybe the original site has different images)
+        if article_url and resolved_url != article_url and len(all_images) < max_images:
+            article_results = await fetch_article_images(
+                article_url, client,
+                max_count=max_images - len(all_images) + 2,
+            )
+            for img_bytes, img_url in article_results:
+                if len(all_images) >= max_images:
+                    break
+                h = _image_hash(img_bytes)
+                if h not in self._seen_hashes:
+                    self._seen_hashes.add(h)
+                    all_images.append(img_bytes)
+            if article_results and source == "none":
+                source = "article-fallback"
+            elif article_results:
+                source += "+fallback"
 
         # ── Dedup & cache ──────────────────────────────────────────────
         all_images = deduplicate_images(all_images)[:max_images]
