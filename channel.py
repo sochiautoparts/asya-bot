@@ -1958,7 +1958,10 @@ async def comment_on_group_post(
         return False
     
     try:
-        # Generate comment using AI
+        # Generate comment using LOCAL MODEL ONLY — no cloud API waste on group comments!
+        # User requirement: comments in groups MUST use local model only.
+        from ai.providers.local_provider import LocalProvider
+        
         comment_prompt = (
             "Ты Ася — автоэксперт, главред канала @sochiautoparts. "
             "Ты видишь пост в автомобильной группе и хочешь оставить КОРОТКИЙ комментарий. "
@@ -1975,13 +1978,25 @@ async def comment_on_group_post(
             "Напиши короткий живой комментарий:"
         )
         
-        response = await ai_router.generate_comment(
-            prompt=comment_prompt,
-            max_tokens=100,
+        # LOCAL MODEL ONLY — no cloud fallback for group comments
+        local_provider = LocalProvider()
+        if not await local_provider.is_available():
+            logger.info("Local model not available for comment — skipping (no cloud)")
+            return False
+        
+        messages = [
+            {"role": "system", "content": "Ты Ася — автоэксперт. Пиши короткие живые комментарии до 300 символов. Без markdown. Без политики."},
+            {"role": "user", "content": comment_prompt},
+        ]
+        
+        response = await local_provider.chat(
+            messages=messages,
+            temperature=0.8,
+            max_tokens=150,
         )
         
-        if not response or not response.text:
-            logger.debug("Comment generation returned empty")
+        if not response or response.error or not response.text:
+            logger.debug(f"Local model comment failed: {getattr(response, 'error_message', 'empty')}")
             return False
         
         comment = response.text.strip()

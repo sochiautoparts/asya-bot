@@ -818,6 +818,10 @@ def _upgrade_thumbnail_url(url: str) -> str:
     - Autosport/Motorsport.com: /s6/ → /s12/ in path
     - Reddit: width=140 → width=640 in query
     - Autocar: /car_review_image_190/ → /body-image/ (190×125 → 900×600)
+    - TASS: /w_320/ → /w_1080/ or remove size suffix
+    - Kommersant: small → large in path
+    - Mail.ru: preview → original
+    - 5Колесо: thumb → full
     """
     # BBC: /240/cpsprodpb/ → /640/cpsprodpb/
     if "bbci.co.uk" in url or "bbc.co.uk" in url:
@@ -835,6 +839,31 @@ def _upgrade_thumbnail_url(url: str) -> str:
     # Autocar UK: /styles/car_review_image_190/ → /styles/body-image/
     if "autocar.co.uk" in url:
         url = url.replace('/styles/car_review_image_190/', '/styles/body-image/')
+
+    # TASS: upgrade small thumbnails to full-size
+    if "tass.ru" in url:
+        # /w_320/ → /w_1080/ or /w_800/
+        url = re.sub(r'/w_\d{2,3}/', '/w_1080/', url, count=1)
+        # Remove size parameters in query
+        url = re.sub(r'[?&](width|height|size)=\d+', '', url)
+
+    # Kommersant: upgrade thumbnails
+    if "kommersant.ru" in url:
+        url = url.replace('/small/', '/large/')
+        url = url.replace('/thumb/', '/full/')
+        url = re.sub(r'/\d+x\d+/', '/1200x800/', url, count=1)
+
+    # Mail.ru auto: upgrade previews
+    if "mail.ru" in url or "img.imgsmail.ru" in url:
+        url = url.replace('/preview/', '/original/')
+        url = url.replace('/thumb/', '/original/')
+        # Remove size restriction params
+        url = re.sub(r'[?&]w=\d{2,3}', '', url)
+
+    # 5Колесо: upgrade thumbnails
+    if "5koleso.ru" in url:
+        url = url.replace('/thumb/', '/full/')
+        url = url.replace('/preview/', '/full/')
 
     return url
 

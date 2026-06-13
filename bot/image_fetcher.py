@@ -180,6 +180,28 @@ def _upgrade_thumbnail_url(url: str) -> str:
     if "autocar.co.uk" in url:
         url = url.replace('/styles/car_review_image_190/', '/styles/body-image/')
 
+    # TASS: upgrade small thumbnails to full-size
+    if "tass.ru" in url:
+        url = re.sub(r'/w_\d{2,3}/', '/w_1080/', url, count=1)
+        url = re.sub(r'[?&](width|height|size)=\d+', '', url)
+
+    # Kommersant: upgrade thumbnails
+    if "kommersant.ru" in url:
+        url = url.replace('/small/', '/large/')
+        url = url.replace('/thumb/', '/full/')
+        url = re.sub(r'/\d+x\d+/', '/1200x800/', url, count=1)
+
+    # Mail.ru auto: upgrade previews
+    if "mail.ru" in url or "img.imgsmail.ru" in url:
+        url = url.replace('/preview/', '/original/')
+        url = url.replace('/thumb/', '/original/')
+        url = re.sub(r'[?&]w=\d{2,3}', '', url)
+
+    # 5Колесо: upgrade thumbnails
+    if "5koleso.ru" in url:
+        url = url.replace('/thumb/', '/full/')
+        url = url.replace('/preview/', '/full/')
+
     return url
 
 
@@ -444,12 +466,14 @@ async def fetch_article_images(
                     u = part.strip().split()[0] if part.strip() else ''
                     _add_candidate(u)
 
-        # 5. <img> tags from article body
+        # 5. <img> tags from article body — EXPANDED selectors for more coverage
         article_html = ""
         for pattern in [
             r'<article[^>]*>(.*?)</article>',
             r'<main[^>]*>(.*?)</main>',
-            r'<div[^>]+class=["\x27][^"\x27]*(?:content|article|post|entry)[^"\x27]*["\x27][^>]*>(.*?)</div>',
+            r'<div[^>]+class=["\x27][^"\x27]*(?:content|article|post|entry|gallery|slider|carousel|swiper|slick|fotorama|photogallery)[^"\x27]*["\x27][^>]*>(.*?)</div>',
+            r'<div[^>]+id=["\x27][^"\x27]*(?:content|article|post|entry|gallery)[^"\x27]*["\x27][^>]*>(.*?)</div>',
+            r'<section[^>]*>(.*?)</section>',
         ]:
             matches = re.findall(pattern, html, re.IGNORECASE | re.DOTALL)
             for match in matches:
@@ -457,19 +481,53 @@ async def fetch_article_images(
 
         search_html = article_html if article_html else html
 
-        # Lazy-loaded first (usually higher quality originals)
+        # Lazy-loaded images FIRST (usually higher quality originals)
+        # Expanded to cover many common lazy-load frameworks
         for attr_pattern in [
             r'<img[^>]+data-src=["\x27]([^"\x27]+)["\x27]',
             r'<img[^>]+data-lazy-src=["\x27]([^"\x27]+)["\x27]',
+            r'<img[^>]+data-original=["\x27]([^"\x27]+)["\x27]',
+            r'<img[^>]+data-lazy=["\x27]([^"\x27]+)["\x27]',
+            r'<img[^>]+data-bg=["\x27]([^"\x27]+)["\x27]',
+            r'<img[^>]+data-full=["\x27]([^"\x27]+)["\x27]',
+            r'<img[^>]+data-large=["\x27]([^"\x27]+)["\x27]',
+            r'<img[^>]+data-big=["\x27]([^"\x27]+)["\x27]',
+            # srcset (responsive images — take first URL from each)
+            r'<img[^>]+srcset=["\x27]([^"\x27]+)["\x27]',
+            r'<source[^>]+srcset=["\x27]([^"\x27]+)["\x27]',
+            # Standard src
             r'<img[^>]+src=["\x27]([^"\x27]+)["\x27]',
         ]:
             for m in re.finditer(attr_pattern, search_html, re.IGNORECASE):
-                _add_candidate(m.group(1))
+                raw_val = m.group(1)
+                # srcset can contain multiple URLs: "img1x.jpg 1x, img2x.jpg 2x"
+                if 'srcset' in attr_pattern.lower():
+                    for part in raw_val.split(','):
+                        url_part = part.strip().split()[0] if part.strip() else ''
+                        if url_part:
+                            _add_candidate(url_part)
+                else:
+                    _add_candidate(raw_val)
+
+        # 6. Gallery/slideshow JSON data embedded in script tags
+        # Many CMS embed image arrays in script tags (WordPress, TASS, etc.)
+        for script_match in re.finditer(
+            r'<script[^>]*>(.*?)</script>', html, re.IGNORECASE | re.DOTALL
+        ):
+            script_content = script_match.group(1)
+            # Look for image URL patterns in JSON-like script content
+            if '"image"' in script_content or '"src"' in script_content or '"url"' in script_content:
+                for img_match in re.finditer(
+                    r'["\x27]?(?:image|src|url|photo|thumbnail|preview)["\x27]?\s*[:=]\s*["\x27]?(https?://[^\s"\'\\,}\]]+)',
+                    script_content, re.IGNORECASE
+                ):
+                    _add_candidate(img_match.group(1))
 
         logger.info(f"Scraped {len(candidate_urls)} candidate image URLs from {url[:60]}")
 
-        # Download candidates
-        for img_url in candidate_urls[:max_count * 3]:
+        # Download candidates — try MORE candidates to find up to 10 valid photos
+        # (many candidates fail validation, so try 5x the target count)
+        for img_url in candidate_urls[:max_count * 5]:
             if len(results) >= max_count:
                 break
             img_bytes = await _download_image(client, img_url)

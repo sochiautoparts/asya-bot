@@ -724,15 +724,14 @@ class NewsConfig:
     """All news sources for Asya bot — auto-focused."""
 
     sources: List[NewsSource] = field(default_factory=lambda: [
-        # ── Russian-language RSS sources ──
-        # Primary Russian auto news (expanded for RU-audience coverage)
-        NewsSource("Авто.Вести", "https://auto.vesti.ru/rss/", "ru", "auto"),
+        # ── Russian-language RSS sources (verified June 2026) ──
+        # Dead sources removed: Авто.Вести (empty), РБК (401), За Рулем (404),
+        # Колёса.ру (404), Дром (404) — all tested and confirmed broken.
+        # Replaced with working: Коммерсант Авто (35 entries), 5Колесо (30 entries).
         NewsSource("ТАСС Авто", "https://tass.ru/rss/v2.xml?sections=%D0%90%D0%B2%D1%82%D0%BE", "ru", "auto"),
-        NewsSource("РБК Авто", "https://www.rbc.ru/rss/auto", "ru", "auto"),
-        NewsSource("За Рулем", "https://www.zr.ru/rss/", "ru", "auto"),
         NewsSource("Авто Mail.ru", "https://auto.mail.ru/rss/", "ru", "auto"),
-        NewsSource("Колёса.ру", "https://www.kolesa.ru/rss/", "ru", "auto"),
-        NewsSource("Дром", "https://www.drom.ru/rss/", "ru", "auto"),
+        NewsSource("Коммерсант Авто", "https://www.kommersant.ru/RSS/auto.xml", "ru", "auto"),
+        NewsSource("5Колесо", "https://5koleso.ru/rss/", "ru", "auto"),
         # ── Working international RSS sources (verified June 2026) ──
         # UK auto magazines
         NewsSource("Autocar UK", "https://www.autocar.co.uk/rss/News", "en", "auto"),

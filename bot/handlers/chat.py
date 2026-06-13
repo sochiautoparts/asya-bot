@@ -492,29 +492,36 @@ async def handle_photo(message: Message):
     # Check if we're in a group/supergroup — use LOCAL-ONLY for comments
     is_group = message.chat.type in ("group", "supergroup")
 
-    # In groups: Ася should just comment on local model, not use cloud vision
+    # In groups: Ася should just comment on local model ONLY, not use cloud vision
     if is_group:
-        # Simple local comment about the photo — no cloud vision
-        caption = message.caption or ""
-        simple_prompt = (
-            f"Кто-то прислал фото в группе. "
-            f"{'С подписью: ' + caption[:100] if caption else 'Без подписи.'} "
-            f"Напиши короткий комментарий (до 200 символов) как автоэксперт. "
-            f"Без анализа фото — просто живой комментарий."
-        )
-        try:
-            response = await ai_router.chat(
-                user_id=message.from_user.id,
-                message=simple_prompt,
-                route_type="comment",  # LOCAL-ONLY
-                save_history=False,
-                use_cache=False,
+        # LOCAL MODEL ONLY for group comments — no cloud API waste!
+        from ai.providers.local_provider import LocalProvider
+        local_provider = LocalProvider()
+        if await local_provider.is_available():
+            caption = message.caption or ""
+            simple_prompt = (
+                f"Кто-то прислал фото в группе. "
+                f"{'С подписью: ' + caption[:100] if caption else 'Без подписи.'} "
+                f"Напиши короткий комментарий (до 200 символов) как автоэксперт. "
+                f"Без анализа фото — просто живой комментарий."
             )
-            if response.text:
-                reply_text = response.text[:COMMENT_MAX_CHARS]
-                await message.reply(reply_text)
-        except Exception as e:
-            logger.debug(f"Group photo comment error: {e}")
+            try:
+                messages = [
+                    {"role": "system", "content": "Ты Ася — автоэксперт. Короткие комментарии до 200 символов. Без markdown. Без политики."},
+                    {"role": "user", "content": simple_prompt},
+                ]
+                response = await local_provider.chat(
+                    messages=messages,
+                    temperature=0.8,
+                    max_tokens=100,
+                )
+                if response and not response.error and response.text:
+                    reply_text = response.text[:COMMENT_MAX_CHARS]
+                    await message.reply(reply_text)
+            except Exception as e:
+                logger.debug(f"Group photo comment error: {e}")
+        else:
+            logger.debug("Local model not available for group photo comment — skipping")
         return
 
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
@@ -978,14 +985,39 @@ async def _process_text_message(message: Message, text: str):
             part_info=extra_context,
         )
     elif is_group_chat and not is_own_channel:
-        # GROUP/SUPERGROUP (not our channel) → LOCAL-ONLY (comment mode)
-        # No cloud waste on casual group comments!
-        response = await ai_router.chat(
-            user_id=user_id,
-            message=text,
-            extra_context=extra_context,
-            route_type="comment",  # LOCAL-ONLY — saves cloud balance!
-        )
+        # GROUP/SUPERGROUP (not our channel) → LOCAL MODEL ONLY
+        # No cloud API waste on casual group comments! User requirement.
+        from ai.providers.local_provider import LocalProvider
+        local_provider = LocalProvider()
+        if await local_provider.is_available():
+            group_messages = [
+                {"role": "system", "content": "Ты Ася — автоэксперт. Пиши короткие комментарии до 300 символов. Живо и естественно. Без markdown. Без политики. Без рекламы канала."},
+                {"role": "user", "content": text[:500]},
+            ]
+            try:
+                local_response = await local_provider.chat(
+                    messages=group_messages,
+                    temperature=0.8,
+                    max_tokens=150,
+                )
+                if local_response and not local_response.error and local_response.text:
+                    # Create a compatible response object for _send_response
+                    from ai.providers.base import AIResponse
+                    response = AIResponse(
+                        text=local_response.text[:COMMENT_MAX_CHARS],
+                        model="local-qwen3-4b",
+                        provider="local",
+                    )
+                else:
+                    # Local model failed — skip comment entirely (no cloud!)
+                    logger.debug("Local model failed for group comment — skipping (no cloud)")
+                    return
+            except Exception as e:
+                logger.debug(f"Local model group comment error: {e}")
+                return
+        else:
+            logger.debug("Local model not available for group comment — skipping (no cloud)")
+            return
     else:
         response = await ai_router.chat(
             user_id=user_id,
