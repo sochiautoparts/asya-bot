@@ -1,0 +1,1084 @@
+     1→"""
+     2→AI Router v8.0 — LOCAL-FIRST MULTI-PROVIDER FAILOVER with MODEL TIERING.
+     3→
+     4→FAILOVER CHAIN (4 levels before static fallback):
+     5→  Level 0: Local Model (Qwen3-4B GGUF, CPU) — CHAT & COMMENT routes only
+     6→  Level 1: Pollinations (with API key) → KEY1 → KEY2
+     7→  Level 2: Pollinations FREE API (text.pollinations.ai, no auth)
+     8→  Level 3: Cloudflare Workers AI (@cf/mistralai/mistral-small-3.1-24b-instruct)
+     9→  Last resort: Static fallback responses
+    10→
+    11→Route strategy (v8.0 — LOCAL-FIRST for simple tasks):
+    12→  CHAT route_type (user chats) → Local → Pollinations key → Pollinations free → Cloudflare → Static
+    13→  FUNCTION route_type (posts, VIN, diagnostics, parts) → Pollinations key → Pollinations free → Cloudflare → Local(fallback) → Static
+    14→  COMMENT route_type (comments) → Local → Pollinations key → Pollinations free → Cloudflare → Static
+    15→  VISION tasks (photos) → Pollinations vision (key) → Pollinations vision (free) → Cloudflare vision → Static
+    16→  IMAGE generation → Pollinations (key) → Pollinations free → None
+    17→  AUDIO transcription → Pollinations (key) → Pollinations free → None
+    18→"""
+    19→
+    20→import hashlib
+    21→import logging
+    22→import random
+    23→import time
+    24→from typing import Optional, List, Dict
+    25→from datetime import datetime
+    26→from zoneinfo import ZoneInfo
+    27→
+    28→from ai.providers.base import BaseAIProvider, AIResponse
+    29→from ai.providers.local_provider import LocalProvider
+    30→from ai.providers.pollinations_provider import (
+    31→    PollinationsProvider, POLLINATIONS_MODELS,
+    32→    CHAT_MODELS, REASONING_MODELS, VISION_MODELS,
+    33→    CONTENT_MODELS, SEARCH_MODELS, IMAGE_MODELS, FALLBACK_MODELS,
+    34→)
+    35→from ai.providers.cloudflare_provider import CloudflareProvider
+    36→from bot.config import config, persona
+    37→from bot.database import get_ai_cached, set_ai_cached, get_chat_history, add_chat_message
+    38→
+    39→
+    40→logger = logging.getLogger("asya.ai.router")
+    41→
+    42→# Moscow timezone
+    43→_MOSCOW_TZ = ZoneInfo("Europe/Moscow")
+    44→
+    45→
+    46→def _moscow_now() -> datetime:
+    47→    """Get current Moscow time."""
+    48→    return datetime.now(_MOSCOW_TZ)
+    49→
+    50→
+    51→def _get_time_context() -> str:
+    52→    """Get current Moscow time context for AI system prompt."""
+    53→    now = _moscow_now()
+    54→    hour = now.hour
+    55→
+    56→    if 5 <= hour < 12:
+    57→        time_of_day = "утро"
+    58→        mood = "ты только проснулась, пьёшь кофе"
+    59→    elif 12 <= hour < 18:
+    60→        time_of_day = "день"
+    61→        mood = "ты бодрая, активная, в середине рабочего дня"
+    62→    elif 18 <= hour < 23:
+    63→        time_of_day = "вечер"
+    64→        mood = "ты устала за день, но рада поболтать"
+    65→    else:
+    66→        time_of_day = "ночь"
+    67→        mood = "ты не можешь уснуть, сова"
+    68→
+    69→    weekday_names = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
+    70→    weekday = weekday_names[now.weekday()]
+    71→
+    72→    return (
+    73→        f"Сейчас {now.strftime('%d.%m.%Y')} {now.strftime('%H:%M')} по московскому времени. "
+    74→        f"День недели: {weekday}. Время суток: {time_of_day}. {mood}."
+    75→    )
+    76→
+    77→
+    78→# Static fallback responses for when ALL providers fail
+    79→FALLBACK_RESPONSES = [
+    80→    "Ммм... Ася задумалась. Повтори? 🤔",
+    81→    "Ой, Ася отвлеклась... Что ты сказал? 😅",
+    82→    "Блин, Ася задумалась о вечном... Ещё раз? 💅",
+    83→    "Ася не расслышала... Говори ещё! 😏",
+    84→    "Ой, мысли улетели! Повтори для Аси? 💭",
+    85→]
+    86→
+    87→# ── Model tiers for different route types ──
+    88→
+    89→# Fast/cheap models for comments — low cost, quick responses
+    90→COMMENT_MODELS = ["mistral", "openai", "nova-fast", "mistral-small", "nova-micro"]
+    91→
+    92→# Best quality models for function routes — accuracy matters
+    93→FUNCTION_MODELS = ["openai-large", "gpt-5.5", "deepseek"]
+    94→
+    95→
+    96→class AIRouter:
+    97→    """Routes AI requests through multiple providers with 4-level failover.
+    98→
+    99→    v8.0 LOCAL-FIRST strategy:
+   100→    - Level 0: Local Model (Qwen3-4B GGUF) — CHAT & COMMENT routes
+   101→    - Level 1: Pollinations with API key (best quality, 60+ models)
+   102→    - Level 2: Pollinations FREE API (no auth, rate-limited)
+   103→    - Level 3: Cloudflare Workers AI (Mistral Small 3.1, 20K req/day)
+   104→    - Last resort: Static fallback responses
+   105→    """
+   106→
+   107→    def __init__(self):
+   108→        self.providers: List[BaseAIProvider] = []
+   109→        self._local: Optional[LocalProvider] = None
+   110→        self._primary: Optional[PollinationsProvider] = None
+   111→        self._cloudflare: Optional[CloudflareProvider] = None
+   112→        self._total_fallbacks: int = 0
+   113→        self._total_requests: int = 0
+   114→        # Track which fallback level we're on for monitoring
+   115→        self._level0_count: int = 0  # Local model
+   116→        self._level1_count: int = 0  # Pollinations with key
+   117→        self._level2_count: int = 0  # Pollinations free
+   118→        self._level3_count: int = 0  # Cloudflare
+   119→        self._static_count: int = 0  # Static fallback
+   120→
+   121→    async def initialize(self) -> None:
+   122→        """Initialize all providers and pre-load local model if enabled."""
+   123→        # Initialize local model provider (Level 0)
+   124→        self._local = LocalProvider()
+   125→
+   126→        pollinations = PollinationsProvider()
+   127→        self._primary = pollinations
+   128→
+   129→        # Initialize Cloudflare provider
+   130→        self._cloudflare = CloudflareProvider()
+   131→
+   132→        self.providers = [self._local, pollinations]
+   133→        if self._cloudflare._accounts:
+   134→            self.providers.append(self._cloudflare)
+   135→
+   136→        # Pre-load local model if enabled — this triggers auto-download if needed
+   137→        local_loaded = False
+   138→        if config.ENABLE_LOCAL_MODEL:
+   139→            try:
+   140→                import asyncio
+   141→                loop = asyncio.get_event_loop()
+   142→                local_loaded = await loop.run_in_executor(None, self._local._load_model)
+   143→            except Exception as e:
+   144→                logger.warning(f"Local model pre-load failed: {e}")
+   145→
+   146→        local_status = self._local.get_status()
+   147→        cf_status = "active" if self._cloudflare._accounts else "not_configured"
+   148→        logger.info(
+   149→            f"AI Router v10.0 LOCAL-FIRST initialized: "
+   150→            f"local={local_status}, "
+   151→            f"pollinations=active (key+free), cloudflare={cf_status}, "
+   152→            f"failover: Local → Pollinations(key) → Pollinations(free) → Cloudflare → Static, "
+   153→            f"{len(POLLINATIONS_MODELS)} models: "
+   154→            f"{len(CHAT_MODELS)} chat, {len(VISION_MODELS)} vision, "
+   155→            f"{len(CONTENT_MODELS)} content, {len(SEARCH_MODELS)} search)"
+   156→        )
+   157→
+   158→    async def close(self) -> None:
+   159→        """Close all providers."""
+   160→        pass
+   161→
+   162→    @property
+   163→    def primary(self) -> Optional[BaseAIProvider]:
+   164→        return self._primary
+   165→
+   166→    @property
+   167→    def cloudflare(self) -> Optional[CloudflareProvider]:
+   168→        return self._cloudflare
+   169→
+   170→    def _build_system_prompt(self, base_prompt: str = "", extra_context: str = "") -> str:
+   171→        """Build full system prompt with time context and extra context."""
+   172→        sys_prompt = base_prompt or persona.system_prompt
+   173→
+   174→        # Always add Moscow time context
+   175→        time_ctx = _get_time_context()
+   176→        sys_prompt += f"\n\n{time_ctx}"
+   177→
+   178→        if extra_context:
+   179→            sys_prompt += f"\n\n{extra_context}"
+   180→
+   181→        return sys_prompt
+   182→
+   183→    async def chat(
+   184→        self,
+   185→        user_id: int,
+   186→        message: str,
+   187→        system_prompt: str = "",
+   188→        model: str = "",
+   189→        temperature: float = None,
+   190→        max_tokens: int = None,
+   191→        use_cache: bool = True,
+   192→        save_history: bool = True,
+   193→        extra_context: str = "",
+   194→        route_type: str = "chat",
+   195→    ) -> AIResponse:
+   196→        """
+   197→        Send a chat message through the AI router with 4-level failover.
+   198→
+   199→        v8.0 ROUTING via route_type:
+   200→        - "chat" (default): Local → Pollinations key → free → Cloudflare → Static
+   201→        - "function": Pollinations key → free → Cloudflare → Local(fallback) → Static
+   202→        - "comment": Local → Pollinations key → free → Cloudflare → Static
+   203→        """
+   204→        temperature = temperature or config.CHAT_TEMPERATURE
+   205→        max_tokens = max_tokens or config.CHAT_MAX_TOKENS
+   206→
+   207→        # Build system prompt with time context
+   208→        sys_prompt = self._build_system_prompt(system_prompt, extra_context)
+   209→
+   210→        # Check cache first
+   211→        if use_cache:
+   212→            cache_key = self._make_cache_key(sys_prompt, message)
+   213→            cached = await get_ai_cached(cache_key)
+   214→            if cached:
+   215→                return AIResponse(
+   216→                    text=cached,
+   217→                    model="cached",
+   218→                    provider="cache",
+   219→                    cached=True,
+   220→                )
+   221→
+   222→        # Get chat history for context
+   223→        history = await get_chat_history(user_id)
+   224→
+   225→        # ── Select model based on route_type ──
+   226→        if route_type == "comment":
+   227→            # Fast/cheap models for comments
+   228→            model = model or "mistral"
+   229→        elif route_type == "function":
+   230→            # Best quality models for function routes
+   231→            model = model or "openai-large"
+   232→        else:
+   233→            # CHAT (default): use provided model or let provider handle weighted selection
+   234→            model = model or ""
+   235→
+   236→        # ── LEVEL 0: Local Model (Qwen3-4B) — CHAT & COMMENT routes ──
+   237→        # Local model is primary for simple chat and comments (saves cloud balance)
+   238→        # Skip for function routes (need cloud quality) and when explicitly disabled
+   239→        use_local_first = route_type in ("chat", "comment") and config.ENABLE_LOCAL_MODEL
+   240→
+   241→        if use_local_first:
+   242→            response = await self._try_local(
+   243→                user_id, message, history, sys_prompt, temperature, max_tokens
+   244→            )
+   245→
+   246→            if not response.error:
+   247→                self._level0_count += 1
+   248→                self._total_requests += 1
+   249→                return await self._save_response(user_id, message, response, sys_prompt, use_cache, save_history)
+   250→
+   251→            logger.debug(f"Level 0 (local) failed for route={route_type}: {response.error_message}")
+   252→
+   253→        # ── LEVEL 1: Pollinations with API key ──
+   254→        response = await self._try_pollinations(
+   255→            user_id, message, history, sys_prompt, temperature, max_tokens, model
+   256→        )
+   257→
+   258→        if not response.error:
+   259→            self._level1_count += 1
+   260→            self._total_requests += 1
+   261→            return await self._save_response(user_id, message, response, sys_prompt, use_cache, save_history)
+   262→
+   263→        # ── LEVEL 2: Pollinations FREE API ──
+   264→        logger.warning(f"Level 1 failed (route={route_type}), trying Level 2 (free API): {response.error_message}")
+   265→        response = await self._try_pollinations_free(
+   266→            user_id, message, history, sys_prompt, temperature, max_tokens, model
+   267→        )
+   268→
+   269→        if not response.error:
+   270→            self._level2_count += 1
+   271→            self._total_requests += 1
+   272→            return await self._save_response(user_id, message, response, sys_prompt, use_cache, save_history)
+   273→
+   274→        # ── LEVEL 3: Cloudflare Workers AI ──
+   275→        logger.warning(f"Level 2 failed (route={route_type}), trying Level 3 (Cloudflare): {response.error_message}")
+   276→        response = await self._try_cloudflare(
+   277→            user_id, message, history, sys_prompt, temperature, max_tokens
+   278→        )
+   279→
+   280→        if not response.error:
+   281→            self._level3_count += 1
+   282→            self._total_requests += 1
+   283→            return await self._save_response(user_id, message, response, sys_prompt, use_cache, save_history)
+   284→
+   285→        # ── LEVEL 0 FALLBACK: Local model for FUNCTION routes ──
+   286→        # If all cloud providers failed, try local model as last resort before static
+   287→        if route_type == "function" and config.ENABLE_LOCAL_MODEL:
+   288→            logger.warning(f"Level 3 failed (route=function), trying Level 0 fallback (local): {response.error_message}")
+   289→            response = await self._try_local(
+   290→                user_id, message, history, sys_prompt, temperature, max_tokens
+   291→            )
+   292→
+   293→            if not response.error:
+   294→                self._level0_count += 1
+   295→                self._total_requests += 1
+   296→                return await self._save_response(user_id, message, response, sys_prompt, use_cache, save_history)
+   297→
+   298→        # ── LAST RESORT: Static fallback ──
+   299→        self._static_count += 1
+   300→        self._total_fallbacks += 1
+   301→        logger.error(
+   302→            f"ALL LEVELS FAILED for route_type={route_type}. "
+   303→            f"Level0(local)={self._level0_count}, Level1={self._level1_count}, "
+   304→            f"Level2={self._level2_count}, Level3={self._level3_count}, Static={self._static_count}"
+   305→        )
+   306→        return AIResponse(
+   307→            text=random.choice(FALLBACK_RESPONSES),
+   308→            model="fallback",
+   309→            provider="static",
+   310→            tokens_used=0,
+   311→        )
+   312→
+   313→    async def _save_response(
+   314→        self, user_id: int, message: str, response: AIResponse,
+   315→        sys_prompt: str, use_cache: bool, save_history: bool
+   316→    ) -> AIResponse:
+   317→        """Save response to history and cache."""
+   318→        if save_history and response.text:
+   319→            await add_chat_message(user_id, "user", message)
+   320→            await add_chat_message(user_id, "assistant", response.text)
+   321→
+   322→            # Cache the response
+   323→            if use_cache and response.text:
+   324→                cache_key = self._make_cache_key(sys_prompt, message)
+   325→                await set_ai_cached(cache_key, message, response.text, response.model)
+   326→
+   327→        return response
+   328→
+   329→    async def _try_pollinations(self, user_id: int, message: str, history: list,
+   330→                                 sys_prompt: str, temperature: float, max_tokens: int,
+   331→                                 model: str) -> AIResponse:
+   332→        """Level 1: Try Pollinations with API key (KEY1 → KEY2 internally).
+   333→        Also tries model-level fallbacks.
+   334→        """
+   335→        messages = self._primary.format_messages(sys_prompt, history, message)
+   336→
+   337→        # Try primary model (provider will try KEY1 → KEY2 internally)
+   338→        response = await self._primary.chat(
+   339→            messages=messages,
+   340→            model=model,
+   341→            temperature=temperature,
+   342→            max_tokens=max_tokens,
+   343→        )
+   344→
+   345→        # If primary failed, try fallback models
+   346→        if response.error:
+   347→            is_key_error = any(code in (response.error_message or "")
+   348→                              for code in ["All API keys depleted", "401", "402", "unavailable", "cooldown"])
+   349→
+   350→            if is_key_error:
+   351→                fallback_models = [m for m in FALLBACK_MODELS
+   352→                                   if m != model and not self._primary._is_model_in_cooldown(m)][:3]
+   353→                if fallback_models:
+   354→                    logger.info(f"Key error, trying {len(fallback_models)} fallback models")
+   355→            else:
+   356→                fallback_models = [
+   357→                    m for m in ["mistral-small", "deepseek-v4", "llama-3.3", "nova-fast",
+   358→                                "gemma", "qwen3-coder", "step-3.5-flash", "nova-micro"]
+   359→                    if m != model and not self._primary._is_model_in_cooldown(m)
+   360→                ][:3]
+   361→                logger.info(f"Non-key error, trying fallbacks: {fallback_models}")
+   362→
+   363→            for fallback_model in fallback_models:
+   364→                if fallback_model == model:
+   365→                    continue
+   366→                if self._primary._is_model_in_cooldown(fallback_model):
+   367→                    continue
+   368→                logger.info(f"Trying fallback model: {fallback_model}")
+   369→                response = await self._primary.chat(
+   370→                    messages=messages,
+   371→                    model=fallback_model,
+   372→                    temperature=temperature,
+   373→                    max_tokens=max_tokens,
+   374→                )
+   375→                if not response.error:
+   376→                    break
+   377→
+   378→        return response
+   379→
+   380→    async def _try_pollinations_free(self, user_id: int, message: str, history: list,
+   381→                                      sys_prompt: str, temperature: float, max_tokens: int,
+   382→                                      model: str) -> AIResponse:
+   383→        """Level 2: Try Pollinations FREE API (no auth, text.pollinations.ai)."""
+   384→        messages = self._primary.format_messages(sys_prompt, history, message)
+   385→
+   386→        # Use simpler models for free API — they're more reliable
+   387→        free_models = ["openai", "mistral", "openai-large"]
+   388→        if model and model not in free_models:
+   389→            free_models.insert(0, model)
+   390→
+   391→        for free_model in free_models[:3]:
+   392→            if self._primary._is_model_in_cooldown(free_model):
+   393→                continue
+   394→            result = await self._primary.chat_free(
+   395→                messages=messages,
+   396→                model=free_model,
+   397→                temperature=temperature,
+   398→                max_tokens=max_tokens,
+   399→            )
+   400→            if not result.error and result.text:
+   401→                return result
+   402→
+   403→        return AIResponse(
+   404→            text="",
+   405→            model=model or "openai",
+   406→            provider="pollinations-free",
+   407→            error=True,
+   408→            error_message="Free API failed for all models",
+   409→        )
+   410→
+   411→    async def _try_cloudflare(self, user_id: int, message: str, history: list,
+   412→                               sys_prompt: str, temperature: float, max_tokens: int) -> AIResponse:
+   413→        """Level 3: Try Cloudflare Workers AI (Mistral Small 3.1)."""
+   414→        if not self._cloudflare or not self._cloudflare._accounts:
+   415→            return AIResponse(
+   416→                text="",
+   417→                model="cloudflare",
+   418→                provider="cloudflare",
+   419→                error=True,
+   420→                error_message="Cloudflare not configured",
+   421→            )
+   422→
+   423→        # Cloudflare has only one model — Mistral Small 3.1
+   424→        # It handles Russian well, good for all route types
+   425→        messages = self._primary.format_messages(sys_prompt, history, message)
+   426→
+   427→        return await self._cloudflare.chat(
+   428→            messages=messages,
+   429→            temperature=temperature,
+   430→            max_tokens=max_tokens,
+   431→        )
+   432→
+   433→    async def _try_local(self, user_id: int, message: str, history: list,
+   434→                          sys_prompt: str, temperature: float, max_tokens: int) -> AIResponse:
+   435→        """Level 0: Try Local Model (Qwen3-4B).
+   436→
+   437→        Uses ChatML format for Qwen3 with /no_think for fast responses.
+   438→        Primary for CHAT and COMMENT routes, fallback for FUNCTION routes.
+   439→        
+   440→        CONTEXT WINDOW BUDGET (4096 tokens, ~1.3 chars/token for Russian):
+   441→          - Output: 512 tokens (MODEL_MAX_TOKENS)
+   442→          - Safety margin: 64 tokens
+   443→          - Available for input: 3520 tokens (~4576 chars)
+   444→          - System prompt (local_system_prompt v2): ~2340 chars (~1800 tokens)
+   445→          - History: 3 turns × 200 chars = ~600 chars (~462 tokens)
+   446→          - User message: up to ~1000 chars (~770 tokens)
+   447→          - Total: ~3940 chars (~3032 tokens) — fits in 3520 with margin!
+   448→        """
+   449→        if not self._local:
+   450→            return AIResponse(
+   451→                text="",
+   452→                model="local-qwen3-4b",
+   453→                provider="local",
+   454→                error=True,
+   455→                error_message="Local provider not initialized",
+   456→            )
+   457→
+   458→        if not config.ENABLE_LOCAL_MODEL:
+   459→            return AIResponse(
+   460→                text="",
+   461→                model="local-qwen3-4b",
+   462→                provider="local",
+   463→                error=True,
+   464→                error_message="Local model disabled (ENABLE_LOCAL_MODEL=false)",
+   465→            )
+   466→
+   467→        # Use EXPANDED system prompt for local model (v2.0 — ~1800 tokens).
+   468→        # The full 12K-char cloud prompt (~9000 tokens) still does NOT fit.
+   469→        # But the expanded v2 prompt gives much better quality than the old compact one.
+   470→        compact_prompt = persona.local_system_prompt
+   471→
+   472→        # Build messages for local model using its own ChatML format
+   473→        messages = [{"role": "system", "content": compact_prompt}]
+   474→
+   475→        # Add limited history for local model (saves context window)
+   476→        # With expanded prompt (~1800 tokens), we have ~1720 tokens left for history+message.
+   477→        # 3 history turns × ~200 chars × 1.3 chars/token = ~462 tokens
+   478→        # User message up to ~1000 chars = ~770 tokens
+   479→        # Total: ~1232 tokens — well within budget.
+   480→        history_limit = min(config.MODEL_HISTORY_LIMIT, 3)
+   481→        limited_history = history[-history_limit:] if history else []
+   482→        for msg in limited_history:
+   483→            role = msg.get("role", "user")
+   484→            content = msg.get("content", "")
+   485→            # Truncate long history messages to save context tokens
+   486→            if role in ("user", "assistant") and content:
+   487→                messages.append({"role": role, "content": content[:200]})
+   488→
+   489→        # Truncate user message to prevent context overflow.
+   490→        # With expanded system prompt, allow up to ~1000 chars for user message.
+   491→        # The local_provider.chat() has its own safety truncation as well.
+   492→        truncated_message = message[:1000] if len(message) > 1000 else message
+   493→        if len(message) > 1000:
+   494→            logger.debug(f"Truncated user message for local model: {len(message)} → 1000 chars")
+   495→        messages.append({"role": "user", "content": truncated_message})
+   496→
+   497→        return await self._local.chat(
+   498→            messages=messages,
+   499→            temperature=temperature,
+   500→            max_tokens=min(max_tokens, config.MODEL_MAX_TOKENS),
+   501→        )
+   502→
+   503→    async def analyze_image(
+   504→        self,
+   505→        user_id: int,
+   506→        image_url: str = "",
+   507→        image_base64: str = "",
+   508→        prompt: str = "",
+   509→        extra_context: str = "",
+   510→    ) -> AIResponse:
+   511→        """
+   512→        Analyze an image with 3-level vision failover.
+   513→
+   514→        Level 1: Pollinations vision (with key)
+   515→        Level 2: Pollinations vision (free API)
+   516→        Level 3: Cloudflare vision (Mistral Small 3.1 with image_url)
+   517→        Last resort: Static fallback
+   518→        """
+   519→        # Build the vision prompt
+   520→        if not prompt:
+   521→            prompt = "Рассмотри это изображение внимательно и подробно опиши что на нём."
+   522→
+   523→        sys_prompt = self._build_system_prompt(
+   524→            persona.system_prompt + persona.vision_prompt_suffix,
+   525→            extra_context,
+   526→        )
+   527→
+   528→        # Get chat history for context
+   529→        history = await get_chat_history(user_id)
+   530→
+   531→        # Build context from history
+   532→        context_summary = ""
+   533→        if history:
+   534→            recent = history[-6:]
+   535→            for msg in recent:
+   536→                role = "Пользователь" if msg.get("role") == "user" else "Ася"
+   537→                content = msg.get("content", "")[:100]
+   538→                if content:
+   539→                    context_summary += f"{role}: {content}\n"
+   540→
+   541→        if context_summary:
+   542→            sys_prompt += f"\n\nКонтекст недавней беседы:\n{context_summary}"
+   543→
+   544→        # ── LEVEL 1: Pollinations vision with key ──
+   545→        response = await self._primary.analyze_image(
+   546→            image_url=image_url,
+   547→            image_base64=image_base64,
+   548→            prompt=prompt,
+   549→            model="openai",  # Primary vision model
+   550→            system_prompt=sys_prompt,
+   551→            max_tokens=800,
+   552→            temperature=0.7,
+   553→        )
+   554→
+   555→        if not response.error:
+   556→            self._level1_count += 1
+   557→            # Save to history
+   558→            if response.text:
+   559→                await add_chat_message(user_id, "user", f"[Фото] {prompt[:97]}")
+   560→                await add_chat_message(user_id, "assistant", response.text)
+   561→            return response
+   562→
+   563→        # ── LEVEL 2: Pollinations FREE vision ──
+   564→        logger.warning(f"Vision Level 1 failed, trying free API: {response.error_message}")
+   565→        response = await self._primary.analyze_image_free(
+   566→            image_url=image_url,
+   567→            image_base64=image_base64,
+   568→            prompt=prompt,
+   569→            model="openai",
+   570→            system_prompt=sys_prompt,
+   571→            max_tokens=800,
+   572→            temperature=0.7,
+   573→        )
+   574→
+   575→        if not response.error:
+   576→            self._level2_count += 1
+   577→            if response.text:
+   578→                await add_chat_message(user_id, "user", f"[Фото] {prompt[:97]}")
+   579→                await add_chat_message(user_id, "assistant", response.text)
+   580→            return response
+   581→
+   582→        # ── LEVEL 3: Cloudflare vision (Mistral Small 3.1 with image_url) ──
+   583→        logger.warning(f"Vision Level 2 failed, trying Cloudflare: {response.error_message}")
+   584→        if self._cloudflare and self._cloudflare._accounts:
+   585→            response = await self._cloudflare.analyze_image(
+   586→                image_url=image_url,
+   587→                image_base64=image_base64,
+   588→                prompt=prompt,
+   589→                system_prompt=sys_prompt,
+   590→                max_tokens=800,
+   591→                temperature=0.7,
+   592→            )
+   593→
+   594→            if not response.error:
+   595→                self._level3_count += 1
+   596→                if response.text:
+   597→                    await add_chat_message(user_id, "user", f"[Фото] {prompt[:97]}")
+   598→                    await add_chat_message(user_id, "assistant", response.text)
+   599→                return response
+   600→
+   601→        # ── LAST RESORT: Static fallback ──
+   602→        self._static_count += 1
+   603→        self._total_fallbacks += 1
+   604→        logger.error(f"ALL vision levels failed: {response.error_message}")
+   605→        return AIResponse(
+   606→            text="Ой, не получилось разглядеть фото 😅 Попробуй ещё раз!",
+   607→            model="fallback",
+   608→            provider="static",
+   609→            error=True,
+   610→            error_message=response.error_message,
+   611→        )
+   612→
+   613→    async def decode_vin(
+   614→        self,
+   615→        user_id: int,
+   616→        vin_code: str,
+   617→        extra_context: str = "",
+   618→    ) -> AIResponse:
+   619→        """
+   620→        Decode a VIN code or body number for vehicle information.
+   621→        FUNCTION route — best quality models for accuracy.
+   622→        """
+   623→        # Clean VIN code
+   624→        vin_clean = vin_code.strip().upper()
+   625→
+   626→        # Build VIN-specific context
+   627→        vin_context = f"VIN-код или номер кузова для расшифровки: {vin_clean}\n"
+   628→
+   629→        # Try to extract basic info from VIN pattern
+   630→        vin_info = self._parse_vin_basic(vin_clean)
+   631→        if vin_info:
+   632→            vin_context += f"Предварительные данные: {vin_info}\n"
+   633→
+   634→        if extra_context:
+   635→            vin_context += f"\n{extra_context}"
+   636→
+   637→        # VIN is a function — use best quality models
+   638→        return await self.chat(
+   639→            user_id=user_id,
+   640→            message=f"Расшифруй VIN: {vin_clean}",
+   641→            system_prompt=persona.system_prompt + persona.vin_prompt_suffix,
+   642→            model="openai-large",  # Best model for VIN
+   643→            temperature=0.3,  # More precise for VIN
+   644→            extra_context=vin_context,
+   645→            route_type="function",
+   646→        )
+   647→
+   648→    def _parse_vin_basic(self, vin: str) -> str:
+   649→        """Parse VIN info: WMI manufacturer, model year, assembly plant, check digit."""
+   650→        if len(vin) < 3:
+   651→            return ""
+   652→
+   653→        parts = []
+   654→
+   655→        # WMI
+   656→        wmi = vin[:3]
+   657→        wmi_map = {
+   658→            "JHM": "Honda (Япония)", "JHN": "Honda (США)", "JHG": "Honda (Япония)",
+   659→            "JT1": "Toyota (Япония)", "JT2": "Toyota (Япония)", "JTD": "Toyota (США)",
+   660→            "JN1": "Nissan (Япония)", "JN8": "Nissan (США)", "JNK": "Infiniti (Япония)",
+   661→            "JM1": "Mazda (Япония)", "JF1": "Subaru (Япония)",
+   662→            "WBA": "BMW (Германия)", "WBS": "BMW M (Германия)",
+   663→            "WVW": "Volkswagen (Германия)", "WAU": "Audi (Германия)",
+   664→            "WDD": "Mercedes-Benz (Германия)", "WDB": "Mercedes-Benz (Германия)",
+   665→            "WP0": "Porsche (Германия)",
+   666→            "1G1": "Chevrolet (США)", "1FA": "Ford (США)", "1FT": "Ford Truck (США)",
+   667→            "1HG": "Honda (США)", "1N4": "Nissan (США)",
+   668→            "1J4": "Jeep (США)", "1C4": "Chrysler (США)", "1C6": "RAM (США)",
+   669→            "5YJ": "Tesla (США)",
+   670→            "KMH": "Hyundai (Корея)", "KNA": "Kia (Корея)", "KND": "Kia (США)",
+   671→            "XTA": "АвтоВАЗ LADA (Россия)", "Z8T": "УАЗ (Россия)",
+   672→            "YV1": "Volvo (Швеция)",
+   673→            "VF1": "Renault (Франция)", "VF3": "Peugeot (Франция)", "VF7": "Citroen (Франция)",
+   674→            "SAL": "Land Rover (Великобритания)", "SAA": "Jaguar (Великобритания)",
+   675→            "ZAR": "Alfa Romeo (Италия)", "ZAM": "Maserati (Италия)",
+   676→            "ZFF": "Ferrari (Италия)", "ZFA": "Fiat (Италия)",
+   677→            "TM9": "Škoda (Чехия)", "TMB": "Škoda (Чехия)",
+   678→        }
+   679→
+   680→        manufacturer = wmi_map.get(wmi, "")
+   681→        if manufacturer:
+   682→            parts.append(f"Производитель (WMI {wmi}): {manufacturer}")
+   683→        else:
+   684→            region_map = {
+   685→                "1": "США", "2": "Канада", "3": "Мексика",
+   686→                "J": "Япония", "K": "Корея", "L": "Китай",
+   687→                "S": "Великобритания", "V": "Франция/Испания",
+   688→                "W": "Германия", "X": "Россия/Нидерланды", "Y": "Швеция/Норвегия",
+   689→                "Z": "Италия/Бельгия",
+   690→            }
+   691→            region = region_map.get(vin[0], "Неизвестный регион")
+   692→            parts.append(f"WMI {wmi} — регион: {region}")
+   693→
+   694→        # Model Year
+   695→        if len(vin) >= 10:
+   696→            year_code = vin[9]
+   697→            year_map = {
+   698→                "A": 2010, "B": 2011, "C": 2012, "D": 2013, "E": 2014,
+   699→                "F": 2015, "G": 2016, "H": 2017, "J": 2018, "K": 2019,
+   700→                "L": 2020, "M": 2021, "N": 2022, "P": 2023, "R": 2024,
+   701→                "S": 2025, "T": 2026, "V": 2027,
+   702→            }
+   703→            model_year = year_map.get(year_code)
+   704→            if model_year:
+   705→                parts.append(f"Модельный год: {model_year} (код: {year_code})")
+   706→
+   707→        # Serial Number
+   708→        if len(vin) >= 17:
+   709→            serial = vin[11:17]
+   710→            parts.append(f"Серийный номер: {serial}")
+   711→
+   712→        return "\n".join(parts) if parts else ""
+   713→
+   714→    async def generate_channel_post(
+   715→        self,
+   716→        topic: str,
+   717→        source_text: str = "",
+   718→        extra_instructions: str = "",
+   719→        model: str = "",
+   720→        has_media: bool = False,
+   721→        media_count: int = 0,
+   722→    ) -> AIResponse:
+   723→        """
+   724→        Generate a post for the @sochiautoparts channel.
+   725→        3-level failover: Pollinations key → free → Cloudflare.
+   726→        """
+   727→        system_prompt = persona.system_prompt + persona.channel_prompt_suffix
+   728→
+   729→        # Add time context
+   730→        time_ctx = _get_time_context()
+   731→        system_prompt += f"\n\n{time_ctx}"
+   732→
+   733→        # Add character limit instruction
+   734→        char_limit = config.TELEGRAM_CAPTION_LIMIT if has_media else config.TELEGRAM_TEXT_LIMIT
+   735→        footer_chars = 55
+   736→        content_limit = char_limit - footer_chars
+   737→
+   738→        if has_media:
+   739→            limit_instruction = (
+   740→                f"\n\n⛔ КРИТИЧЕСКИ ВАЖНО — ЛИМИТ СИМВОЛОВ ⛔\n"
+   741→                f"Это пост С ФОТО. Telegram обрезает подписи на 1024 символе.\n"
+   742→                f"Подпись 'Автор @asiaexp_bot / @sochiautoparts / #sochiautoparts' занимает ~55 символов.\n"
+   743→                f"Значит твой текст — СТРОГО НЕ БОЛЕЕ {content_limit} символов.\n"
+   744→                f"ЕСЛИ ТЫ НАПИШЕШЬ БОЛЬШЕ — ПОСТ ОБРЕЖЕТСЯ НА ПОЛУСЛОВЕ! Это выглядит ужасно.\n"
+   745→                f"Пиши КОМПАКТНО и ЁМКО: 500-800 символов оптимально. Абсолютный максимум 950.\n"
+   746→                f"НЕ ПИШИ длинных вступлений. Сразу к делу.\n"
+   747→                f"Подпись в конце ОБЯЗАТЕЛЬНА — никогда не обрезай её."
+   748→            )
+   749→        else:
+   750→            limit_instruction = (
+   751→                f"\n\nЛИМИТ СИМВОЛОВ:\n"
+   752→                f"Это текстовый пост БЕЗ медиа — разрешён только для ОЧЕНЬ интересного контента!\n"
+   753→                f"Такой пост без фото допускается потому что контент не помещается в 1024 символа,\n"
+   754→                f"но он достаточно интересен чтобы публиковать без фото.\n"
+   755→                f"Telegram лимит: 4096 символов весь пост. Пиши содержательно и компактно.\n"
+   756→                f"Подпись в конце ОБЯЗАТЕЛЬНА."
+   757→            )
+   758→
+   759→        system_prompt += limit_instruction
+   760→
+   761→        user_content = f"Тема для поста: {topic}"
+   762→        if source_text:
+   763→            user_content += f"\n\nИсходный текст/новость:\n{source_text}"
+   764→        if extra_instructions:
+   765→            user_content += f"\n\nДополнительные инструкции: {extra_instructions}"
+   766→
+   767→        messages = [
+   768→            {"role": "system", "content": system_prompt},
+   769→            {"role": "user", "content": user_content},
+   770→        ]
+   771→
+   772→        # ── Determine max_tokens based on has_media ──
+   773→        # Media posts: 1024 char limit → ~400 tokens is plenty
+   774→        # Text-only posts: 4096 char limit → ~1500 tokens for rich content
+   775→        post_max_tokens = 600 if has_media else 1500
+   776→
+   777→        # ── LEVEL 1: Pollinations with key ──
+   778→        post_model = model or "openai-large"
+   779→        response = await self._primary.chat(
+   780→            messages=messages,
+   781→            model=post_model,
+   782→            temperature=0.8,
+   783→            max_tokens=post_max_tokens,
+   784→        )
+   785→
+   786→        # If primary model failed, try a few quality fallback models
+   787→        if response.error:
+   788→            for fallback in ["gpt-5.5", "deepseek", "openai"]:
+   789→                if fallback == post_model:
+   790→                    continue
+   791→                if self._primary._is_model_in_cooldown(fallback):
+   792→                    continue
+   793→                logger.info(f"Channel post: trying fallback model {fallback}")
+   794→                response = await self._primary.chat(
+   795→                    messages=messages,
+   796→                    model=fallback,
+   797→                    temperature=0.8,
+   798→                    max_tokens=post_max_tokens,
+   799→                )
+   800→                if not response.error:
+   801→                    break
+   802→
+   803→        # ── LEVEL 2: Pollinations free API ──
+   804→        if response.error:
+   805→            logger.warning(f"Channel post Level 1 failed, trying free API")
+   806→            for free_model in ["openai", "mistral", "openai-large"]:
+   807→                result = await self._primary.chat_free(
+   808→                    messages=messages,
+   809→                    model=free_model,
+   810→                    temperature=0.8,
+   811→                    max_tokens=post_max_tokens,
+   812→                )
+   813→                if not result.error and result.text:
+   814→                    response = result
+   815→                    break
+   816→
+   817→        # ── LEVEL 3: Cloudflare ──
+   818→        if response.error and self._cloudflare and self._cloudflare._accounts:
+   819→            logger.warning(f"Channel post Level 2 failed, trying Cloudflare")
+   820→            response = await self._cloudflare.chat(
+   821→                messages=messages,
+   822→                temperature=0.8,
+   823→                max_tokens=post_max_tokens,
+   824→            )
+   825→
+   826→        response = self._finalize_channel_post(response, has_media)
+   827→        return response
+   828→
+   829→    @staticmethod
+   830→    def _router_smart_truncate(text: str, max_len: int) -> str:
+   831→        """Smart truncation for AI router — cuts at sentence/paragraph boundary.
+   832→        
+   833→        Same logic as channel.py's _smart_truncate to avoid mid-word cuts.
+   834→        """
+   835→        if len(text) <= max_len:
+   836→            return text
+   837→        
+   838→        target = max_len - 3
+   839→        if target < 50:
+   840→            return text[:target] + "..."
+   841→        
+   842→        search_zone = text[:target + 1]
+   843→        
+   844→        # 1. Paragraph break
+   845→        last_para = search_zone.rfind("\n\n")
+   846→        if last_para > target * 0.5:
+   847→            return text[:last_para].rstrip() + "..."
+   848→        
+   849→        # 2. Sentence end
+   850→        sentence_end_chars = ['. ', '! ', '? ', '… ', '.\n', '!\n', '?\n', '…\n']
+   851→        best_sentence_end = -1
+   852→        for end_char in sentence_end_chars:
+   853→            pos = search_zone.rfind(end_char)
+   854→            if pos > best_sentence_end and pos > target * 0.5:
+   855→                best_sentence_end = pos + len(end_char) - 1
+   856→        
+   857→        if best_sentence_end > target * 0.5:
+   858→            return text[:best_sentence_end + 1].rstrip() + "..."
+   859→        
+   860→        # 3. Newline
+   861→        last_newline = search_zone.rfind("\n")
+   862→        if last_newline > target * 0.5:
+   863→            return text[:last_newline].rstrip() + "..."
+   864→        
+   865→        # 4. Space
+   866→        last_space = search_zone.rfind(" ")
+   867→        if last_space > target * 0.5:
+   868→            return text[:last_space].rstrip() + "..."
+   869→        
+   870→        # 5. Hard cut
+   871→        return text[:target].rstrip() + "..."
+   872→
+   873→
+   874→
+   875→    def _finalize_channel_post(self, response: AIResponse, has_media: bool) -> AIResponse:
+   876→        """Finalize channel post: add footer, enforce limits."""
+   877→        if response.text and not response.error:
+   878→            text = response.text
+   879→
+   880→            # Clean markdown-style links
+   881→            import re
+   882→            text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\1', text)
+   883→            text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+   884→            text = re.sub(r'\*(.+?)\*', r'\1', text)
+   885→
+   886→            if "#sochiautoparts" not in text:
+   887→                text = text.rstrip() + "\n\nАвтор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
+   888→            elif "@asiaexp_bot" not in text:
+   889→                text = text.replace("@sochiautoparts", "Автор @asiaexp_bot\n@sochiautoparts")
+   890→
+   891→            # Enforce character limit (use smart truncation from channel.py)
+   892→            footer = "\n\nАвтор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
+   893→            if has_media and len(text) > config.TELEGRAM_CAPTION_LIMIT:
+   894→                for foot_part in ["\n\nАвтор @asiaexp_bot", "\n@sochiautoparts", "\n#sochiautoparts"]:
+   895→                    text = text.replace(foot_part, "")
+   896→                text = text.rstrip()
+   897→                max_content = config.TELEGRAM_CAPTION_LIMIT - len(footer)
+   898→                if len(text) > max_content:
+   899→                    # Smart truncation — find last sentence/paragraph boundary
+   900→                    text = self._router_smart_truncate(text, max_content)
+   901→                text += footer
+   902→            elif not has_media and len(text) > config.TELEGRAM_TEXT_LIMIT:
+   903→                for foot_part in ["\n\nАвтор @asiaexp_bot", "\n@sochiautoparts", "\n#sochiautoparts"]:
+   904→                    text = text.replace(foot_part, "")
+   905→                text = text.rstrip()
+   906→                max_content = config.TELEGRAM_TEXT_LIMIT - len(footer)
+   907→                if len(text) > max_content:
+   908→                    text = self._router_smart_truncate(text, max_content)
+   909→                text += footer
+   910→
+   911→            response.text = text
+   912→
+   913→        return response
+   914→
+   915→    async def diagnose_car(
+   916→        self,
+   917→        user_id: int,
+   918→        symptoms: str,
+   919→        car_info: str = "",
+   920→        model: str = "",
+   921→    ) -> AIResponse:
+   922→        """Generate a car diagnosis response. FUNCTION route — best quality models."""
+   923→        from bot.asya import build_diagnostic_context
+   924→
+   925→        extra_context = build_diagnostic_context(symptoms)
+   926→        if car_info:
+   927→            extra_context = f"Информация об авто: {car_info}\n{extra_context}"
+   928→
+   929→        return await self.chat(
+   930→            user_id=user_id,
+   931→            message=symptoms,
+   932→            system_prompt=persona.system_prompt + persona.diagnostic_prompt_suffix,
+   933→            model=model or "gpt-5.5",  # Complex task — use strong model
+   934→            temperature=0.5,
+   935→            extra_context=extra_context,
+   936→            route_type="function",
+   937→        )
+   938→
+   939→    async def find_spare_part(
+   940→        self,
+   941→        user_id: int,
+   942→        article: str,
+   943→        part_info: str = "",
+   944→        model: str = "",
+   945→    ) -> AIResponse:
+   946→        """Generate a spare part search response. FUNCTION route — best quality models."""
+   947→        extra_context = ""
+   948→        if part_info:
+   949→            extra_context = f"Информация о запчасти из каталогов:\n{part_info}"
+   950→
+   951→        return await self.chat(
+   952→            user_id=user_id,
+   953→            message=f"Найди запчасть по артикулу: {article}",
+   954→            system_prompt=persona.system_prompt + persona.spare_part_prompt_suffix,
+   955→            model=model,
+   956→            temperature=0.4,
+   957→            extra_context=extra_context,
+   958→            route_type="function",
+   959→        )
+   960→
+   961→    async def comment(
+   962→        self,
+   963→        user_id: int,
+   964→        message: str,
+   965→        system_prompt: str = "",
+   966→        extra_context: str = "",
+   967→    ) -> AIResponse:
+   968→        """Generate a comment in another group. Uses fast/cheap models.
+   969→        3-level failover: Pollinations key → free → Cloudflare → Static.
+   970→        """
+   971→        return await self.chat(
+   972→            user_id=user_id,
+   973→            message=message,
+   974→            system_prompt=system_prompt or persona.system_prompt,
+   975→            temperature=0.7,
+   976→            max_tokens=200,  # Short comments
+   977→            use_cache=False,
+   978→            save_history=False,
+   979→            extra_context=extra_context,
+   980→            route_type="comment",
+   981→        )
+   982→
+   983→    @staticmethod
+   984→    def _clean_ai_response(text: str) -> str:
+   985→        """Clean AI response artifacts (think tags, markdown, structured output, etc.)."""
+   986→        if not text:
+   987→            return ""
+   988→
+   989→        # Block structured YAML/MIDI/JSON output from text-to-music models
+   990→        import re
+   991→        structured_patterns = [
+   992→            r'^title:\s*.+?\n(duration|key|notation|pitch|velocity|tempo|bpm):',
+   993→            r'^---\s*\n.*?(title|duration|notation|pitch|velocity):',
+   994→            r'pitch,\s*time,\s*duration,\s*velocity',
+   995→        ]
+   996→        for pattern in structured_patterns:
+   997→            if re.search(pattern, text, re.DOTALL | re.IGNORECASE):
+   998→                return ""
+   999→
+  1000→        # Strip think tags (Qwen3, reasoning models)
+  1001→        text = re.sub(r'<think\b[^>]*>.*?</think\s*>', '', text, flags=re.DOTALL | re.IGNORECASE)
+  1002→        text = re.sub(r'<thinking\b[^>]*>.*?</thinking\s*>', '', text, flags=re.DOTALL | re.IGNORECASE)
+  1003→        text = re.sub(r'</?think[^>]*>', '', text, flags=re.IGNORECASE)
+  1004→        text = re.sub(r'</?thinking[^>]*>', '', text, flags=re.IGNORECASE)
+  1005→        text = re.sub(r'<think\b[^>]*$', '', text, flags=re.IGNORECASE)
+  1006→
+  1007→        # Strip /no_think prefix
+  1008→        text = re.sub(r'^/no_think\s*', '', text)
+  1009→
+  1010→        # Strip prefixes
+  1011→        for prefix in ["Ася:", "Asya:", "АСЯ:", "Assistant:", "Ответ Аси:"]:
+  1012→            if text.startswith(prefix):
+  1013→                text = text[len(prefix):].strip()
+  1014→
+  1015→        # Strip quotes
+  1016→        if text.startswith('"') and text.endswith('"'):
+  1017→            text = text[1:-1]
+  1018→        if text.startswith("'") and text.endswith("'"):
+  1019→            text = text[1:-1]
+  1020→
+  1021→        text = text.strip("*").strip()
+  1022→
+  1023→        # Strip markdown
+  1024→        text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
+  1025→        text = re.sub(r'\*([^*]+)\*', r'\1', text)
+  1026→        text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
+  1027→
+  1028→        # Clean up whitespace
+  1029→        text = re.sub(r'\n{3,}', '\n\n', text)
+  1030→        text = text.strip()
+  1031→
+  1032→        return text
+  1033→
+  1034→    def _make_cache_key(self, system_prompt: str, message: str) -> str:
+  1035→        """Create a cache key from system prompt and message."""
+  1036→        content = f"{system_prompt[:200]}||{message[:500]}"
+  1037→        return hashlib.sha256(content.encode()).hexdigest()
+  1038→
+  1039→    def get_available_models(self) -> List[str]:
+  1040→        """Get list of available models."""
+  1041→        return POLLINATIONS_MODELS
+  1042→
+  1043→    def get_model_categories(self) -> Dict[str, List[str]]:
+  1044→        """Get models grouped by category."""
+  1045→        return {
+  1046→            "chat": CHAT_MODELS,
+  1047→            "reasoning": REASONING_MODELS,
+  1048→            "vision": VISION_MODELS,
+  1049→            "content": CONTENT_MODELS,
+  1050→            "search": SEARCH_MODELS,
+  1051→            "image": IMAGE_MODELS,
+  1052→        }
+  1053→
+  1054→    def get_status(self) -> Dict[str, str]:
+  1055→        """Get current status of all providers."""
+  1056→        status = {}
+  1057→        # Local model
+  1058→        if self._local:
+  1059→            status["local"] = self._local.get_status()
+  1060→        else:
+  1061→            status["local"] = "not_initialized"
+  1062→        # Pollinations
+  1063→        status["pollinations_keys"] = self._primary._get_key_status_summary()
+  1064→        status["pollinations_free"] = "available" if self._primary._is_free_api_available() else "cooldown"
+  1065→        # Cloudflare
+  1066→        if self._cloudflare and self._cloudflare._accounts:
+  1067→            status["cloudflare"] = self._cloudflare.get_status()
+  1068→        else:
+  1069→            status["cloudflare"] = "not_configured"
+  1070→        # Stats
+  1071→        status["stats"] = (
+  1072→            f"L0(local)={self._level0_count} "
+  1073→            f"L1(poll-key)={self._level1_count} "
+  1074→            f"L2(poll-free)={self._level2_count} "
+  1075→            f"L3(cloudflare)={self._level3_count} "
+  1076→            f"static={self._static_count}"
+  1077→        )
+  1078→        return status
+  1079→
+  1080→
+  1081→# ── Global instance ────────────────────────────────────────────────────────────
+  1082→
+  1083→ai_router = AIRouter()
+  1084→

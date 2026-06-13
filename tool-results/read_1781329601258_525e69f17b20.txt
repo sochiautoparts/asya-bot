@@ -1,0 +1,683 @@
+     1→"""Smart Image Fetcher v6.0 — Clean article-first image sourcing for asya-bot.
+     2→
+     3→PHILOSOPHY: Automotive news articles ALREADY have photos attached.
+     4→No need for image search engines, stock photos, or AI generation.
+     5→Just take the photos from the article and attach them to the post.
+     6→
+     7→PRIORITY PIPELINE:
+     8→  1. RSS images — from news._extract_entry_images() (pre-filtered, deduped, upgraded)
+     9→  2. Article page images — og:image, twitter:image, JSON-LD, <img> tags
+    10→  3. DONE — that's it. No search, no AI, no bullshit.
+    11→
+    12→v6.0 CHANGES:
+    13→  - FIXED: HTML entity decoding (&amp; &#038; etc.) — was causing broken URLs
+    14→  - FIXED: Tiny thumbnail filtering (width<200, /feed/ URLs, 108x108 patterns)
+    15→  - FIXED: Default/generic image filtering (business_card, placeholder, etc.)
+    16→  - FIXED: Normalized URL dedup (after unescape, same image no longer counted twice)
+    17→  - ADDED: Thumbnail URL upgrade (BBC /240/→/640/, Autosport /s6/→/s12/, Reddit width=140→640)
+    18→  - IMPROVED: Dimension check raised to 300x200 (real photos, not thumbnails)
+    19→  - REMOVED: Duplicate extract_rss_images() — news.py handles this now with better filtering
+    20→  - KEPT: SHA256 content deduplication, ImageCache, basic junk filtering
+    21→"""
+    22→
+    23→from __future__ import annotations
+    24→
+    25→import hashlib
+    26→import json
+    27→import logging
+    28→import re
+    29→import time
+    30→from html import unescape as html_unescape
+    31→from pathlib import Path
+    32→from typing import Any, Dict, List, Optional, Tuple
+    33→from urllib.parse import urlparse
+    34→
+    35→import httpx
+    36→
+    37→logger = logging.getLogger("asya.image_fetcher")
+    38→
+    39→# ── Configuration ─────────────────────────────────────────────────────────────
+    40→
+    41→IMAGE_CACHE_DIR = Path("data/image_cache")
+    42→IMAGE_CACHE_TTL_DAYS = 7
+    43→IMAGE_MIN_SIZE_BYTES = 2_000          # 2 KB — very low, news photos are usually 50KB+
+    44→IMAGE_MAX_SIZE_BYTES = 5_242_880      # 5 MB — Telegram limit
+    45→MAX_IMAGES_PER_POST = 10              # Telegram mediagroup limit
+    46→IMAGE_FETCH_TIMEOUT = 15.0
+    47→ARTICLE_FETCH_TIMEOUT = 20.0
+    48→
+    49→# ── Junk URL filter — comprehensive ───────────────────────────────────────────
+    50→
+    51→JUNK_DOMAINS = {
+    52→    "mc.yandex.ru", "mc.yandex.com", "google-analytics.com",
+    53→    "facebook.com/tr", "connect.facebook.net",
+    54→    "pixel.wp.com", "stats.wordpress.com",
+    55→    "doubleclick.net", "adservice.google.com",
+    56→    "pagead2.googlesyndication.com", "ad.doubleclick.net",
+    57→    "platform.twitter.com", "apis.google.com",
+    58→    "feeds.feedburner.com", "feedburner.google.com",
+    59→}
+    60→
+    61→JUNK_PATH_KEYWORDS = [
+    62→    "favicon", "avatar", "spinner", "loading", "placeholder",
+    63→    "pixel", "tracker", "beacon", "counter", "analytics",
+    64→    "1x1", "spacer", "blank", "transparent",
+    65→    "recaptcha", "captcha",
+    66→    "icon", "logo", "badge", "button", "btn",
+    67→    "share", "facebook", "twitter", "vk.",
+    68→    "telegram", "whatsapp", "instagram", "youtube", "tiktok",
+    69→    "banner", "ad-", "_ad_", "advert",
+    70→]
+    71→
+    72→# Generic/default image filenames — not real content
+    73→JUNK_STEMS = {
+    74→    "business_card", "placeholder", "default_image", "default-image",
+    75→    "no_image", "no-image", "coming_soon", "coming-soon",
+    76→    "spacer", "blank", "transparent", "pixel", "tracker",
+    77→    "1x1", "beacon", "spinner", "loading",
+    78→}
+    79→
+    80→JUNK_EXTENSIONS = {".gif", ".svg"}
+    81→
+    82→# Tiny thumbnail size patterns in URL — skip these
+    83→# NOTE: Must be specific — don't match real image sizes like 630x420!
+    84→TINY_SIZE_PATTERNS = [
+    85→    re.compile(r'[?&]width=(?:1\d\d|80|100|120)(?:&|$)', re.IGNORECASE),  # width=80..199 in query
+    86→    re.compile(r'[?&]height=(?:1\d\d|80|100|120)(?:&|$)', re.IGNORECASE),  # height=80..199 in query
+    87→    re.compile(r'[?&]crop=1:1[,&]', re.IGNORECASE),                        # square crop = icon
+    88→    re.compile(r'/\d{2,3}x\d{2,3}/', re.IGNORECASE),                       # /108x108/ in path segments
+    89→    re.compile(r'[-_](?:\d{2}|1\d{2}|200)x(?:\d{2}|1\d{2}|200)[-_.]', re.IGNORECASE),  # -108x108. (under 200px)
+    90→]
+    91→
+    92→# /feed/ as image URL (CarScoops bug)
+    93→_FEED_URL_RE = re.compile(r'/feed/?$', re.IGNORECASE)
+    94→
+    95→
+    96→def _normalize_url(url: str) -> str:
+    97→    """Normalize image URL: decode HTML entities, fix scheme."""
+    98→    if not url:
+    99→        return ""
+   100→    url = url.strip()
+   101→    # Decode HTML entities: &amp; → &, &#038; → &, etc.
+   102→    url = html_unescape(url)
+   103→    if url.startswith("//"):
+   104→        url = "https:" + url
+   105→    return url
+   106→
+   107→
+   108→def _is_junk_url(url: str) -> bool:
+   109→    """Comprehensive junk filter for image URLs.
+   110→
+   111→    Blocks: trackers, icons, tiny thumbnails, default images, /feed/ URLs.
+   112→    """
+   113→    try:
+   114→        url_lower = url.lower()
+   115→        parsed = urlparse(url_lower)
+   116→        hostname = parsed.hostname or ""
+   117→        path_lower = parsed.path.lower()
+   118→
+   119→        # Tracker/analytics domains
+   120→        for junk in JUNK_DOMAINS:
+   121→            if junk in hostname:
+   122→                return True
+   123→
+   124→        # Path keywords (icon, logo, badge, etc.)
+   125→        for kw in JUNK_PATH_KEYWORDS:
+   126→            if kw in url_lower:
+   127→                return True
+   128→
+   129→        # Bad extensions
+   130→        for ext in JUNK_EXTENSIONS:
+   131→            if path_lower.endswith(ext):
+   132→                return True
+   133→
+   134→        # /feed/ URL (CarScoops bug — <img src="/feed/">)
+   135→        if _FEED_URL_RE.search(url_lower):
+   136→            return True
+   137→
+   138→        # Generic/default image filenames
+   139→        # Check exact match and prefix match (e.g. business_card-1 → business_card_1)
+   140→        stem = path_lower.rsplit("/", 1)[-1].split(".")[0].replace("-", "_")
+   141→        if stem in JUNK_STEMS:
+   142→            return True
+   143→        for junk_stem in JUNK_STEMS:
+   144→            if stem.startswith(junk_stem):
+   145→                return True
+   146→
+   147→        # Tiny thumbnail dimensions in URL params
+   148→        for pattern in TINY_SIZE_PATTERNS:
+   149→            if pattern.search(url_lower):
+   150→                return True
+   151→
+   152→    except Exception:
+   153→        return True  # Can't parse = skip
+   154→    return False
+   155→
+   156→
+   157→def _upgrade_thumbnail_url(url: str) -> str:
+   158→    """Upgrade low-quality thumbnail URLs to higher resolution.
+   159→
+   160→    Known CDN patterns:
+   161→    - BBC: /240/ → /640/ in path
+   162→    - Autosport/Motorsport.com: /s6/ → /s12/ in path
+   163→    - Reddit: width=140 → width=640
+   164→    - Autocar: /car_review_image_190/ → /body-image/ (190×125 → 900×600)
+   165→    """
+   166→    # BBC
+   167→    if "bbci.co.uk" in url or "bbc.co.uk" in url:
+   168→        url = re.sub(r'/240/', '/640/', url, count=1)
+   169→
+   170→    # Autosport / Motorsport.com
+   171→    if "motorsport.com" in url or "autosport.com" in url:
+   172→        url = re.sub(r'/s6/', '/s12/', url, count=1)
+   173→
+   174→    # Reddit
+   175→    if "preview.redd.it" in url or "external-preview.redd.it" in url:
+   176→        url = re.sub(r'width=140', 'width=640', url, count=1)
+   177→        url = re.sub(r'height=140', 'height=640', url, count=1)
+   178→
+   179→    # Autocar UK: /styles/car_review_image_190/ → /styles/body-image/
+   180→    if "autocar.co.uk" in url:
+   181→        url = url.replace('/styles/car_review_image_190/', '/styles/body-image/')
+   182→
+   183→    return url
+   184→
+   185→
+   186→# ── Image Cache ───────────────────────────────────────────────────────────────
+   187→
+   188→class ImageCache:
+   189→    """File-based image cache with TTL."""
+   190→
+   191→    def __init__(self, cache_dir: Path = IMAGE_CACHE_DIR, ttl_days: int = IMAGE_CACHE_TTL_DAYS):
+   192→        self.cache_dir = cache_dir
+   193→        self.ttl_days = ttl_days
+   194→        self._index_path = cache_dir / "index.json"
+   195→        self._index: Dict[str, Dict[str, Any]] = {}
+   196→        self._load_index()
+   197→
+   198→    def _load_index(self) -> None:
+   199→        try:
+   200→            if self._index_path.exists():
+   201→                with open(self._index_path, "r", encoding="utf-8") as f:
+   202→                    self._index = json.load(f)
+   203→        except Exception:
+   204→            self._index = {}
+   205→
+   206→    def _save_index(self) -> None:
+   207→        try:
+   208→            self.cache_dir.mkdir(parents=True, exist_ok=True)
+   209→            with open(self._index_path, "w", encoding="utf-8") as f:
+   210→                json.dump(self._index, f, ensure_ascii=False, indent=2)
+   211→        except Exception:
+   212→            pass
+   213→
+   214→    def _cache_key(self, topic: str) -> str:
+   215→        return hashlib.md5(topic.lower().strip().encode()).hexdigest()
+   216→
+   217→    def get(self, topic: str) -> Optional[List[bytes]]:
+   218→        key = self._cache_key(topic)
+   219→        entry = self._index.get(key)
+   220→        if not entry:
+   221→            return None
+   222→        age_days = (time.time() - entry.get("cached_at", 0)) / 86400
+   223→        if age_days > self.ttl_days:
+   224→            self.delete(topic)
+   225→            return None
+   226→        results = []
+   227→        for filename in entry.get("filenames", []):
+   228→            file_path = self.cache_dir / filename
+   229→            if file_path.exists():
+   230→                try:
+   231→                    with open(file_path, "rb") as f:
+   232→                        results.append(f.read())
+   233→                except Exception:
+   234→                    continue
+   235→        return results if results else None
+   236→
+   237→    def put(self, topic: str, images: List[bytes], source: str) -> None:
+   238→        try:
+   239→            self.cache_dir.mkdir(parents=True, exist_ok=True)
+   240→            key = self._cache_key(topic)
+   241→            filenames = []
+   242→            for i, img_bytes in enumerate(images):
+   243→                filename = f"{key}_{i}.jpg"
+   244→                file_path = self.cache_dir / filename
+   245→                with open(file_path, "wb") as f:
+   246→                    f.write(img_bytes)
+   247→                filenames.append(filename)
+   248→            self._index[key] = {
+   249→                "topic": topic[:100],
+   250→                "filenames": filenames,
+   251→                "source": source,
+   252→                "cached_at": time.time(),
+   253→            }
+   254→            self._save_index()
+   255→        except Exception:
+   256→            pass
+   257→
+   258→    def delete(self, topic: str) -> None:
+   259→        key = self._cache_key(topic)
+   260→        entry = self._index.pop(key, None)
+   261→        if entry:
+   262→            for filename in entry.get("filenames", []):
+   263→                try:
+   264→                    file_path = self.cache_dir / filename
+   265→                    if file_path.exists():
+   266→                        file_path.unlink()
+   267→                except Exception:
+   268→                    pass
+   269→            self._save_index()
+   270→
+   271→
+   272→# ── Download & validation ────────────────────────────────────────────────────
+   273→
+   274→async def _download_image(client: httpx.AsyncClient, url: str) -> Optional[bytes]:
+   275→    """Download an image URL with validation. Returns bytes or None.
+   276→
+   277→    Normalizes URL (decode entities, upgrade thumbnails), validates
+   278→    content type, size, magic bytes, and pixel dimensions.
+   279→    """
+   280→    # Normalize: decode HTML entities, upgrade thumbnails
+   281→    url = _normalize_url(url)
+   282→    if not url:
+   283→        return None
+   284→
+   285→    # Junk filter
+   286→    if _is_junk_url(url):
+   287→        return None
+   288→
+   289→    # Upgrade low-quality thumbnails
+   290→    url = _upgrade_thumbnail_url(url)
+   291→
+   292→    try:
+   293→        # Quick HEAD to check content-type and size
+   294→        try:
+   295→            head_resp = await client.head(url, timeout=6.0, follow_redirects=True)
+   296→            content_type = head_resp.headers.get("content-type", "").lower()
+   297→            content_length = int(head_resp.headers.get("content-length", "0"))
+   298→
+   299→            # Must be an image
+   300→            if content_type and not content_type.startswith("image/"):
+   301→                return None
+   302→
+   303→            if 0 < content_length < IMAGE_MIN_SIZE_BYTES:
+   304→                return None
+   305→            if content_length > IMAGE_MAX_SIZE_BYTES:
+   306→                return None
+   307→        except Exception:
+   308→            pass  # Some servers don't support HEAD
+   309→
+   310→        # Full GET
+   311→        resp = await client.get(url, timeout=IMAGE_FETCH_TIMEOUT, follow_redirects=True)
+   312→        if resp.status_code != 200:
+   313→            return None
+   314→
+   315→        img_bytes = resp.content
+   316→
+   317→        # Size check
+   318→        if len(img_bytes) < IMAGE_MIN_SIZE_BYTES or len(img_bytes) > IMAGE_MAX_SIZE_BYTES:
+   319→            return None
+   320→
+   321→        # Magic bytes check
+   322→        is_valid = (
+   323→            img_bytes[:3] == b'\xff\xd8\xff'       # JPEG
+   324→            or img_bytes[:4] == b'\x89PNG'           # PNG
+   325→            or img_bytes[:4] == b'RIFF'              # WebP (RIFF container)
+   326→        )
+   327→        if not is_valid:
+   328→            return None
+   329→
+   330→        # Skip SVG content
+   331→        if b'<svg' in img_bytes[:500]:
+   332→            return None
+   333→
+   334→        # Dimension check — skip tiny icons/buttons/thumbnails
+   335→        try:
+   336→            from PIL import Image
+   337→            import io
+   338→            img = Image.open(io.BytesIO(img_bytes))
+   339→            w, h = img.size
+   340→            # Real article photos are at least 300x200
+   341→            # (was 200x150 but that let 140x140 thumbnails through)
+   342→            if w < 300 or h < 200:
+   343→                return None
+   344→            # Skip banners (extreme aspect ratios)
+   345→            if w / max(h, 1) > 4.0 or h / max(w, 1) > 4.0:
+   346→                return None
+   347→        except ImportError:
+   348→            pass  # PIL not available
+   349→        except Exception:
+   350→            pass  # Can't read dimensions
+   351→
+   352→        return img_bytes
+   353→
+   354→    except Exception:
+   355→        return None
+   356→
+   357→
+   358→# ── Strategy 1: RSS image URLs (pre-filtered by news.py) ─────────────────────
+   359→# Note: The actual RSS image extraction is done in news._extract_entry_images()
+   360→# which now handles HTML entity decoding, junk filtering, thumbnail upgrades,
+   361→# and normalized dedup. The image_urls list passed here is already clean.
+   362→
+   363→
+   364→# ── Strategy 2: Article page image extraction ────────────────────────────────
+   365→
+   366→async def fetch_article_images(
+   367→    url: str, client: httpx.AsyncClient, max_count: int = 10
+   368→) -> List[Tuple[bytes, str]]:
+   369→    """Fetch images from an article page. Returns list of (image_bytes, url).
+   370→
+   371→    Extracts in priority order:
+   372→    1. og:image / og:image:url / og:image:secure_url
+   373→    2. twitter:image
+   374→    3. JSON-LD structured data
+   375→    4. <picture>/<source srcset>
+   376→    5. <img> tags (data-src first for lazy-loaded, then src)
+   377→    """
+   378→    results: List[Tuple[bytes, str]] = []
+   379→
+   380→    if not url or not url.startswith(("http://", "https://")):
+   381→        return results
+   382→
+   383→    try:
+   384→        _SCRAPE_HEADERS = {
+   385→            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+   386→                          "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+   387→            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+   388→            "Accept-Language": "en-US,en;q=0.5,ru-RU;q=0.8",
+   389→        }
+   390→
+   391→        resp = await client.get(url, headers=_SCRAPE_HEADERS, timeout=ARTICLE_FETCH_TIMEOUT)
+   392→        if resp.status_code != 200:
+   393→            return results
+   394→
+   395→        html = resp.text
+   396→
+   397→        # Collect candidate URLs in priority order
+   398→        candidate_urls: List[str] = []
+   399→        seen: set = set()
+   400→
+   401→        def _add_candidate(raw_url: str):
+   402→            """Normalize, junk-filter, and dedup a candidate URL."""
+   403→            u = _normalize_url(raw_url)
+   404→            if not u or len(u) < 20:
+   405→                return
+   406→            if _is_junk_url(u):
+   407→                return
+   408→            u = _upgrade_thumbnail_url(u)
+   409→            # Dedup by normalized (lowercase) form
+   410→            norm_key = u.lower().rstrip("/")
+   411→            if norm_key not in seen:
+   412→                seen.add(norm_key)
+   413→                candidate_urls.append(u)
+   414→
+   415→        # 1. og:image
+   416→        for pattern in [
+   417→            r'<meta[^>]+property=["\x27]og:image["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]',
+   418→            r'<meta[^>]+content=["\x27]([^"\x27]+)["\x27][^>]+property=["\x27]og:image["\x27]',
+   419→            r'<meta[^>]+property=["\x27]og:image:url["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]',
+   420→            r'<meta[^>]+property=["\x27]og:image:secure_url["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]',
+   421→        ]:
+   422→            for m in re.finditer(pattern, html, re.IGNORECASE):
+   423→                _add_candidate(m.group(1))
+   424→
+   425→        # 2. twitter:image
+   426→        for pattern in [
+   427→            r'<meta[^>]+name=["\x27]twitter:image["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]',
+   428→            r'<meta[^>]+content=["\x27]([^"\x27]+)["\x27][^>]+name=["\x27]twitter:image["\x27]',
+   429→        ]:
+   430→            for m in re.finditer(pattern, html, re.IGNORECASE):
+   431→                _add_candidate(m.group(1))
+   432→
+   433→        # 3. JSON-LD
+   434→        jsonld_urls = _extract_jsonld_images(html)
+   435→        for u in jsonld_urls:
+   436→            _add_candidate(u)
+   437→
+   438→        # 4. <picture>/<source srcset>
+   439→        picture_blocks = re.findall(r'<picture[^>]*>(.*?)</picture>', html, re.IGNORECASE | re.DOTALL)
+   440→        for block in picture_blocks:
+   441→            srcsets = re.findall(r'srcset=["\x27]([^"\x27]+)["\x27]', block, re.IGNORECASE)
+   442→            for srcset in srcsets:
+   443→                for part in srcset.split(','):
+   444→                    u = part.strip().split()[0] if part.strip() else ''
+   445→                    _add_candidate(u)
+   446→
+   447→        # 5. <img> tags from article body
+   448→        article_html = ""
+   449→        for pattern in [
+   450→            r'<article[^>]*>(.*?)</article>',
+   451→            r'<main[^>]*>(.*?)</main>',
+   452→            r'<div[^>]+class=["\x27][^"\x27]*(?:content|article|post|entry)[^"\x27]*["\x27][^>]*>(.*?)</div>',
+   453→        ]:
+   454→            matches = re.findall(pattern, html, re.IGNORECASE | re.DOTALL)
+   455→            for match in matches:
+   456→                article_html += match + "\n"
+   457→
+   458→        search_html = article_html if article_html else html
+   459→
+   460→        # Lazy-loaded first (usually higher quality originals)
+   461→        for attr_pattern in [
+   462→            r'<img[^>]+data-src=["\x27]([^"\x27]+)["\x27]',
+   463→            r'<img[^>]+data-lazy-src=["\x27]([^"\x27]+)["\x27]',
+   464→            r'<img[^>]+src=["\x27]([^"\x27]+)["\x27]',
+   465→        ]:
+   466→            for m in re.finditer(attr_pattern, search_html, re.IGNORECASE):
+   467→                _add_candidate(m.group(1))
+   468→
+   469→        logger.info(f"Scraped {len(candidate_urls)} candidate image URLs from {url[:60]}")
+   470→
+   471→        # Download candidates
+   472→        for img_url in candidate_urls[:max_count * 3]:
+   473→            if len(results) >= max_count:
+   474→                break
+   475→            img_bytes = await _download_image(client, img_url)
+   476→            if img_bytes:
+   477→                results.append((img_bytes, img_url))
+   478→                logger.info(f"Downloaded article image: {img_url[:80]} ({len(img_bytes)} bytes)")
+   479→
+   480→    except Exception as e:
+   481→        logger.debug(f"Article image extraction failed for {url[:60]}: {e}")
+   482→
+   483→    return results
+   484→
+   485→
+   486→def _extract_jsonld_images(html: str) -> List[str]:
+   487→    """Extract image URLs from JSON-LD structured data."""
+   488→    images = []
+   489→    try:
+   490→        jsonld_blocks = re.findall(
+   491→            r'<script[^>]+type=["\x27]application/ld\+json["\x27][^>]*>(.*?)</script>',
+   492→            html, re.IGNORECASE | re.DOTALL,
+   493→        )
+   494→        for block in jsonld_blocks:
+   495→            try:
+   496→                data = json.loads(block)
+   497→                items = data if isinstance(data, list) else [data]
+   498→                for item in items:
+   499→                    if not isinstance(item, dict):
+   500→                        continue
+   501→                    img_field = item.get("image") or item.get("images")
+   502→                    if not img_field:
+   503→                        continue
+   504→                    if isinstance(img_field, str):
+   505→                        images.append(img_field)
+   506→                    elif isinstance(img_field, dict):
+   507→                        url = img_field.get("url") or img_field.get("contentUrl") or img_field.get("@id", "")
+   508→                        if url:
+   509→                            images.append(url)
+   510→                    elif isinstance(img_field, list):
+   511→                        for img_item in img_field:
+   512→                            if isinstance(img_item, str):
+   513→                                images.append(img_item)
+   514→                            elif isinstance(img_item, dict):
+   515→                                url = img_item.get("url") or img_item.get("contentUrl") or img_item.get("@id", "")
+   516→                                if url:
+   517→                                    images.append(url)
+   518→            except Exception:
+   519→                continue
+   520→    except Exception:
+   521→        pass
+   522→    return images
+   523→
+   524→
+   525→# ── Deduplication ─────────────────────────────────────────────────────────────
+   526→
+   527→def _image_hash(img_bytes: bytes) -> str:
+   528→    return hashlib.sha256(img_bytes).hexdigest()
+   529→
+   530→
+   531→def deduplicate_images(images: List[bytes]) -> List[bytes]:
+   532→    """Remove exact duplicates by SHA256 hash."""
+   533→    if not images:
+   534→        return images
+   535→    seen: set = set()
+   536→    unique: List[bytes] = []
+   537→    for img in images:
+   538→        h = _image_hash(img)
+   539→        if h not in seen:
+   540→            seen.add(h)
+   541→            unique.append(img)
+   542→    removed = len(images) - len(unique)
+   543→    if removed > 0:
+   544→        logger.info(f"Image dedup: {len(images)} -> {len(unique)} (removed {removed} duplicates)")
+   545→    return unique
+   546→
+   547→
+   548→# ── Main fetcher ──────────────────────────────────────────────────────────────
+   549→
+   550→class ImageFetcher:
+   551→    """Simple image fetcher — article photos only, no search, no AI.
+   552→
+   553→    Usage:
+   554→        fetcher = ImageFetcher()
+   555→        images, source = await fetcher.fetch(
+   556→            topic="BMW M5 G90 debut",
+   557→            article_url="https://bmwblog.com/...",
+   558→            image_urls=["https://..."],  # Pre-filtered by news._extract_entry_images()
+   559→        )
+   560→        # images = [bytes, bytes, ...] up to 10 photos
+   561→    """
+   562→
+   563→    def __init__(self) -> None:
+   564→        self.cache = ImageCache()
+   565→        self._client: Optional[httpx.AsyncClient] = None
+   566→        self._seen_hashes: set = set()
+   567→
+   568→    def _get_client(self) -> httpx.AsyncClient:
+   569→        if self._client is None or self._client.is_closed:
+   570→            self._client = httpx.AsyncClient(
+   571→                timeout=IMAGE_FETCH_TIMEOUT,
+   572→                follow_redirects=True,
+   573→                headers={
+   574→                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+   575→                                  "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+   576→                    "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+   577→                },
+   578→            )
+   579→        return self._client
+   580→
+   581→    async def fetch(
+   582→        self,
+   583→        topic: str,
+   584→        article_url: str = "",
+   585→        image_urls: List[str] = None,
+   586→        max_images: int = MAX_IMAGES_PER_POST,
+   587→    ) -> Tuple[List[bytes], str]:
+   588→        """Fetch images from the article. Simple 2-step pipeline.
+   589→
+   590→        Step 1: RSS images (from news._extract_entry_images() — already filtered)
+   591→        Step 2: Article page scraping (og:image, JSON-LD, <img> tags)
+   592→
+   593→        Returns (image_list, source_str).
+   594→        """
+   595→        self._seen_hashes = set()
+   596→        client = self._get_client()
+   597→        all_images: List[bytes] = []
+   598→        source = "none"
+   599→
+   600→        # ── Check cache first ──────────────────────────────────────────
+   601→        cached = self.cache.get(topic)
+   602→        if cached:
+   603→            cached = deduplicate_images(cached)[:max_images]
+   604→            if cached:
+   605→                logger.info(f"Image cache HIT for '{topic[:50]}' — {len(cached)} images")
+   606→                return cached, "cache"
+   607→
+   608→        # ── Step 1: RSS images ─────────────────────────────────────────
+   609→        # image_urls = already filtered by news._extract_entry_images()
+   610→        # (HTML entities decoded, junk removed, thumbnails upgraded, deduped)
+   611→        rss_urls = list(image_urls or [])
+   612→
+   613→        if rss_urls:
+   614→            for url in rss_urls[:max_images * 2]:
+   615→                if len(all_images) >= max_images:
+   616→                    break
+   617→                img_bytes = await _download_image(client, url)
+   618→                if img_bytes:
+   619→                    h = _image_hash(img_bytes)
+   620→                    if h not in self._seen_hashes:
+   621→                        self._seen_hashes.add(h)
+   622→                        all_images.append(img_bytes)
+   623→            if all_images:
+   624→                source = "rss"
+   625→                logger.info(f"Got {len(all_images)} images from RSS for '{topic[:50]}'")
+   626→
+   627→        # ── Step 2: Article page ──────────────────────────────────────
+   628→        if article_url and len(all_images) < max_images:
+   629→            article_results = await fetch_article_images(
+   630→                article_url, client,
+   631→                max_count=max_images - len(all_images) + 2,
+   632→            )
+   633→            for img_bytes, img_url in article_results:
+   634→                if len(all_images) >= max_images:
+   635→                    break
+   636→                h = _image_hash(img_bytes)
+   637→                if h not in self._seen_hashes:
+   638→                    self._seen_hashes.add(h)
+   639→                    all_images.append(img_bytes)
+   640→            if article_results and source == "none":
+   641→                source = "article"
+   642→            elif article_results:
+   643→                source += "+article"
+   644→
+   645→        # ── Dedup & cache ──────────────────────────────────────────────
+   646→        all_images = deduplicate_images(all_images)[:max_images]
+   647→
+   648→        if all_images:
+   649→            self.cache.put(topic, all_images, source=source)
+   650→            logger.info(f"ImageFetcher: {len(all_images)} images for '{topic[:50]}' (source={source})")
+   651→        else:
+   652→            logger.info(f"No images found for '{topic[:50]}' — post will be text-only")
+   653→
+   654→        return all_images, source
+   655→
+   656→    async def close(self) -> None:
+   657→        if self._client and not self._client.is_closed:
+   658→            await self._client.aclose()
+   659→            self._client = None
+   660→
+   661→
+   662→# ── Module-level convenience ─────────────────────────────────────────────────
+   663→
+   664→_fetcher: Optional[ImageFetcher] = None
+   665→
+   666→
+   667→async def fetch_images_for_post(
+   668→    topic: str,
+   669→    article_url: str = "",
+   670→    image_urls: List[str] = None,
+   671→    max_images: int = MAX_IMAGES_PER_POST,
+   672→) -> Tuple[List[bytes], str]:
+   673→    """Fetch images for a post. Up to 10 photos from article/RSS."""
+   674→    global _fetcher
+   675→    if _fetcher is None:
+   676→        _fetcher = ImageFetcher()
+   677→    return await _fetcher.fetch(
+   678→        topic=topic,
+   679→        article_url=article_url,
+   680→        image_urls=image_urls,
+   681→        max_images=max_images,
+   682→    )
+   683→
