@@ -403,16 +403,10 @@ def is_blocked_topic(item: Dict, lang: str = "ru") -> bool:
 
 # ── Additional global RSS sources ──────────────────────────────────────────────
 GLOBAL_RSS_SOURCES = [
-    # World auto news
-    {"name": "Reuters Auto", "url": "https://www.reuters.com/business/autos-transportation/rss", "lang": "en", "category": "auto"},
-    {"name": "Motor1", "url": "https://www.motor1.com/rss/", "lang": "en", "category": "auto"},
-    {"name": "CarNewsChina", "url": "https://carnewschina.com/feed/", "lang": "en", "category": "auto"},
-    {"name": "Electrek", "url": "https://electrek.co/feed/", "lang": "en", "category": "auto"},
-    {"name": "InsideEVs", "url": "https://insideevs.com/rss/", "lang": "en", "category": "auto"},
-    # Reddit (community stories, mechanic advice, funny car moments)
-    {"name": "Reddit r/cars", "url": "https://www.reddit.com/r/cars/.rss", "lang": "en", "category": "auto"},
-    {"name": "Reddit r/MechanicAdvice", "url": "https://www.reddit.com/r/MechanicAdvice/.rss", "lang": "en", "category": "auto"},
-    {"name": "Reddit r/Justrolledintotheshop", "url": "https://www.reddit.com/r/Justrolledintotheshop/.rss", "lang": "en", "category": "auto"},
+    # Sources NOT in NewsConfig — supplements the main source list
+    # Car & Driver additional feeds (news is in main config, these add reviews & features)
+    {"name": "Car & Driver Reviews", "url": "https://www.caranddriver.com/rss/reviews.xml", "lang": "en", "category": "auto"},
+    {"name": "Car & Driver Features", "url": "https://www.caranddriver.com/rss/features.xml", "lang": "en", "category": "auto"},
 ]
 
 
@@ -823,6 +817,7 @@ def _upgrade_thumbnail_url(url: str) -> str:
     - BBC: /240/ → /640/ in path
     - Autosport/Motorsport.com: /s6/ → /s12/ in path
     - Reddit: width=140 → width=640 in query
+    - Autocar: /car_review_image_190/ → /body-image/ (190×125 → 900×600)
     """
     # BBC: /240/cpsprodpb/ → /640/cpsprodpb/
     if "bbci.co.uk" in url or "bbc.co.uk" in url:
@@ -836,6 +831,10 @@ def _upgrade_thumbnail_url(url: str) -> str:
     if "preview.redd.it" in url or "external-preview.redd.it" in url:
         url = re.sub(r'width=140', 'width=640', url, count=1)
         url = re.sub(r'height=140', 'height=640', url, count=1)
+
+    # Autocar UK: /styles/car_review_image_190/ → /styles/body-image/
+    if "autocar.co.uk" in url:
+        url = url.replace('/styles/car_review_image_190/', '/styles/body-image/')
 
     return url
 

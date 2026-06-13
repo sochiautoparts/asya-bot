@@ -160,6 +160,7 @@ def _upgrade_thumbnail_url(url: str) -> str:
     - BBC: /240/ → /640/ in path
     - Autosport/Motorsport.com: /s6/ → /s12/ in path
     - Reddit: width=140 → width=640
+    - Autocar: /car_review_image_190/ → /body-image/ (190×125 → 900×600)
     """
     # BBC
     if "bbci.co.uk" in url or "bbc.co.uk" in url:
@@ -173,6 +174,10 @@ def _upgrade_thumbnail_url(url: str) -> str:
     if "preview.redd.it" in url or "external-preview.redd.it" in url:
         url = re.sub(r'width=140', 'width=640', url, count=1)
         url = re.sub(r'height=140', 'height=640', url, count=1)
+
+    # Autocar UK: /styles/car_review_image_190/ → /styles/body-image/
+    if "autocar.co.uk" in url:
+        url = url.replace('/styles/car_review_image_190/', '/styles/body-image/')
 
     return url
 

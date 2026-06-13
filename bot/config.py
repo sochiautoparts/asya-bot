@@ -725,12 +725,12 @@ class NewsConfig:
 
     sources: List[NewsSource] = field(default_factory=lambda: [
         # ── Russian-language RSS sources ──
-        # NOTE: "Китайские автомобили" removed — DNS failure ([Errno -2] Name or service not known)
+        # NOTE: "Китайские автомобили" removed — DNS failure
         NewsSource("Авто.Вести", "https://auto.vesti.ru/rss/", "ru", "auto"),
         # ── Working international RSS sources (verified June 2026) ──
-        # International auto industry
-        NewsSource("OICA", "https://oica.net/feed/", "en", "auto"),
-        NewsSource("Autocar UK", "https://www.autocar.co.uk/rss.xml", "en", "auto"),
+        # UK auto magazines
+        NewsSource("Autocar UK", "https://www.autocar.co.uk/rss/News", "en", "auto"),
+        NewsSource("CAR Magazine", "https://www.carmagazine.co.uk/api/rss", "en", "auto"),
         # EV & Chinese auto
         NewsSource("CnEVPost", "https://cnevpost.com/feed/", "en", "auto"),
         # Asian auto
@@ -738,23 +738,24 @@ class NewsConfig:
         NewsSource("Autosport", "https://www.autosport.com/rss/f1/news/", "en", "auto"),
         # Australian auto
         NewsSource("CarExpert", "https://carexpert.com.au/feed/", "en", "auto"),
-        # Automotive news & reviews (REMOVED: MotorAuthority/EVO/CarMagazine/TopGear/Autoblog/F1 — all 404/403)
+        # Automotive news & reviews
         NewsSource("TheDrive", "https://www.thedrive.com/feed", "en", "auto"),
         NewsSource("Jalopnik", "https://jalopnik.com/rss", "en", "auto"),
         NewsSource("AutoExpress", "https://www.autoexpress.co.uk/rss", "en", "auto"),
-        # Additional international sources for diversity
+        NewsSource("The Autopian", "https://theautopian.com/feed/", "en", "auto"),
+        # Additional international sources
         NewsSource("CarScoops", "https://www.carscoops.com/feed/", "en", "auto"),
-        # Motorsport (REMOVED: F1 Official — 404)
+        # Motorsport
         NewsSource("Motorsport.com", "https://www.motorsport.com/rss/all/news/", "en", "auto"),
         NewsSource("BBC Sport F1", "https://feeds.bbci.co.uk/sport/formula1/rss.xml", "en", "auto"),
         # ── New international RSS sources ──
         NewsSource("CarNewsChina", "https://carnewschina.com/feed/", "en", "auto"),
-        NewsSource("Reuters Auto", "https://www.reuters.com/business/autos-transportation/rss", "en", "auto"),
-        NewsSource("Motor1", "https://www.motor1.com/rss/", "en", "auto"),
-        NewsSource("Car & Driver", "https://www.caranddriver.com/rss/", "en", "auto"),
         NewsSource("Electrek", "https://electrek.co/feed/", "en", "auto"),
-        NewsSource("InsideEVs", "https://insideevs.com/rss/", "en", "auto"),
-        # Reddit communities — rich user-generated automotive content
+        # Hearst automotive — clean media_content images
+        NewsSource("Car & Driver", "https://www.caranddriver.com/rss/news.xml", "en", "auto"),
+        # Industry analysis (no RSS images — relies on article page scraping)
+        NewsSource("Automotive World", "https://www.automotiveworld.com/feed/", "en", "auto"),
+        # Reddit communities — user-generated automotive content
         NewsSource("Reddit r/cars", "https://www.reddit.com/r/cars/.rss", "en", "auto"),
         NewsSource("Reddit r/MechanicAdvice", "https://www.reddit.com/r/MechanicAdvice/.rss", "en", "auto"),
         NewsSource("Reddit r/Justrolledintotheshop", "https://www.reddit.com/r/Justrolledintotheshop/.rss", "en", "auto"),
