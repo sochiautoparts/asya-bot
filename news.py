@@ -342,7 +342,6 @@ async def fetch_rss(source: NewsSource) -> List[Dict]:
                     "category": source.category,
                     "lang": source.lang,
                     "image_urls": image_urls,
-                    "rss_entry": entry,  # Raw feedparser entry for content:encoded image extraction
                 })
 
             logger.info(f"Fetched {len(items)} items from {source.name}")
@@ -727,121 +726,220 @@ async def run_news_cycle() -> int:
 
 # ── Image extraction from RSS entries ──────────────────────────────────────────
 
-# Image extensions that are valid for Telegram posts
-_VALID_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
-# Domains to skip (icons, trackers, tiny thumbnails)
+from html import unescape as _html_unescape
+
+# Image extensions that are valid for Telegram posts (no GIF — animations are junk)
+_VALID_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+# Domains to skip (trackers, analytics, CDN icons)
 _SKIP_IMAGE_DOMAINS = {
     "feeds.feedburner.com", "feedburner.google.com",
     "pixel.wp.com", "stats.wordpress.com",
     "i0.wp.com", "i1.wp.com", "i2.wp.com",
+    "mc.yandex.ru", "mc.yandex.com", "google-analytics.com",
+    "doubleclick.net", "adservice.google.com",
 }
 # Minimum image URL length (filter out tiny 1x1 tracking pixels etc.)
 _MIN_IMAGE_URL_LEN = 30
 
+# Junk filename stems — generic/default/non-content images
+_JUNK_IMAGE_STEMS = {
+    "business_card", "placeholder", "default-image", "default_image",
+    "no-image", "no_image", "coming-soon", "coming_soon",
+    "spacer", "blank", "transparent", "pixel", "tracker",
+    "1x1", "beacon", "spinner", "loading",
+}
+
+# Tiny thumbnail size patterns in URL query params — skip these
+_TINY_SIZE_PATTERNS = [
+    r'[?&]width=(?:1\d\d|80|100|120)(?:&|$)',   # width=80..199
+    r'[?&]height=(?:1\d\d|80|100|120)(?:&|$)',   # height=80..199
+    r'[?&]crop=1:1[,&]',                         # square crop = icon/thumb
+    r'/\d+x\d+/',                                 # /108x108/ in path
+    r'[-_]\d{2,3}x\d{2,3}[-_.]',                 # -108x108. or _108x108- in filename
+]
+
+# Regex to detect /feed/ as image URL (CarScoops bug — <img src="/feed/">)
+_FEED_URL_PATTERN = re.compile(r'/feed/?$')
+
+
+def _normalize_image_url(url: str) -> str:
+    """Normalize an image URL: decode HTML entities, fix scheme, clean up."""
+    if not url:
+        return ""
+    url = url.strip()
+    # Decode HTML entities: &amp; → &, &#038; → &, &lt; → <, etc.
+    url = _html_unescape(url)
+    # Fix scheme-relative URLs
+    if url.startswith("//"):
+        url = "https:" + url
+    return url
+
+
+def _is_junk_image_url(url: str) -> bool:
+    """Check if an image URL is junk: tracker, icon, tiny thumbnail, default image."""
+    from urllib.parse import urlparse, parse_qs
+    try:
+        url_lower = url.lower()
+        parsed = urlparse(url)
+        domain = parsed.netloc.lower()
+        path_lower = parsed.path.lower()
+
+        # Skip tracker/analytics domains
+        if any(skip in domain for skip in _SKIP_IMAGE_DOMAINS):
+            return True
+
+        # Skip icon/logo/badge/button filenames in path
+        if any(kw in path_lower for kw in [
+            "icon", "avatar", "logo", "favicon", "badge", "button", "banner",
+        ]):
+            return True
+
+        # Skip /feed/ URLs (CarScoops bug)
+        if _FEED_URL_PATTERN.search(url_lower):
+            return True
+
+        # Skip generic/default image filenames (also prefix-match: business_card-1)
+        stem = path_lower.rsplit("/", 1)[-1].split(".")[0].replace("-", "_")
+        if stem in _JUNK_IMAGE_STEMS:
+            return True
+        for junk_stem in _JUNK_IMAGE_STEMS:
+            if stem.startswith(junk_stem):
+                return True
+
+        # Skip tiny thumbnail dimensions in URL
+        for pattern in _TINY_SIZE_PATTERNS:
+            if re.search(pattern, url_lower):
+                return True
+
+    except Exception:
+        return True  # If we can't parse it, skip it
+    return False
+
+
+def _upgrade_thumbnail_url(url: str) -> str:
+    """Upgrade low-quality thumbnail URLs to higher resolution versions.
+
+    Known CDN patterns:
+    - BBC: /240/ → /640/ in path
+    - Autosport/Motorsport.com: /s6/ → /s12/ in path
+    - Reddit: width=140 → width=640 in query
+    """
+    # BBC: /240/cpsprodpb/ → /640/cpsprodpb/
+    if "bbci.co.uk" in url or "bbc.co.uk" in url:
+        url = re.sub(r'/240/', '/640/', url, count=1)
+
+    # Autosport / Motorsport.com: /s6/ → /s12/
+    if "motorsport.com" in url or "autosport.com" in url:
+        url = re.sub(r'/s6/', '/s12/', url, count=1)
+
+    # Reddit preview: width=140 → width=640
+    if "preview.redd.it" in url or "external-preview.redd.it" in url:
+        url = re.sub(r'width=140', 'width=640', url, count=1)
+        url = re.sub(r'height=140', 'height=640', url, count=1)
+
+    return url
+
 
 def _extract_entry_images(entry) -> List[str]:
     """Extract image URLs from a feedparser entry.
-    
-    Checks multiple locations where RSS/Atom feeds store images:
-    - media_content (Media RSS)
-    - enclosures
-    - media_thumbnail
-    - links with image type
-    - content/summary HTML <img> tags
-    
-    Returns list of image URLs (up to 10).
+
+    Priority order (highest quality first):
+    1. media_content (Media RSS — editors pick these, usually hero images)
+    2. enclosures (often full-size article images)
+    3. media_thumbnail (small but from structured metadata)
+    4. links with image type
+    5. <img> tags in content/summary HTML (last — often thumbnails + junk)
+
+    All URLs are HTML-entity-decoded, deduplicated (normalized),
+    junk-filtered, and thumbnail-upgraded before returning.
+    Returns list of clean image URLs (up to 10).
     """
     images = []
-    seen = set()
+    seen_normalized = set()  # Dedup by normalized URL (after unescape)
 
-    def _add_image(url: str):
-        """Add image URL if valid and not already seen."""
+    def _add_image(raw_url: str):
+        """Add image URL if valid and not already seen (after normalization)."""
+        url = _normalize_image_url(raw_url)
         if not url or len(url) < _MIN_IMAGE_URL_LEN:
             return
-        # Normalize URL
-        url = url.strip()
-        if url.startswith("//"):
-            url = "https:" + url
-        # Skip tracking pixels and tiny icons
-        from urllib.parse import urlparse
-        try:
-            parsed = urlparse(url)
-            domain = parsed.netloc.lower()
-            if any(skip in domain for skip in _SKIP_IMAGE_DOMAINS):
-                return
-            # Skip very small-looking URLs (often icons/pixels)
-            path_lower = parsed.path.lower()
-            if any(kw in path_lower for kw in ["icon", "avatar", "logo", "favicon", "pixel", "badge", "button", "banner"]):
-                return
-        except Exception:
+        if _is_junk_image_url(url):
             return
-        if url not in seen:
-            seen.add(url)
-            images.append(url)
+        # Upgrade low-quality thumbnails to bigger versions
+        url = _upgrade_thumbnail_url(url)
+        # Dedup by normalized form (lowercase for comparison)
+        norm_key = url.lower().rstrip("/")
+        if norm_key in seen_normalized:
+            return
+        seen_normalized.add(norm_key)
+        images.append(url)
 
-    # 1. media_content (Media RSS extension — most reliable)
-    media_content = entry.get("media_content", [])
-    for media in media_content:
+    # 1. media_content (Media RSS extension — most reliable, editor-chosen)
+    for media in entry.get("media_content", []) or []:
         url = media.get("url", "")
-        media_type = media.get("type", "")
-        if url and ("image" in media_type or _has_image_ext(url)):
+        media_type = media.get("type", "").lower()
+        medium = media.get("medium", "").lower()
+        if url and (medium == "image" or "image" in media_type or _has_image_ext(url)):
             _add_image(url)
 
-    # 2. enclosures
-    for enclosure in entry.get("enclosures", []):
+    # 2. enclosures (often full-size article images)
+    for enclosure in entry.get("enclosures", []) or []:
         url = enclosure.get("href", "") or enclosure.get("url", "")
-        enc_type = enclosure.get("type", "")
+        enc_type = enclosure.get("type", "").lower()
         if url and ("image" in enc_type or _has_image_ext(url)):
             _add_image(url)
 
-    # 3. media_thumbnail
-    for thumb in entry.get("media_thumbnail", []):
+    # 3. media_thumbnail (small but structured metadata)
+    for thumb in entry.get("media_thumbnail", []) or []:
         url = thumb.get("url", "")
         if url:
             _add_image(url)
 
     # 4. links with image rel or type
-    for link in entry.get("links", []):
-        link_type = link.get("type", "")
-        link_rel = link.get("rel", "")
+    for link in entry.get("links", []) or []:
+        link_type = link.get("type", "").lower()
+        link_rel = link.get("rel", "").lower()
         url = link.get("href", "")
         if url and ("image" in link_type or link_rel == "enclosure"):
             _add_image(url)
 
-    # 5. Extract <img> tags from content/summary HTML
+    # 5. Extract <img> tags from content/summary HTML (last resort — noisy)
     for field_name in ["content", "summary", "description"]:
-        content_value = entry.get(field_name, [])
+        content_value = entry.get(field_name)
         if isinstance(content_value, list):
-            # feedparser sometimes returns list of dicts
             for item in content_value:
                 html = item.get("value", "") if isinstance(item, dict) else str(item)
                 _extract_img_urls(html, _add_image)
         elif isinstance(content_value, str):
             _extract_img_urls(content_value, _add_image)
 
-    return images[:10]  # Up to 10 candidate images per news item (Telegram mediagroup limit)
+    return images[:10]
 
 
 def _has_image_ext(url: str) -> bool:
     """Check if URL ends with an image extension."""
     from urllib.parse import urlparse
     try:
-        path = urlparse(url).path.lower()
-        # Remove query-like suffixes
-        path = path.split("?")[0].split("#")[0]
+        path = urlparse(url).path.lower().split("?")[0].split("#")[0]
         return any(path.endswith(ext) for ext in _VALID_IMAGE_EXTENSIONS)
     except Exception:
         return False
 
 
 def _extract_img_urls(html: str, callback):
-    """Extract src attributes from <img> tags in HTML."""
+    """Extract src attributes from <img> tags in HTML.
+
+    Also checks data-src and data-lazy-src for lazy-loaded images.
+    Decodes HTML entities before passing to callback.
+    """
     if not html:
         return
-    for match in re.finditer(r'<img[^>]+src=["\']([^"\']+)["\']', html, re.IGNORECASE):
-        url = match.group(1)
-        if url and len(url) >= _MIN_IMAGE_URL_LEN:
-            callback(url)
+    for attr in ["src", "data-src", "data-lazy-src"]:
+        for match in re.finditer(
+            rf'<img[^>]+{attr}=["\']([^"\']+)["\']', html, re.IGNORECASE
+        ):
+            url = match.group(1)
+            if url and len(url) >= _MIN_IMAGE_URL_LEN:
+                callback(url)
 
 
 # ── Utility ────────────────────────────────────────────────────────────────────

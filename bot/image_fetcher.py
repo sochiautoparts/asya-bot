@@ -1,33 +1,33 @@
-"""Smart Image Fetcher v5.0 — Simple article-first image sourcing for asya-bot.
+"""Smart Image Fetcher v6.0 — Clean article-first image sourcing for asya-bot.
 
 PHILOSOPHY: Automotive news articles ALREADY have photos attached.
 No need for image search engines, stock photos, or AI generation.
 Just take the photos from the article and attach them to the post.
 
 PRIORITY PIPELINE:
-  1. RSS images — media:content, enclosures, media:thumbnail, <img> in content
+  1. RSS images — from news._extract_entry_images() (pre-filtered, deduped, upgraded)
   2. Article page images — og:image, twitter:image, JSON-LD, <img> tags
   3. DONE — that's it. No search, no AI, no bullshit.
 
-CHANGES FROM v4.0:
-  - REMOVED: All image search providers (Unsplash, Pexels, Bing, Google, SearXNG)
-  - REMOVED: NSFW keyword/domain filtering (unnecessary for automotive news)
-  - REMOVED: AI Vision content moderation (unnecessary overhead)
-  - REMOVED: AI image generation fallback (fake images worse than no image)
-  - ADDED: Up to 10 images per post (Telegram mediagroup limit)
-  - SIMPLIFIED: Minimal validation — just check it's a real image file
-  - KEPT: SHA256 deduplication (still useful to avoid duplicate photos)
-  - KEPT: Basic junk URL filtering (trackers, pixels, icons)
+v6.0 CHANGES:
+  - FIXED: HTML entity decoding (&amp; &#038; etc.) — was causing broken URLs
+  - FIXED: Tiny thumbnail filtering (width<200, /feed/ URLs, 108x108 patterns)
+  - FIXED: Default/generic image filtering (business_card, placeholder, etc.)
+  - FIXED: Normalized URL dedup (after unescape, same image no longer counted twice)
+  - ADDED: Thumbnail URL upgrade (BBC /240/→/640/, Autosport /s6/→/s12/, Reddit width=140→640)
+  - IMPROVED: Dimension check raised to 300x200 (real photos, not thumbnails)
+  - REMOVED: Duplicate extract_rss_images() — news.py handles this now with better filtering
+  - KEPT: SHA256 content deduplication, ImageCache, basic junk filtering
 """
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import logging
 import re
 import time
+from html import unescape as html_unescape
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
@@ -42,11 +42,11 @@ IMAGE_CACHE_DIR = Path("data/image_cache")
 IMAGE_CACHE_TTL_DAYS = 7
 IMAGE_MIN_SIZE_BYTES = 2_000          # 2 KB — very low, news photos are usually 50KB+
 IMAGE_MAX_SIZE_BYTES = 5_242_880      # 5 MB — Telegram limit
-MAX_IMAGES_PER_POST = 10              # Telegram mediagroup limit — use it!
+MAX_IMAGES_PER_POST = 10              # Telegram mediagroup limit
 IMAGE_FETCH_TIMEOUT = 15.0
 ARTICLE_FETCH_TIMEOUT = 20.0
 
-# ── Basic junk filter — only obvious non-content stuff ────────────────────────
+# ── Junk URL filter — comprehensive ───────────────────────────────────────────
 
 JUNK_DOMAINS = {
     "mc.yandex.ru", "mc.yandex.com", "google-analytics.com",
@@ -55,42 +55,126 @@ JUNK_DOMAINS = {
     "doubleclick.net", "adservice.google.com",
     "pagead2.googlesyndication.com", "ad.doubleclick.net",
     "platform.twitter.com", "apis.google.com",
+    "feeds.feedburner.com", "feedburner.google.com",
 }
 
-JUNK_KEYWORDS = [
+JUNK_PATH_KEYWORDS = [
     "favicon", "avatar", "spinner", "loading", "placeholder",
     "pixel", "tracker", "beacon", "counter", "analytics",
     "1x1", "spacer", "blank", "transparent",
     "recaptcha", "captcha",
-    # Common non-content images from RSS (icons, logos, social buttons)
     "icon", "logo", "badge", "button", "btn",
     "share", "facebook", "twitter", "vk.",
     "telegram", "whatsapp", "instagram", "youtube", "tiktok",
+    "banner", "ad-", "_ad_", "advert",
 ]
+
+# Generic/default image filenames — not real content
+JUNK_STEMS = {
+    "business_card", "placeholder", "default_image", "default-image",
+    "no_image", "no-image", "coming_soon", "coming-soon",
+    "spacer", "blank", "transparent", "pixel", "tracker",
+    "1x1", "beacon", "spinner", "loading",
+}
 
 JUNK_EXTENSIONS = {".gif", ".svg"}
 
+# Tiny thumbnail size patterns in URL — skip these
+TINY_SIZE_PATTERNS = [
+    re.compile(r'[?&]width=(?:1\d\d|80|100|120)(?:&|$)', re.IGNORECASE),
+    re.compile(r'[?&]height=(?:1\d\d|80|100|120)(?:&|$)', re.IGNORECASE),
+    re.compile(r'[?&]crop=1:1[,&]', re.IGNORECASE),
+    re.compile(r'/\d{2,3}x\d{2,3}/', re.IGNORECASE),  # /108x108/ in path
+    re.compile(r'[-_]\d{2,3}x\d{2,3}[-_.]', re.IGNORECASE),  # -108x108. or _108x108- in filename
+]
+
+# /feed/ as image URL (CarScoops bug)
+_FEED_URL_RE = re.compile(r'/feed/?$', re.IGNORECASE)
+
+
+def _normalize_url(url: str) -> str:
+    """Normalize image URL: decode HTML entities, fix scheme."""
+    if not url:
+        return ""
+    url = url.strip()
+    # Decode HTML entities: &amp; → &, &#038; → &, etc.
+    url = html_unescape(url)
+    if url.startswith("//"):
+        url = "https:" + url
+    return url
+
 
 def _is_junk_url(url: str) -> bool:
-    """Minimal junk filter — only block obvious tracking pixels and icons."""
-    url_lower = url.lower()
-    parsed = urlparse(url_lower)
-    hostname = parsed.hostname or ""
+    """Comprehensive junk filter for image URLs.
 
-    for junk in JUNK_DOMAINS:
-        if junk in hostname:
+    Blocks: trackers, icons, tiny thumbnails, default images, /feed/ URLs.
+    """
+    try:
+        url_lower = url.lower()
+        parsed = urlparse(url_lower)
+        hostname = parsed.hostname or ""
+        path_lower = parsed.path.lower()
+
+        # Tracker/analytics domains
+        for junk in JUNK_DOMAINS:
+            if junk in hostname:
+                return True
+
+        # Path keywords (icon, logo, badge, etc.)
+        for kw in JUNK_PATH_KEYWORDS:
+            if kw in url_lower:
+                return True
+
+        # Bad extensions
+        for ext in JUNK_EXTENSIONS:
+            if path_lower.endswith(ext):
+                return True
+
+        # /feed/ URL (CarScoops bug — <img src="/feed/">)
+        if _FEED_URL_RE.search(url_lower):
             return True
 
-    for kw in JUNK_KEYWORDS:
-        if kw in url_lower:
+        # Generic/default image filenames
+        # Check exact match and prefix match (e.g. business_card-1 → business_card_1)
+        stem = path_lower.rsplit("/", 1)[-1].split(".")[0].replace("-", "_")
+        if stem in JUNK_STEMS:
             return True
+        for junk_stem in JUNK_STEMS:
+            if stem.startswith(junk_stem):
+                return True
 
-    path = parsed.path.lower()
-    for ext in JUNK_EXTENSIONS:
-        if path.endswith(ext):
-            return True
+        # Tiny thumbnail dimensions in URL params
+        for pattern in TINY_SIZE_PATTERNS:
+            if pattern.search(url_lower):
+                return True
 
+    except Exception:
+        return True  # Can't parse = skip
     return False
+
+
+def _upgrade_thumbnail_url(url: str) -> str:
+    """Upgrade low-quality thumbnail URLs to higher resolution.
+
+    Known CDN patterns:
+    - BBC: /240/ → /640/ in path
+    - Autosport/Motorsport.com: /s6/ → /s12/ in path
+    - Reddit: width=140 → width=640
+    """
+    # BBC
+    if "bbci.co.uk" in url or "bbc.co.uk" in url:
+        url = re.sub(r'/240/', '/640/', url, count=1)
+
+    # Autosport / Motorsport.com
+    if "motorsport.com" in url or "autosport.com" in url:
+        url = re.sub(r'/s6/', '/s12/', url, count=1)
+
+    # Reddit
+    if "preview.redd.it" in url or "external-preview.redd.it" in url:
+        url = re.sub(r'width=140', 'width=640', url, count=1)
+        url = re.sub(r'height=140', 'height=640', url, count=1)
+
+    return url
 
 
 # ── Image Cache ───────────────────────────────────────────────────────────────
@@ -179,12 +263,25 @@ class ImageCache:
             self._save_index()
 
 
-# ── Download & basic validation ───────────────────────────────────────────────
+# ── Download & validation ────────────────────────────────────────────────────
 
 async def _download_image(client: httpx.AsyncClient, url: str) -> Optional[bytes]:
-    """Download an image URL with minimal validation. Returns bytes or None."""
+    """Download an image URL with validation. Returns bytes or None.
+
+    Normalizes URL (decode entities, upgrade thumbnails), validates
+    content type, size, magic bytes, and pixel dimensions.
+    """
+    # Normalize: decode HTML entities, upgrade thumbnails
+    url = _normalize_url(url)
+    if not url:
+        return None
+
+    # Junk filter
     if _is_junk_url(url):
         return None
+
+    # Upgrade low-quality thumbnails
+    url = _upgrade_thumbnail_url(url)
 
     try:
         # Quick HEAD to check content-type and size
@@ -202,7 +299,7 @@ async def _download_image(client: httpx.AsyncClient, url: str) -> Optional[bytes
             if content_length > IMAGE_MAX_SIZE_BYTES:
                 return None
         except Exception:
-            pass  # Some servers don't support HEAD, try GET anyway
+            pass  # Some servers don't support HEAD
 
         # Full GET
         resp = await client.get(url, timeout=IMAGE_FETCH_TIMEOUT, follow_redirects=True)
@@ -215,36 +312,36 @@ async def _download_image(client: httpx.AsyncClient, url: str) -> Optional[bytes
         if len(img_bytes) < IMAGE_MIN_SIZE_BYTES or len(img_bytes) > IMAGE_MAX_SIZE_BYTES:
             return None
 
-        # Magic bytes check — is it a real image?
+        # Magic bytes check
         is_valid = (
             img_bytes[:3] == b'\xff\xd8\xff'       # JPEG
             or img_bytes[:4] == b'\x89PNG'           # PNG
             or img_bytes[:4] == b'RIFF'              # WebP (RIFF container)
-            or img_bytes[:6] in (b'GIF87a', b'GIF89a')  # GIF
         )
         if not is_valid:
             return None
 
-        # Skip SVG
+        # Skip SVG content
         if b'<svg' in img_bytes[:500]:
             return None
 
-        # Dimension check — skip tiny icons/buttons (when PIL available)
+        # Dimension check — skip tiny icons/buttons/thumbnails
         try:
             from PIL import Image
             import io
             img = Image.open(io.BytesIO(img_bytes))
             w, h = img.size
-            # Skip icons, thumbnails, buttons — real article photos are at least 200x150
-            if w < 200 or h < 150:
+            # Real article photos are at least 300x200
+            # (was 200x150 but that let 140x140 thumbnails through)
+            if w < 300 or h < 200:
                 return None
             # Skip banners (extreme aspect ratios)
             if w / max(h, 1) > 4.0 or h / max(w, 1) > 4.0:
                 return None
         except ImportError:
-            pass  # PIL not available — accept without dimension check
+            pass  # PIL not available
         except Exception:
-            pass  # Can't read dimensions — accept anyway
+            pass  # Can't read dimensions
 
         return img_bytes
 
@@ -252,81 +349,17 @@ async def _download_image(client: httpx.AsyncClient, url: str) -> Optional[bytes
         return None
 
 
-# ── Strategy 1: RSS image extraction ─────────────────────────────────────────
-
-def extract_rss_images(entry: Any) -> List[str]:
-    """Extract image URLs from a feedparser entry.
-
-    Checks: media_content, enclosures, media_thumbnail, links, <img> in content.
-    Returns up to 10 image URLs.
-    """
-    images = []
-    seen = set()
-
-    def _add(url: str):
-        if not url or len(url) < 15:
-            return
-        url = url.strip()
-        if url.startswith("//"):
-            url = "https:" + url
-        if url not in seen and not _is_junk_url(url):
-            seen.add(url)
-            images.append(url)
-
-    # media:content (Media RSS — most reliable for article photos)
-    for mc in getattr(entry, "media_content", []) or []:
-        url = mc.get("url", "")
-        mc_type = mc.get("type", "").lower()
-        medium = mc.get("medium", "").lower()
-        if url and (medium == "image" or "image" in mc_type or _has_image_ext(url)):
-            _add(url)
-
-    # enclosures
-    for enc in getattr(entry, "enclosures", []) or []:
-        url = enc.get("href", "") or enc.get("url", "")
-        enc_type = enc.get("type", "").lower()
-        if url and ("image" in enc_type or _has_image_ext(url)):
-            _add(url)
-
-    # media:thumbnail
-    for mt in getattr(entry, "media_thumbnail", []) or []:
-        url = mt.get("url", "")
-        if url:
-            _add(url)
-
-    # links with image type
-    for link in getattr(entry, "links", []) or []:
-        link_type = link.get("type", "").lower()
-        link_rel = link.get("rel", "").lower()
-        url = link.get("href", "")
-        if url and ("image" in link_type or link_rel == "enclosure"):
-            _add(url)
-
-    # <img> tags in content/summary/description
-    for field_name in ("content", "summary", "description"):
-        content_value = getattr(entry, field_name, None)
-        if isinstance(content_value, list):
-            content_value = content_value[0].get("value", "") if content_value else ""
-        elif content_value is None:
-            continue
-        for m in re.finditer(r'<img[^>]+src=["\']([^"\']+)["\']', str(content_value), re.IGNORECASE):
-            url = m.group(1).replace("&amp;", "&")
-            _add(url)
-
-    return images[:10]
-
-
-def _has_image_ext(url: str) -> bool:
-    try:
-        path = urlparse(url).path.lower().split("?")[0].split("#")[0]
-        return any(path.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp"])
-    except Exception:
-        return False
+# ── Strategy 1: RSS image URLs (pre-filtered by news.py) ─────────────────────
+# Note: The actual RSS image extraction is done in news._extract_entry_images()
+# which now handles HTML entity decoding, junk filtering, thumbnail upgrades,
+# and normalized dedup. The image_urls list passed here is already clean.
 
 
 # ── Strategy 2: Article page image extraction ────────────────────────────────
 
-async def fetch_article_images(url: str, client: httpx.AsyncClient, max_count: int = 10) -> List[Tuple[bytes, str]]:
+async def fetch_article_images(
+    url: str, client: httpx.AsyncClient, max_count: int = 10
+) -> List[Tuple[bytes, str]]:
     """Fetch images from an article page. Returns list of (image_bytes, url).
 
     Extracts in priority order:
@@ -359,6 +392,20 @@ async def fetch_article_images(url: str, client: httpx.AsyncClient, max_count: i
         candidate_urls: List[str] = []
         seen: set = set()
 
+        def _add_candidate(raw_url: str):
+            """Normalize, junk-filter, and dedup a candidate URL."""
+            u = _normalize_url(raw_url)
+            if not u or len(u) < 20:
+                return
+            if _is_junk_url(u):
+                return
+            u = _upgrade_thumbnail_url(u)
+            # Dedup by normalized (lowercase) form
+            norm_key = u.lower().rstrip("/")
+            if norm_key not in seen:
+                seen.add(norm_key)
+                candidate_urls.append(u)
+
         # 1. og:image
         for pattern in [
             r'<meta[^>]+property=["\x27]og:image["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]',
@@ -367,10 +414,7 @@ async def fetch_article_images(url: str, client: httpx.AsyncClient, max_count: i
             r'<meta[^>]+property=["\x27]og:image:secure_url["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]',
         ]:
             for m in re.finditer(pattern, html, re.IGNORECASE):
-                u = m.group(1).replace("&amp;", "&")
-                if u and u not in seen and not _is_junk_url(u):
-                    seen.add(u)
-                    candidate_urls.append(u)
+                _add_candidate(m.group(1))
 
         # 2. twitter:image
         for pattern in [
@@ -378,17 +422,12 @@ async def fetch_article_images(url: str, client: httpx.AsyncClient, max_count: i
             r'<meta[^>]+content=["\x27]([^"\x27]+)["\x27][^>]+name=["\x27]twitter:image["\x27]',
         ]:
             for m in re.finditer(pattern, html, re.IGNORECASE):
-                u = m.group(1).replace("&amp;", "&")
-                if u and u not in seen and not _is_junk_url(u):
-                    seen.add(u)
-                    candidate_urls.append(u)
+                _add_candidate(m.group(1))
 
         # 3. JSON-LD
         jsonld_urls = _extract_jsonld_images(html)
         for u in jsonld_urls:
-            if u not in seen and not _is_junk_url(u):
-                seen.add(u)
-                candidate_urls.append(u)
+            _add_candidate(u)
 
         # 4. <picture>/<source srcset>
         picture_blocks = re.findall(r'<picture[^>]*>(.*?)</picture>', html, re.IGNORECASE | re.DOTALL)
@@ -397,9 +436,7 @@ async def fetch_article_images(url: str, client: httpx.AsyncClient, max_count: i
             for srcset in srcsets:
                 for part in srcset.split(','):
                     u = part.strip().split()[0] if part.strip() else ''
-                    if u and u not in seen and not _is_junk_url(u):
-                        seen.add(u)
-                        candidate_urls.append(u)
+                    _add_candidate(u)
 
         # 5. <img> tags from article body
         article_html = ""
@@ -421,12 +458,7 @@ async def fetch_article_images(url: str, client: httpx.AsyncClient, max_count: i
             r'<img[^>]+src=["\x27]([^"\x27]+)["\x27]',
         ]:
             for m in re.finditer(attr_pattern, search_html, re.IGNORECASE):
-                u = m.group(1).replace("&amp;", "&")
-                if u.startswith("//"):
-                    u = "https:" + u
-                if u and len(u) > 10 and u not in seen and not _is_junk_url(u):
-                    seen.add(u)
-                    candidate_urls.append(u)
+                _add_candidate(m.group(1))
 
         logger.info(f"Scraped {len(candidate_urls)} candidate image URLs from {url[:60]}")
 
@@ -517,7 +549,7 @@ class ImageFetcher:
         images, source = await fetcher.fetch(
             topic="BMW M5 G90 debut",
             article_url="https://bmwblog.com/...",
-            rss_entry=feed_entry,
+            image_urls=["https://..."],  # Pre-filtered by news._extract_entry_images()
         )
         # images = [bytes, bytes, ...] up to 10 photos
     """
@@ -544,13 +576,12 @@ class ImageFetcher:
         self,
         topic: str,
         article_url: str = "",
-        rss_entry: Any = None,
         image_urls: List[str] = None,
         max_images: int = MAX_IMAGES_PER_POST,
     ) -> Tuple[List[bytes], str]:
         """Fetch images from the article. Simple 2-step pipeline.
 
-        Step 1: RSS images (media:content, enclosures, <img> in content)
+        Step 1: RSS images (from news._extract_entry_images() — already filtered)
         Step 2: Article page scraping (og:image, JSON-LD, <img> tags)
 
         Returns (image_list, source_str).
@@ -569,15 +600,9 @@ class ImageFetcher:
                 return cached, "cache"
 
         # ── Step 1: RSS images ─────────────────────────────────────────
-        # image_urls = already extracted by news._extract_entry_images()
+        # image_urls = already filtered by news._extract_entry_images()
+        # (HTML entities decoded, junk removed, thumbnails upgraded, deduped)
         rss_urls = list(image_urls or [])
-
-        # Also extract from raw RSS entry if provided
-        if rss_entry is not None:
-            entry_urls = extract_rss_images(rss_entry)
-            for u in entry_urls:
-                if u not in rss_urls:
-                    rss_urls.append(u)
 
         if rss_urls:
             for url in rss_urls[:max_images * 2]:
@@ -636,7 +661,6 @@ _fetcher: Optional[ImageFetcher] = None
 async def fetch_images_for_post(
     topic: str,
     article_url: str = "",
-    rss_entry: Any = None,
     image_urls: List[str] = None,
     max_images: int = MAX_IMAGES_PER_POST,
 ) -> Tuple[List[bytes], str]:
@@ -647,7 +671,6 @@ async def fetch_images_for_post(
     return await _fetcher.fetch(
         topic=topic,
         article_url=article_url,
-        rss_entry=rss_entry,
         image_urls=image_urls,
         max_images=max_images,
     )
