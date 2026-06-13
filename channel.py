@@ -1090,16 +1090,27 @@ class ChannelManager:
                 "Объясни непонятные термины, добавь сравнения с российским рынком. "
             )
 
-        # Get images: RSS images → article page images → done
+        # Get images: pre-fetched images → RSS images → article page images → done
         image_list: List[bytes] = []
         image_source = "none"
         has_media = False
-        try:
-            image_list, image_source = await self._get_post_images(news_item)
+
+        # Check if content_engine already fetched images (second-pass enrichment)
+        pre_fetched = news_item.get("_fetched_images", [])
+        if pre_fetched:
+            image_list = pre_fetched
+            image_source = news_item.get("_image_source", "pre-fetched")
+            logger.info(f"Using {len(image_list)} pre-fetched images (source={image_source})")
+        
+        if not image_list:
+            try:
+                image_list, image_source = await self._get_post_images(news_item)
+            except Exception as e:
+                logger.warning(f"Image retrieval skipped: {e}")
 
             has_media = len(image_list) > 0
-        except Exception as e:
-            logger.warning(f"Image retrieval skipped: {e}")
+        else:
+            has_media = True
 
         media_count = len(image_list) if has_media else 0
         

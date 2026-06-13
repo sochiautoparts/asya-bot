@@ -758,8 +758,6 @@ class NewsConfig:
         NewsSource("Electrek", "https://electrek.co/feed/", "en", "auto"),
         # Hearst automotive — clean media_content images
         NewsSource("Car & Driver", "https://www.caranddriver.com/rss/news.xml", "en", "auto"),
-        # Industry analysis (no RSS images — relies on article page scraping)
-        NewsSource("Automotive World", "https://www.automotiveworld.com/feed/", "en", "auto"),
         # Reddit communities — user-generated automotive content
         # NOTE: Reddit rate-limits RSS aggressively (429). Only r/MechanicAdvice works reliably.
         # r/Justrolledintotheshop: REMOVED — persistent 429 errors (June 2026)

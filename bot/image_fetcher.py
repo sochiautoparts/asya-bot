@@ -42,15 +42,19 @@ logger = logging.getLogger("asya.image_fetcher")
 
 IMAGE_CACHE_DIR = Path("data/image_cache")
 IMAGE_CACHE_TTL_DAYS = 7
-IMAGE_MIN_SIZE_BYTES = 8_000          # 8 KB — below this is definitely an icon/tracker/pixel
+IMAGE_MIN_SIZE_BYTES = 5_000          # 5 KB — below this is definitely an icon/tracker/pixel
 IMAGE_MAX_SIZE_BYTES = 5_242_880      # 5 MB — Telegram limit
 MAX_IMAGES_PER_POST = 10              # Telegram mediagroup limit
 IMAGE_FETCH_TIMEOUT = 15.0
 ARTICLE_FETCH_TIMEOUT = 20.0
 
-# Minimum pixel dimensions — real article photos are at least this size
-IMAGE_MIN_WIDTH = 400
-IMAGE_MIN_HEIGHT = 300
+# Minimum pixel dimensions — lowered to allow upgraded thumbnails
+# BBC thumbnails after /640/ upgrade are 640x360 which pass this filter
+IMAGE_MIN_WIDTH = 300
+IMAGE_MIN_HEIGHT = 200
+
+# Maximum dimensions — resize down if too large (CarExpert 7000x4600 etc)
+IMAGE_MAX_DIMENSION = 2560
 
 # ── Junk URL filter — comprehensive ───────────────────────────────────────────
 
@@ -122,8 +126,11 @@ JUNK_PATH_KEYWORDS = [
     "upvote", "downvote", "karma",
     # ── v8.0: Additional junk patterns ──
     "amp_", "amp-",  # AMP thumbnails
-    "thumb_", "thumb-",  # Thumbnail indicators in filenames
-    "preview_", "preview-",  # Preview-sized images
+    "thumbnail_", "thumbnail-",  # Thumbnail indicators in filenames
+    # NOTE: "thumb_" and "thumb-" REMOVED — they match real image URLs
+    # like 5koleso.ru/.../thumb/... and legit WordPress thumbnail URLs.
+    # The _upgrade_thumbnail_url() function upgrades these to full-size instead.
+    "mini-thumb", "minithumb",  # Miniature thumbnails
     "miniature", "miniatyr",  # Miniatures
     "watermark",  # Watermarked images are usually low quality
     "noise-texture", "background-", "bg_",  # Background textures
@@ -154,11 +161,10 @@ JUNK_EXTENSIONS = {".gif", ".svg"}
 # Tiny thumbnail size patterns in URL — skip these
 # NOTE: Must be specific — don't match real image sizes like 630x420!
 TINY_SIZE_PATTERNS = [
-    re.compile(r'[?&]width=(?:1\d\d|80|100|120)(?:&|$)', re.IGNORECASE),  # width=80..199 in query
-    re.compile(r'[?&]height=(?:1\d\d|80|100|120)(?:&|$)', re.IGNORECASE),  # height=80..199 in query
-    re.compile(r'[?&]crop=1:1[,&]', re.IGNORECASE),                        # square crop = icon
-    re.compile(r'/\d{2,3}x\d{2,3}/', re.IGNORECASE),                       # /108x108/ in path segments
-    re.compile(r'[-_](?:\d{2}|1\d{2}|200)x(?:\d{2}|1\d{2}|200)[-_.]', re.IGNORECASE),  # -108x108. (under 200px)
+    re.compile(r'[?&]width=(?:80|100|120|140)(?:&|$)', re.IGNORECASE),  # width=80..140 in query (icons)
+    re.compile(r'[?&]height=(?:80|100|120|140)(?:&|$)', re.IGNORECASE),  # height=80..140 in query (icons)
+    re.compile(r'/1\d{2}x1\d{2}/', re.IGNORECASE),                       # /108x108/ /150x150/ in path (icons only)
+    re.compile(r'[-_](?:80|100|120|140|150)x(?:80|100|120|140|150)[-_.]', re.IGNORECASE),  # -100x100. (small icons)
 ]
 
 # /feed/ as image URL (CarScoops bug)
@@ -273,6 +279,22 @@ def _upgrade_thumbnail_url(url: str) -> str:
     if "5koleso.ru" in url:
         url = url.replace('/thumb/', '/full/')
         url = url.replace('/preview/', '/full/')
+
+    # CarExpert AU: add size parameter for reasonable dimensions
+    if "carexpert.com.au" in url:
+        if '?' not in url:
+            url += '?width=1600'
+
+    # BBC: upgrade all size variants to 640
+    if "bbci.co.uk" in url or "bbc.co.uk" in url:
+        url = re.sub(r'/ace/standard/\d+/', '/ace/standard/640/', url, count=1)
+        url = re.sub(r'/images/ic/\d+x\d+/', '/images/ic/640x360/', url, count=1)
+        # Generic numeric size in path /240/ or /480/ → /640/
+        url = re.sub(r'/(\d{2,3})/', '/640/', url, count=1)
+
+    # Reddit: remove crop=1:1,smart parameter (gives square icons)
+    if "redd.it" in url:
+        url = re.sub(r'[&?]crop=[^&]+', '', url)
 
     return url
 
@@ -425,31 +447,43 @@ async def _download_image(client: httpx.AsyncClient, url: str) -> Optional[bytes
         if b'<svg' in img_bytes[:500]:
             return None
 
-        # Dimension check — skip tiny icons/buttons/thumbnails
+        # Dimension check — skip tiny icons/buttons/thumbnails, resize oversized images
         try:
             from PIL import Image
             import io
             img = Image.open(io.BytesIO(img_bytes))
             w, h = img.size
-            # Minimum dimensions: 400x300 — real photos are at least this size
-            # Anything smaller is an icon, avatar, thumbnail, or tracking pixel
+
+            # Resize oversized images (CarExpert 7000x4600, etc.)
+            # Large images waste bandwidth and Telegram resizes anyway
+            if w > IMAGE_MAX_DIMENSION or h > IMAGE_MAX_DIMENSION:
+                img.thumbnail((IMAGE_MAX_DIMENSION, IMAGE_MAX_DIMENSION), Image.LANCZOS)
+                w, h = img.size
+                buf = io.BytesIO()
+                # Save as JPEG for consistency and size
+                if img.mode in ('RGBA', 'P', 'LA'):
+                    img = img.convert('RGB')
+                img.save(buf, format='JPEG', quality=85)
+                img_bytes = buf.getvalue()
+                logger.debug(f"Resized large image to {w}x{h} ({len(img_bytes)//1024}KB)")
+
+            # Minimum dimensions — real photos are at least this size
             if w < IMAGE_MIN_WIDTH or h < IMAGE_MIN_HEIGHT:
                 logger.debug(f"Image too small: {w}x{h} (min {IMAGE_MIN_WIDTH}x{IMAGE_MIN_HEIGHT}) — skipping")
                 return None
             # Skip banners (extreme aspect ratios like 728x90, 320x50, etc.)
-            # Normal photos are between 1:2.5 and 2.5:1
+            # Normal photos are between 1:3 and 3:1
             aspect = w / max(h, 1)
-            if aspect > 3.0 or aspect < 0.33:
+            if aspect > 3.5 or aspect < 0.28:
                 logger.debug(f"Image bad aspect ratio: {w}x{h} (ratio={aspect:.2f}) — skipping banner/button")
                 return None
-            # Skip square images between 300-500px — usually avatars or icons
-            # Real car photos are almost never perfectly square
-            if abs(w - h) < 20 and w < 600:
+            # Skip square images under 200px — usually avatars or icons
+            if abs(w - h) < 20 and w < 200:
                 logger.debug(f"Image too square (probably avatar/icon): {w}x{h} — skipping")
                 return None
-            # Skip very small images even if they pass 400x300 — small area = junk
+            # Skip very small images — small area = junk
             area = w * h
-            if area < 100000:  # 316x316 ≈ 100000 — below this is definitely not a real photo
+            if area < 50000:  # 224x224 ≈ 50000 — below this is definitely not a real photo
                 logger.debug(f"Image area too small: {area}px ({w}x{h}) — skipping")
                 return None
             # Skip images with excessive file size relative to dimensions (corrupt/bloated)

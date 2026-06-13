@@ -20,20 +20,26 @@ DB_PATH = config.DB_PATH
 
 from contextlib import asynccontextmanager
 
+# Database lock retry settings
+_DB_BUSY_TIMEOUT = 10000  # 10 seconds — wait longer for locks
+_DB_MAX_RETRIES = 3
+_DB_RETRY_DELAY = 0.5  # seconds between retries
+
 @asynccontextmanager
 async def _connect_db():
     """Open a DB connection with WAL mode and busy_timeout.
 
     WAL mode allows concurrent reads while a write is in progress.
-    busy_timeout=5000 makes SQLite wait up to 5 seconds for a lock
+    busy_timeout=10000 makes SQLite wait up to 10 seconds for a lock
     instead of raising OperationalError immediately.
 
     Usage:  async with _connect_db() as db:  ...
     """
     db = await aiosqlite.connect(DB_PATH)
     await db.execute("PRAGMA journal_mode=WAL")
-    await db.execute("PRAGMA busy_timeout=5000")
+    await db.execute(f"PRAGMA busy_timeout={_DB_BUSY_TIMEOUT}")
     await db.execute("PRAGMA synchronous=NORMAL")
+    await db.execute("PRAGMA cache_size=-64000")  # 64MB cache for better performance
     db.row_factory = aiosqlite.Row
     try:
         yield db

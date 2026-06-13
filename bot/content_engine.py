@@ -1414,8 +1414,9 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
     )
     
     # ── Enrich with full article content if needed ──
-    # If the best item has no images or only a short summary, fetch the full article
-    # to get: images + full text for AI fact-gathering
+    # CRITICAL: Always enrich when no images — most posts need photos!
+    # Articles from web_search/Google News come with image_urls=[]
+    # Even RSS items often have only 1-2 images — we want 3-10 for visual posts
     needs_enrichment = (
         len(best_item.get("image_urls", [])) < 3
         or len(best_item.get("summary", "")) < 200
@@ -1423,7 +1424,9 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
     if needs_enrichment and best_item.get("url", "").startswith("http"):
         try:
             from bot.article_fetcher import enrich_news_item
-            logger.info(f"Enriching selected item: '{best_item.get('title', '')[:50]}'")
+            logger.info(f"Enriching selected item: '{best_item.get('title', '')[:50]}' "
+                        f"(imgs={len(best_item.get('image_urls', []))}, "
+                        f"summary={len(best_item.get('summary', ''))} chars)")
             best_item = await enrich_news_item(best_item)
             logger.info(
                 f"Enriched: {len(best_item.get('image_urls', []))} images, "
@@ -1431,6 +1434,29 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
             )
         except Exception as e:
             logger.warning(f"Article enrichment failed: {e}")
+    
+    # ── SECOND enrichment attempt for items still without images ──
+    # If first enrichment gave 0 images, try Google News URL resolution
+    # and a different scraping approach
+    if len(best_item.get("image_urls", [])) == 0 and best_item.get("url", "").startswith("http"):
+        try:
+            from bot.image_fetcher import ImageFetcher
+            fetcher = ImageFetcher()
+            # Use the image fetcher pipeline: RSS urls → article scrape → web search
+            images, source = await fetcher.fetch(
+                topic=best_item.get("title", ""),
+                article_url=best_item.get("url", ""),
+                image_urls=best_item.get("image_urls", []),
+                max_images=5,
+            )
+            if images:
+                logger.info(f"Second-pass image fetch: got {len(images)} images (source={source})")
+                # Store image bytes as data URLs for channel.py to use
+                best_item["_fetched_images"] = images
+                best_item["_image_source"] = source
+            await fetcher.close()
+        except Exception as e:
+            logger.warning(f"Second-pass image fetch failed: {e}")
     
     # NOTE: Do NOT register topic here!
     # Topic registration happens in channel.py AFTER the post is actually published.

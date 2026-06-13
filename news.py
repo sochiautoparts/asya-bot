@@ -926,6 +926,31 @@ def _upgrade_thumbnail_url(url: str) -> str:
         url = url.replace('/thumb/', '/full/')
         url = url.replace('/preview/', '/full/')
 
+    # CarExpert AU: add size parameter for reasonable dimensions
+    if "carexpert.com.au" in url:
+        # Their images are huge (7000x4600) — add resize parameter
+        if '?' not in url:
+            url += '?width=1600'
+
+    # BBC: also upgrade /ace/standard/240/ → /ace/standard/640/
+    if "bbci.co.uk" in url or "bbc.co.uk" in url:
+        url = re.sub(r'/ace/standard/\d+/', '/ace/standard/640/', url, count=1)
+        # Also upgrade /images/ic/240x135/ → /images/ic/640x360/
+        url = re.sub(r'/images/ic/\d+x\d+/', '/images/ic/640x360/', url, count=1)
+
+    # BBC Sport: /cpsprodpb/ with /240/ or /480/
+    if "bbci.co.uk" in url:
+        url = re.sub(r'/(\d{2,3})/', '/640/', url, count=1)
+
+    # Bauersecure (CAR Magazine): try removing size suffix
+    if "bauersecure.com" in url:
+        # Their images sometimes need proper referer — keep URL as-is
+        pass
+
+    # Reddit: remove crop=1:1,smart parameter (gives square icons)
+    if "redd.it" in url:
+        url = re.sub(r'[&?]crop=[^&]+', '', url)
+
     return url
 
 
