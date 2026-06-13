@@ -245,9 +245,10 @@ def _upgrade_thumbnail_url(url: str) -> str:
     if "bbci.co.uk" in url or "bbc.co.uk" in url:
         url = re.sub(r'/240/', '/640/', url, count=1)
 
-    # Autosport / Motorsport.com
+    # Autosport / Motorsport.com: keep /s6/ — /s12/ returns 403 from CDN!
+    # /s6/ gives ~205KB JPEG which is fine quality
     if "motorsport.com" in url or "autosport.com" in url:
-        url = re.sub(r'/s6/', '/s12/', url, count=1)
+        pass  # Don't upgrade — /s12/ is blocked by CDN
 
     # Reddit
     if "preview.redd.it" in url or "external-preview.redd.it" in url:

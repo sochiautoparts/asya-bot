@@ -1286,18 +1286,21 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
         freshness_bonus = _score_freshness(published_time)
         interest += freshness_bonus
         
-        # ── BONUS for having photos — items WITH images get significant priority ──
+        # ── BONUS for having photos — items WITH images get MASSIVE priority ──
         # RSS items with real article photos are MUCH more valuable than web search
         # results with no images (which produce text-only posts nobody clicks on)
+        # Visual posts get 2-3x more engagement on Telegram channels
         image_count = len(item.get("image_urls", []))
         if image_count >= 5:
-            interest += 0.4  # Lots of photos = very visual post
+            interest += 1.0  # Lots of photos = very visual post — HIGHEST PRIORITY
         elif image_count >= 3:
-            interest += 0.3  # Good photo selection
+            interest += 0.7  # Good photo selection
         elif image_count >= 1:
-            interest += 0.15  # At least one photo
-        # Items with NO images get NO bonus — they'll need article scraping
-        # which often fails for Google News redirect URLs
+            interest += 0.4  # At least one photo
+        else:
+            # PENALTY for no images — text-only posts get minimal engagement
+            # This ensures RSS items with photos outrank web_search items without
+            interest -= 0.3  # Text-only = less engaging, deprioritize
         
         scored_items.append({
             "item": item,

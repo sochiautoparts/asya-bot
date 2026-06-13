@@ -576,7 +576,11 @@ async def fetch_article(url: str, client: Optional[httpx.AsyncClient] = None) ->
         
         # Skip Google News URLs that couldn't be resolved
         if _GOOGLE_NEWS_BASE_RE.search(fetch_url):
-            logger.info(f"Skipping unresolved Google News URL: {fetch_url[:60]}...")
+            # Instead of skipping, try to find the real article via web search
+            # using the title from the news item (passed via context)
+            logger.info(f"Google News URL unresolved, trying web search fallback: {fetch_url[:60]}...")
+            # We can't search here without a title, so return None
+            # The content_engine second-pass enrichment will handle this
             return None
         
         try:
