@@ -254,16 +254,18 @@ class LocalProvider(BaseAIProvider):
 
             start_time = time.time()
 
-            # n_batch: smaller batch size reduces peak memory usage and
-            # prevents GGML_ASSERT(buffer) failures on GitHub Actions runners.
-            # Default is 512 but 256 is more stable for 7GB RAM runners.
-            n_batch = min(256, self._n_ctx // 4)
+            # n_batch: Smaller = less peak memory, larger = faster prompt processing.
+            # With n_ctx=8192 and 7GB RAM limit on GitHub Actions:
+            #   - 512 is fine for RuadaptQwen3-4B Q4_K_M (~2.5GB model)
+            #   - Prompts are typically short (<1000 tokens) so 512 is plenty
+            n_batch = 512
 
             self._llm = Llama(
                 model_path=self._model_path,
                 n_ctx=self._n_ctx,
                 n_batch=n_batch,
                 n_threads=self._n_threads,
+                n_threads_batch=self._n_threads,  # Parallel prompt processing
                 n_gpu_layers=0,  # CPU only — GitHub Actions has no GPU
                 verbose=False,
                 use_mlock=False,  # Don't lock memory — saves RAM
@@ -443,15 +445,29 @@ class LocalProvider(BaseAIProvider):
             # Only ONE generation can run at a time.
             async with self._generation_lock:
                 # Run inference in thread pool to avoid blocking event loop
+                # Use asyncio.shield() to prevent cancellation during generation.
+                # When asyncio.CancelledError hits during run_in_executor,
+                # the C-level llama-cpp thread keeps running but Python
+                # loses track of it → memory corruption → segfault on next call.
                 loop = asyncio.get_event_loop()
-
-                result = await loop.run_in_executor(
+                fut = loop.run_in_executor(
                     None,
                     self._generate,
                     prompt,
                     max_tokens,
                     temperature,
                 )
+                try:
+                    result = await asyncio.shield(fut)
+                except asyncio.CancelledError:
+                    # Task was cancelled but the executor is still running.
+                    # Wait for it to complete safely instead of abandoning it.
+                    logger.warning("Local generation was cancelled — waiting for safe completion")
+                    try:
+                        result = await asyncio.wait_for(fut, timeout=30.0)
+                    except (asyncio.TimeoutError, Exception) as e:
+                        logger.error(f"Local generation failed after cancel: {e}")
+                        raise
 
             elapsed = time.time() - start_time
 

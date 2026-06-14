@@ -224,7 +224,7 @@ jobs:
           ENABLE_LOCAL_MODEL: ${{ env.ENABLE_LOCAL_MODEL || 'true' }}
           MODEL_PATH: "models/RuadaptQwen3-4B-Instruct-Q4_K_M.gguf"
           MODEL_N_CTX: "8192"
-          MODEL_N_THREADS: "2"
+          MODEL_N_THREADS: "4"
           MODEL_MAX_TOKENS: "1024"
           MODEL_AUTO_DOWNLOAD: "true"
           MODEL_DOWNLOAD_URL: "https://huggingface.co/RefalMachine/RuadaptQwen3-4B-Instruct-GGUF/resolve/main/Q4_K_M.gguf"

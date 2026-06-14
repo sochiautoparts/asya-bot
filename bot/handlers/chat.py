@@ -713,10 +713,11 @@ async def _process_text_message(message: Message, text: str):
 
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
 
-    # ── OVERALL TIMEOUT: Max 30 seconds for the entire processing ──
-    # REDUCED from 45s — with concurrent search+AI, we don't need as much time.
-    # If AI can't respond in 30s across all providers, it's a systemic issue.
-    _OVERALL_TIMEOUT = 30.0  # seconds
+    # ── OVERALL TIMEOUT: Max 60 seconds for the entire processing ──
+    # INCREASED from 30s — local model generation can take 10-15s,
+    # plus web search ~10-15s. 30s was causing CancelledError during
+    # llama-cpp generation → segfault (exit 139).
+    _OVERALL_TIMEOUT = 60.0  # seconds
 
     async def _do_process():
         await _process_text_message_inner(message, text, user_id, chat_mode)

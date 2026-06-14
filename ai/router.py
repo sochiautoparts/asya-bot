@@ -1099,13 +1099,16 @@ class AIRouter:
         symptoms: str,
         car_info: str = "",
         model: str = "",
+        extra_context: str = "",
     ) -> AIResponse:
         """Generate a car diagnosis response. FUNCTION route — best quality models."""
         from bot.asya import build_diagnostic_context
 
-        extra_context = build_diagnostic_context(symptoms)
+        diag_context = build_diagnostic_context(symptoms)
         if car_info:
-            extra_context = f"Информация об авто: {car_info}\n{extra_context}"
+            diag_context = f"Информация об авто: {car_info}\n{diag_context}"
+        if extra_context:
+            diag_context = f"{extra_context}\n{diag_context}"
 
         return await self.chat(
             user_id=user_id,
@@ -1113,7 +1116,7 @@ class AIRouter:
             system_prompt=persona.system_prompt + persona.diagnostic_prompt_suffix,
             model=model or "gpt-5.5",  # Complex task — use strong model
             temperature=0.5,
-            extra_context=extra_context,
+            extra_context=diag_context,
             route_type="function",
         )
 
