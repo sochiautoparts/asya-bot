@@ -85,16 +85,18 @@ class BotConfig:
     UNSPLASH_ACCESS_KEY: str = os.getenv("UNSPLASH_ACCESS_KEY", "")
     PEXELS_API_KEY: str = os.getenv("PEXELS_API_KEY", "")
 
-    # Local model toggle — Qwen3-4B as PRIMARY for simple chat (saves cloud balance!)
+    # Local model toggle — RuadaptQwen3-4B as PRIMARY for chat (saves cloud balance!)
+    # RuadaptQwen3-4B: Russian-optimized tokenizer (48K extra Russian tokens), up to 2x faster Russian generation,
+    # continued pre-training on Russian corpus, better Russian language quality than base Qwen3-4B.
     ENABLE_LOCAL_MODEL: bool = os.getenv("ENABLE_LOCAL_MODEL", "true").lower() in ("true", "1", "yes")
-    MODEL_PATH: str = os.getenv("MODEL_PATH", "models/Qwen3-4B-Q4_K_M.gguf") if ENABLE_LOCAL_MODEL else ""
-    MODEL_N_CTX: int = int(os.getenv("MODEL_N_CTX", "8192"))  # Context window — 8192 for stability with Qwen3-4B (was 4096, too small → GGML_ASSERT crashes)
+    MODEL_PATH: str = os.getenv("MODEL_PATH", "models/RuadaptQwen3-4B-Instruct-Q4_K_M.gguf") if ENABLE_LOCAL_MODEL else ""
+    MODEL_N_CTX: int = int(os.getenv("MODEL_N_CTX", "8192"))  # Context window — 8192 for stability (was 4096, too small → GGML_ASSERT crashes)
     MODEL_N_THREADS: int = int(os.getenv("MODEL_N_THREADS", "4"))  # CPU threads — GitHub Actions has 2-4 cores
     MODEL_MAX_TOKENS: int = int(os.getenv("MODEL_MAX_TOKENS", "1024"))  # Max output tokens — 1024 for quality+stability balance
     MODEL_HISTORY_LIMIT: int = int(os.getenv("MODEL_HISTORY_LIMIT", "6"))  # Max history turns for local model
     # HuggingFace model download URL (for auto-download + GitHub Actions)
     MODEL_DOWNLOAD_URL: str = os.getenv("MODEL_DOWNLOAD_URL",
-        "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf")
+        "https://huggingface.co/RefalMachine/RuadaptQwen3-4B-Instruct-GGUF/resolve/main/Q4_K_M.gguf")
     # Auto-download model if file not found (enabled by default for GitHub Actions)
     MODEL_AUTO_DOWNLOAD: bool = os.getenv("MODEL_AUTO_DOWNLOAD", "true").lower() in ("true", "1", "yes")
 

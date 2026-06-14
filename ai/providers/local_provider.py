@@ -1,7 +1,7 @@
-"""Local LLM Provider — Qwen3-4B via llama-cpp-python (GGUF).
+"""Local LLM Provider — RuadaptQwen3-4B via llama-cpp-python (GGUF).
 
 Provides local inference for Asya Bot using llama-cpp-python with:
-  - Qwen3-4B-Instruct Q4_K_M quantization (~2.5GB)
+  - RuadaptQwen3-4B-Instruct Q4_K_M quantization (~2.5GB)
   - CPU-only inference (GitHub Actions compatible)
   - Thread-configurable for performance
   - Chat template formatting for instruction models
@@ -49,7 +49,7 @@ QWEN3_END = "<|im_end|>\n"
 class LocalProvider(BaseAIProvider):
     """Local LLM provider using llama-cpp-python for GGUF models.
 
-    Supports Qwen3-4B-Instruct with ChatML template formatting.
+    Supports RuadaptQwen3-4B-Instruct with ChatML template formatting.
     CPU-only, designed for GitHub Actions runners (ubuntu-latest).
     """
 
@@ -277,7 +277,7 @@ class LocalProvider(BaseAIProvider):
 
             logger.info(
                 f"Local model loaded in {elapsed:.1f}s "
-                f"(Qwen3-4B Q4_K_M, ctx={self._n_ctx}, threads={self._n_threads})"
+                f"(RuadaptQwen3-4B Q4_K_M, ctx={self._n_ctx}, threads={self._n_threads})"
             )
             return True
 
@@ -624,7 +624,7 @@ class LocalProvider(BaseAIProvider):
 
         if self._model_loaded:
             return (
-                f"LOADED (Qwen3-4B, ctx={self._n_ctx}, "
+                f"LOADED (RuadaptQwen3-4B, ctx={self._n_ctx}, "
                 f"threads={self._n_threads}, "
                 f"reqs={self._total_requests}, "
                 f"errors={self._total_errors})"
