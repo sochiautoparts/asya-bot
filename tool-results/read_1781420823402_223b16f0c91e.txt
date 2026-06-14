@@ -1,0 +1,767 @@
+     1→"""
+     2→Admitad Partner Program Integration v3.0
+     3→
+     4→Loads partner data from remote admitad_ads.json (updateable file!).
+     5→Uses goto_link EXACTLY as-is — no subid additions, no modifications.
+     6→The goto_links are ready for both posts and user dialogs.
+     7→
+     8→Key changes from v2:
+     9→- Downloads admitad_ads.json from remote GitHub URL
+    10→- Auto-refreshes every 6 hours (file is updateable!)
+    11→- Uses goto_link EXACTLY as provided — NO subid additions
+    12→- Regional filtering by allowed_regions
+    13→- For article searches, modifies ulp parameter in goto_link
+    14→- Proper formatting: "Name (category description): goto_link"
+    15→"""
+    16→
+    17→import json
+    18→import random
+    19→import re
+    20→import time
+    21→import logging
+    22→import asyncio
+    23→from pathlib import Path
+    24→from typing import List, Dict, Optional, Tuple
+    25→from urllib.parse import quote_plus, urlparse, parse_qs, urlencode, urlunparse
+    26→
+    27→from bot.config import config
+    28→
+    29→logger = logging.getLogger("asya.partners")
+    30→
+    31→# Remote admitad_ads.json URL (updateable file!)
+    32→ADMITAD_JSON_URL = "https://raw.githubusercontent.com/creastudioai-beep/pr/main/data/admitad_ads.json"
+    33→ADMITAD_LOCAL_CACHE = "data/admitad_ads.json"
+    34→ADMITAD_REFRESH_INTERVAL = 6 * 3600  # Refresh every 6 hours
+    35→
+    36→# Default region for partner filtering
+    37→DEFAULT_REGION = "RU"
+    38→
+    39→
+    40→class PartnerProgram:
+    41→    """Single partner program from admitad."""
+    42→
+    43→    def __init__(self, data: Dict):
+    44→        self.id = str(data.get("id", ""))
+    45→        self.name = data.get("name", "")
+    46→        self.slug = data.get("slug", "")
+    47→        self.image = (
+    48→            data.get("image") or
+    49→            data.get("image_url") or
+    50→            data.get("logo") or
+    51→            data.get("brand_logo") or
+    52→            ""
+    53→        )
+    54→        self.description = data.get("description", "")
+    55→        self.ad_text = data.get("ad_text", "")
+    56→        self.goto_link = data.get("goto_link", "")
+    57→        self.site_url = data.get("site_url", "")
+    58→        self.category = data.get("category", "")
+    59→        self.category_name = data.get("category_name", "")
+    60→        self.allowed_regions = data.get("allowed_regions", [])
+    61→        self.rating = data.get("rating", "")
+    62→        self.raw = data
+    63→
+    64→    def has_region(self, region: str = DEFAULT_REGION) -> bool:
+    65→        """Check if program is available in a region."""
+    66→        if not self.allowed_regions:
+    67→            return True  # No region info = available everywhere
+    68→        region_upper = region.upper()
+    69→        # "00" means worldwide
+    70→        if "00" in self.allowed_regions:
+    71→            return True
+    72→        return region_upper in [r.upper() for r in self.allowed_regions]
+    73→
+    74→    def has_category(self, category: str) -> bool:
+    75→        """Check if program belongs to a category."""
+    76→        cat_lower = category.lower()
+    77→        if cat_lower == self.category.lower():
+    78→            return True
+    79→        if cat_lower in self.category_name.lower():
+    80→            return True
+    81→        return False
+    82→
+    83→    def matches_text(self, text: str) -> bool:
+    84→        """Check if text contains keywords related to this program."""
+    85→        text_lower = text.lower()
+    86→        # Check program name words
+    87→        name_words = [w.lower() for w in self.name.split() if len(w) > 3]
+    88→        for word in name_words:
+    89→            if word in text_lower:
+    90→                return True
+    91→        # Check category name words
+    92→        cat_words = [w.lower() for w in self.category_name.split() if len(w) > 3]
+    93→        for word in cat_words:
+    94→            if word in text_lower:
+    95→                return True
+    96→        # Check site_url domain
+    97→        if self.site_url:
+    98→            domain = urlparse(self.site_url).netloc.replace("www.", "")
+    99→            if domain and domain in text_lower:
+   100→                return True
+   101→        return False
+   102→
+   103→    def get_search_url(self, query: str) -> str:
+   104→        """Get a search URL for this partner, using the goto_link as base.
+   105→
+   106→        If the goto_link has a ulp parameter (redirect URL), we modify it
+   107→        to include the search path. Otherwise, returns the goto_link as-is.
+   108→        """
+   109→        if not self.goto_link:
+   110→            return ""
+   111→        if not query:
+   112→            return self.goto_link
+   113→
+   114→        # Try to modify the ulp parameter to include search
+   115→        try:
+   116→            parsed = urlparse(self.goto_link)
+   117→            params = parse_qs(parsed.query)
+   118→
+   119→            if "ulp" in params and params["ulp"]:
+   120→                original_ulp = params["ulp"][0]
+   121→                # Build search URL based on site_url patterns
+   122→                search_url = self._build_search_url(original_ulp, query)
+   123→                if search_url != original_ulp:
+   124→                    # Replace ulp parameter
+   125→                    new_params = {}
+   126→                    for k, v_list in params.items():
+   127→                        if k == "ulp":
+   128→                            new_params[k] = search_url
+   129→                        else:
+   130→                            new_params[k] = v_list[0] if len(v_list) == 1 else v_list
+   131→
+   132→                    # Rebuild URL with new ulp
+   133→                    new_query = urlencode(new_params, doseq=True)
+   134→                    return urlunparse(parsed._replace(query=new_query))
+   135→        except Exception as e:
+   136→            logger.debug(f"Error modifying goto_link for search: {e}")
+   137→
+   138→        # If we can't modify, return as-is
+   139→        return self.goto_link
+   140→
+   141→    def _build_search_url(self, original_ulp: str, query: str) -> str:
+   142→        """Build a search URL by modifying the original redirect URL."""
+   143→        site_url = self.site_url.rstrip("/")
+   144→        query_encoded = quote_plus(query)
+   145→
+   146→        # Site-specific search URL patterns
+   147→        search_patterns = {
+   148→            "rossko.ru": f"{site_url}/search?text={query_encoded}",
+   149→            "autopiter.ru": f"{site_url}/search?querystr={query_encoded}",
+   150→            "autopiter.kz": f"{site_url}/search?querystr={query_encoded}",
+   151→            "exist.ru": f"{site_url}/Price/?p={query_encoded}",
+   152→            "emex.ru": f"{site_url}/products?search={query_encoded}",
+   153→            "autodoc.ru": f"{site_url}/search?keyword={query_encoded}",
+   154→            "zzap.ru": f"{site_url}/search/?q={query_encoded}",
+   155→            "avtoall.ru": f"{site_url}/search/?q={query_encoded}",
+   156→            "aliexpress.ru": f"{site_url}/wholesale?SearchText={query_encoded}",
+   157→            "aliexpress.com": f"{site_url}/wholesale?SearchText={query_encoded}",
+   158→            "hyperauto.ru": f"{site_url}/search/?q={query_encoded}",
+   159→            "euro-diski.ru": f"{site_url}/search/?q={query_encoded}",
+   160→            "bs-tyres.ru": f"{site_url}/search/?q={query_encoded}",
+   161→            "koleso.ru": f"{site_url}/search/?q={query_encoded}",
+   162→            "avtocod.ru": f"{site_url}/search/?q={query_encoded}",
+   163→            "petrolplus.ru": f"{site_url}/search/?q={query_encoded}",
+   164→            "globaldrive.ru": f"{site_url}/search/?q={query_encoded}",
+   165→            "mirdvornikov.ru": f"{site_url}/search/?q={query_encoded}",
+   166→            "lukoil-shop.com": f"{site_url}/search/?q={query_encoded}",
+   167→        }
+   168→
+   169→        # Check if site_url matches any pattern
+   170→        for domain, pattern in search_patterns.items():
+   171→            if domain in self.site_url:
+   172→                return quote_plus(pattern)
+   173→
+   174→        # Generic fallback: just add search parameter
+   175→        return original_ulp
+   176→
+   177→    def format_link(self, with_description: bool = True) -> str:
+   178→        """Format this partner's link for display.
+   179→
+   180→        Uses goto_link EXACTLY as-is from the file.
+   181→        No subid additions — the link is ready to use!
+   182→        """
+   183→        if not self.goto_link:
+   184→            return ""
+   185→
+   186→        if with_description and self.category_name:
+   187→            return f"{self.name} ({self.category_name}): {self.goto_link}"
+   188→        return f"{self.name}: {self.goto_link}"
+   189→
+   190→    def format_link_with_search(self, query: str) -> str:
+   191→        """Format this partner's link with a search query.
+   192→
+   193→        Modifies the ulp parameter in goto_link to include search.
+   194→        The base goto_link (with tracking) is preserved.
+   195→        """
+   196→        search_url = self.get_search_url(query)
+   197→        if not search_url:
+   198→            return ""
+   199→
+   200→        if self.category_name:
+   201→            # Add helpful description based on category
+   202→            desc = self._get_category_description()
+   203→            return f"{self.name} ({desc}): {search_url}"
+   204→        return f"{self.name}: {search_url}"
+   205→
+   206→    def _get_category_description(self) -> str:
+   207→        """Get a user-friendly description for this partner's category."""
+   208→        descriptions = {
+   209→            "autoparts": "профессиональный подбор запчастей",
+   210→            "tires": "шины и диски",
+   211→            "tools": "автоинструменты",
+   212→            "autoinsurance": "автострахование",
+   213→            "checkauto": "проверка авто",
+   214→            "autorent": "аренда авто",
+   215→            "coupons": "скидки и промокоды",
+   216→            "other": "рекомендую",
+   217→        }
+   218→        return descriptions.get(self.category, self.category_name or "рекомендую")
+   219→
+   220→
+   221→class PartnerManager:
+   222→    """Manages all partner programs — loading, matching, posting.
+   223→
+   224→    v3.0: Downloads admitad_ads.json from remote URL, auto-refreshes.
+   225→    Uses goto_link EXACTLY as-is — NO subid additions!
+   226→    """
+   227→
+   228→    def __init__(self):
+   229→        self.programs: List[PartnerProgram] = []
+   230→        self._loaded = False
+   231→        self._last_load_time: float = 0
+   232→        self._last_post_time: float = 0
+   233→        self._posted_today: int = 0
+   234→        self._day_start: float = 0
+   235→        # Site URL → PartnerProgram mapping for fast lookup
+   236→        self._site_map: Dict[str, PartnerProgram] = {}
+   237→
+   238→    async def load_async(self) -> int:
+   239→        """Load partner programs — try remote first, then local cache."""
+   240→        count = await self._load_from_remote()
+   241→        if count > 0:
+   242→            return count
+   243→        # Fallback to local cache
+   244→        return self._load_from_local()
+   245→
+   246→    # Alias for backward compatibility
+   247→    load_admitad_async = load_async
+   248→
+   249→    async def _load_from_remote(self) -> int:
+   250→        """Download admitad_ads.json from GitHub."""
+   251→        try:
+   252→            import httpx
+   253→            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+   254→                response = await client.get(ADMITAD_JSON_URL)
+   255→                if response.status_code == 200:
+   256→                    data = response.json()
+   257→                    count = self._parse_programs(data)
+   258→                    if count > 0:
+   259→                        # Save to local cache
+   260→                        self._save_cache(data)
+   261→                        self._loaded = True
+   262→                        self._last_load_time = time.time()
+   263→                        logger.info(f"Loaded {count} partner programs from remote URL")
+   264→                        return count
+   265→        except Exception as e:
+   266→            logger.warning(f"Failed to load admitad_ads.json from remote: {e}")
+   267→        return 0
+   268→
+   269→    def _load_from_local(self) -> int:
+   270→        """Load from local cache file."""
+   271→        # Try data/ directory first, then root
+   272→        for filepath in [ADMITAD_LOCAL_CACHE, "admitad_ads.json"]:
+   273→            path = Path(filepath)
+   274→            if path.exists():
+   275→                try:
+   276→                    with open(path, "r", encoding="utf-8") as f:
+   277→                        data = json.load(f)
+   278→                    count = self._parse_programs(data)
+   279→                    self._loaded = True
+   280→                    self._last_load_time = time.time()
+   281→                    logger.info(f"Loaded {count} partner programs from local cache: {filepath}")
+   282→                    return count
+   283→                except Exception as e:
+   284→                    logger.error(f"Error loading local admitad cache: {e}")
+   285→        logger.warning("No admitad_ads.json found locally or remotely")
+   286→        self._loaded = True
+   287→        return 0
+   288→
+   289→    def load(self, filepath: str = "") -> int:
+   290→        """Synchronous load from local file only."""
+   291→        filepath = filepath or config.ADMITAD_ADS_FILE
+   292→        path = Path(filepath)
+   293→        if not path.exists():
+   294→            path = Path(ADMITAD_LOCAL_CACHE)
+   295→        if not path.exists():
+   296→            path = Path("admitad_ads.json")
+   297→
+   298→        if not path.exists():
+   299→            logger.warning(f"Partner ads file not found")
+   300→            self._loaded = True
+   301→            return 0
+   302→
+   303→        try:
+   304→            with open(path, "r", encoding="utf-8") as f:
+   305→                data = json.load(f)
+   306→            count = self._parse_programs(data)
+   307→            self._loaded = True
+   308→            self._last_load_time = time.time()
+   309→            logger.info(f"Loaded {count} partner programs from {path}")
+   310→            return count
+   311→        except Exception as e:
+   312→            logger.error(f"Error loading partner ads: {e}")
+   313→            self._loaded = True
+   314→            return 0
+   315→
+   316→    def _parse_programs(self, data) -> int:
+   317→        """Parse programs from JSON data."""
+   318→        self.programs = []
+   319→        self._site_map = {}
+   320→
+   321→        items = []
+   322→        if isinstance(data, list):
+   323→            items = data
+   324→        elif isinstance(data, dict):
+   325→            items = data.get("programs", data.get("items", data.get("results", [])))
+   326→            if not isinstance(items, list):
+   327→                items = []
+   328→
+   329→        for item in items:
+   330→            prog = PartnerProgram(item)
+   331→            if prog.goto_link:
+   332→                self.programs.append(prog)
+   333→                # Build site URL mapping
+   334→                if prog.site_url:
+   335→                    domain = urlparse(prog.site_url).netloc.replace("www.", "")
+   336→                    self._site_map[domain] = prog
+   337→
+   338→        return len(self.programs)
+   339→
+   340→    def _save_cache(self, data) -> None:
+   341→        """Save data to local cache."""
+   342→        try:
+   343→            cache_path = Path(ADMITAD_LOCAL_CACHE)
+   344→            cache_path.parent.mkdir(parents=True, exist_ok=True)
+   345→            with open(cache_path, "w", encoding="utf-8") as f:
+   346→                json.dump(data, f, ensure_ascii=False)
+   347→        except Exception as e:
+   348→            logger.warning(f"Failed to save admitad cache: {e}")
+   349→
+   350→    def ensure_loaded(self) -> None:
+   351→        """Load partner programs if not yet loaded."""
+   352→        if not self._loaded:
+   353→            self.load()
+   354→
+   355→    async def maybe_refresh(self) -> None:
+   356→        """Refresh from remote if enough time has passed."""
+   357→        if not self._loaded or (time.time() - self._last_load_time > ADMITAD_REFRESH_INTERVAL):
+   358→            await self.load_async()
+   359→
+   360→    def get_by_category(self, category: str, region: str = DEFAULT_REGION) -> List[PartnerProgram]:
+   361→        """Get programs in a specific category and region."""
+   362→        self.ensure_loaded()
+   363→        return [p for p in self.programs if p.has_category(category) and p.has_region(region)]
+   364→
+   365→    def get_by_site(self, site_url: str) -> Optional[PartnerProgram]:
+   366→        """Find a partner program by its site URL or domain."""
+   367→        self.ensure_loaded()
+   368→        if not site_url:
+   369→            return None
+   370→        
+   371→        # Try parsing as URL first
+   372→        domain = urlparse(site_url).netloc.replace("www.", "") if site_url else ""
+   373→        
+   374→        # If urlparse didn't extract a netloc (bare domain like "rossko.ru"),
+   375→        # treat the input itself as the domain
+   376→        if not domain and site_url:
+   377→            domain = site_url.replace("www.", "").rstrip("/")
+   378→        
+   379→        # Direct lookup
+   380→        result = self._site_map.get(domain)
+   381→        if result:
+   382→            return result
+   383→        
+   384→        # Fallback: partial match on domain keys
+   385→        for key, prog in self._site_map.items():
+   386→            if domain in key or key in domain:
+   387→                return prog
+   388→        
+   389→        return None
+   390→
+   391→    def get_all_categories(self) -> List[str]:
+   392→        """Get all available categories across programs."""
+   393→        self.ensure_loaded()
+   394→        cats = set()
+   395→        for p in self.programs:
+   396→            if p.category:
+   397→                cats.add(p.category)
+   398→            if p.category_name:
+   399→                cats.add(p.category_name)
+   400→        return sorted(cats)
+   401→
+   402→    def find_matching_programs(self, text: str, region: str = DEFAULT_REGION) -> List[PartnerProgram]:
+   403→        """Find programs that match keywords in the text."""
+   404→        self.ensure_loaded()
+   405→        text_lower = text.lower()
+   406→
+   407→        matches = []
+   408→        # 1. Direct text matching
+   409→        for p in self.programs:
+   410→            if p.has_region(region) and p.matches_text(text):
+   411→                matches.append(p)
+   412→
+   413→        # 2. Category keyword matching
+   414→        if not matches:
+   415→            category_keywords = {
+   416→                "autoparts": ["запчаст", "деталь", "артикул", "купить запчас", "купить детал",
+   417→                              "оригинал", "аналог", "замена", "подбор", "номер детал",
+   418→                              "oem", "оригинальн", "поиск запчас", "найти запчас",
+   419→                              "фильтр", "колодки", "свечи", "ремень", "прокладк",
+   420→                              "сальник", "подшипник", "амортизатор", "реле", "датчик",
+   421→                              "масло", "антифриз", "тормозн", "где купить",
+   422→                              "росско", "rossko", "autopiter", "автопитер"],
+   423→                "tires": ["шины", "диски", "резина", "колёса", "зимняя", "летняя",
+   424→                          "шипованные", "euro-diski", "bs-tyres"],
+   425→                "tools": ["инструмент", "ключ", "набор", "гараж", "домкрат", "avtoall"],
+   426→                "autoinsurance": ["страховка", "осаго", "каско", "страхование", "полис",
+   427→                                  "petrolplus", "avtocod"],
+   428→                "checkauto": ["проверка", "вин", "vin", "история", "автокод", "пробить",
+   429→                              "hyperauto"],
+   430→                "autorent": ["аренда", "прокат", "рент", "арендовать", "напрокат",
+   431→                             "discovercars", "localrent"],
+   432→                "coupons": ["промокод", "скидк", "купон", "акция", "aliexpress",
+   433→                            "globaldrive", "koleso", "mirdvornikov", "raketa"],
+   434→            }
+   435→
+   436→            for cat, keywords in category_keywords.items():
+   437→                if any(kw in text_lower for kw in keywords):
+   438→                    cat_programs = self.get_by_category(cat, region)
+   439→                    matches.extend(cat_programs)
+   440→                    break
+   441→
+   442→        return matches
+   443→
+   444→    def get_random_program(self, category: str = "", region: str = DEFAULT_REGION) -> Optional[PartnerProgram]:
+   445→        """Get a random partner program, optionally filtered by category."""
+   446→        self.ensure_loaded()
+   447→        pool = self.get_by_category(category, region) if category else [p for p in self.programs if p.has_region(region)]
+   448→        return random.choice(pool) if pool else None
+   449→
+   450→    def generate_partner_context(self, text: str, max_programs: int = 3, region: str = DEFAULT_REGION) -> str:
+   451→        """
+   452→        Generate context about matching partner programs for AI to reference
+   453→        naturally in its response.
+   454→
+   455→        v3: Uses goto_link from admitad_ads.json EXACTLY as-is.
+   456→        No subid additions — the link is ready!
+   457→        """
+   458→        self.ensure_loaded()
+   459→
+   460→        # Find matching programs
+   461→        matches = self.find_matching_programs(text, region)
+   462→        if not matches:
+   463→            # Default: show autoparts programs for auto-related queries
+   464→            text_lower = text.lower()
+   465→            auto_keywords = ["запчаст", "деталь", "артикул", "купить", "подобрать",
+   466→                             "масло", "фильтр", "колодки", "ремонт", "сто"]
+   467→            if any(kw in text_lower for kw in auto_keywords):
+   468→                matches = self.get_by_category("autoparts", region)
+   469→
+   470→        if not matches:
+   471→            return ""
+   472→
+   473→        # Check if there's an article number for search-specific links
+   474→        article_match = re.search(r'\b([A-Z0-9]{4,}[-/]?[A-Z0-9]*)\b', text.upper())
+   475→        article = article_match.group(1) if article_match else ""
+   476→
+   477→        lines = [
+   478→            "Партнёрские ссылки (Вставь ЕСТЕСТВЕННО в ответ — как рекомендация, не как реклама!):",
+   479→        ]
+   480→
+   481→        for p in matches[:max_programs]:
+   482→            if article:
+   483→                # For article searches, try to get a search-specific URL
+   484→                link = p.format_link_with_search(article)
+   485→            else:
+   486→                link = p.format_link(with_description=True)
+   487→
+   488→            if link:
+   489→                lines.append(f"- {link}")
+   490→
+   491→        # Also add Rossko specifically for auto parts queries
+   492→        text_lower = text.lower()
+   493→        parts_keywords = ["запчаст", "деталь", "артикул", "купить запчас", "подбор",
+   494→                          "фильтр", "колодки", "свечи", "ремень", "масло"]
+   495→        if any(kw in text_lower for kw in parts_keywords):
+   496→            rossko = self.get_by_site("rossko.ru")
+   497→            if rossko and rossko not in matches[:max_programs]:
+   498→                if article:
+   499→                    lines.append(f"- {rossko.format_link_with_search(article)}")
+   500→                else:
+   501→                    lines.append(f"- {rossko.format_link(with_description=True)}")
+   502→
+   503→        if len(lines) <= 1:
+   504→            return ""
+   505→
+   506→        lines.append("")
+   507→        lines.append("ВАЖНО: Ссылки выше — ПАРТНЁРСКИЕ (goto_link из admitad_ads.json). Используй их КАК ЕСТЬ, ничего не добавляй и не меняй!")
+   508→
+   509→        return "\n".join(lines)
+   510→
+   511→    def get_primary_parts_links(self, region: str = DEFAULT_REGION) -> List[Dict[str, str]]:
+   512→        """Get the THREE primary partner links for auto parts in strict order.
+   513→
+   514→        Order: 1) Rossko, 2) Autopiter (RU), 3) AvtoALL
+   515→        These are the main links Ася gives in EVERY parts/VIN query.
+   516→        """
+   517→        self.ensure_loaded()
+   518→        links = []
+   519→
+   520→        # Define the strict order: Rossko → Autopiter RU → AvtoALL
+   521→        primary_sites = [
+   522→            ("rossko.ru", "Росско", "профессиональный подбор запчастей"),
+   523→            ("autopiter.ru", "Autopiter", "крупнейший магазин автозапчастей в России"),
+   524→            ("avtoall.ru", "AvtoALL", "автотовары и запчасти"),
+   525→        ]
+   526→
+   527→        for site_domain, display_name, description in primary_sites:
+   528→            prog = self.get_by_site(site_domain)
+   529→            if prog and prog.has_region(region):
+   530→                links.append({
+   531→                    "name": display_name,
+   532→                    "url": prog.goto_link,
+   533→                    "description": description,
+   534→                })
+   535→            else:
+   536→                # Fallback: search by category
+   537→                logger.debug(f"Primary partner {site_domain} not found in loaded programs")
+   538→
+   539→        return links
+   540→
+   541→    def format_primary_parts_links(self, region: str = DEFAULT_REGION) -> str:
+   542→        """Format the three primary partner links as context for AI.
+   543→
+   544→        Returns a string like:
+   545→        Партнёрские ссылки для запчастей (используй КАК ЕСТЬ!):
+   546→        1. Росско (профессиональный подбор запчастей): https://...
+   547→        2. Autopiter (крупнейший магазин автозапчастей в России): https://...
+   548→        3. AvtoALL (автотовары и запчасти): https://...
+   549→        """
+   550→        links = self.get_primary_parts_links(region)
+   551→        if not links:
+   552→            return ""
+   553→
+   554→        lines = [
+   555→            "ПАРТНЁРСКИЕ ССЫЛКИ ДЛЯ ЗАПЧАСТЕЙ (давай ВСЕГДА в этом порядке! Используй КАК ЕСТЬ, ничего не меняй!):",
+   556→        ]
+   557→        for i, link in enumerate(links, 1):
+   558→            lines.append(f"{i}. {link['name']} ({link['description']}): {link['url']}")
+   559→        lines.append("")
+   560→        lines.append("На всех трёх сайтах можно искать по VIN-коду и артикулу запчастей. Есть чаты с подбором запчастей.")
+   561→
+   562→        return "\n".join(lines)
+   563→
+   564→    def get_all_partner_links_for_parts(self, query: str, region: str = DEFAULT_REGION) -> List[Dict[str, str]]:
+   565→        """Get all partner links relevant to a parts query.
+   566→
+   567→        Returns list of dicts with 'name', 'url', 'description' keys.
+   568→        Uses goto_link from admitad_ads.json.
+   569→        """
+   570→        links = []
+   571→        self.ensure_loaded()
+   572→
+   573→        # Find autoparts programs
+   574→        parts_programs = self.get_by_category("autoparts", region)
+   575→        if not parts_programs:
+   576→            # Try finding by text matching
+   577→            parts_programs = self.find_matching_programs(query, region)
+   578→
+   579→        # Check for article number
+   580→        article_match = re.search(r'\b([A-Z0-9]{4,}[-/]?[A-Z0-9]*)\b', query.upper())
+   581→        article = article_match.group(1) if article_match else query.strip()
+   582→
+   583→        for p in parts_programs:
+   584→            search_url = p.get_search_url(article)
+   585→            desc = p._get_category_description()
+   586→            links.append({
+   587→                "name": p.name,
+   588→                "url": search_url,
+   589→                "description": f"{p.category_name} — {desc}",
+   590→            })
+   591→
+   592→        # Also check tires, tools, checkauto categories for auto-related queries
+   593→        for cat in ["tires", "tools", "checkauto"]:
+   594→            cat_programs = self.get_by_category(cat, region)
+   595→            for p in cat_programs[:1]:  # One from each related category
+   596→                if p not in parts_programs:
+   597→                    search_url = p.get_search_url(article)
+   598→                    links.append({
+   599→                        "name": p.name,
+   600→                        "url": search_url,
+   601→                        "description": f"{p.category_name} — {p._get_category_description()}",
+   602→                    })
+   603→
+   604→        return links
+   605→
+   606→    def get_all_relevant_links(self, text: str, max_programs: int = 5, region: str = DEFAULT_REGION) -> List[Dict[str, str]]:
+   607→        """Get ALL relevant partner links across ALL categories for a given text.
+   608→
+   609→        Unlike get_primary_parts_links() which only returns autoparts, this method
+   610→        detects ALL relevant categories (autoparts, tires, tools, insurance, checkauto, etc.)
+   611→        and returns links from ALL matching categories.
+   612→
+   613→        For car-related queries, includes: autoparts + tires + tools + insurance + checkauto.
+   614→        For general queries, includes relevant categories based on keywords.
+   615→
+   616→        Returns list of dicts with 'name', 'url', 'description' keys.
+   617→        """
+   618→        self.ensure_loaded()
+   619→        links = []
+   620→        seen_names = set()
+   621→        text_lower = text.lower()
+   622→
+   623→        # Detect ALL relevant categories based on keywords
+   624→        relevant_categories = set()
+   625→
+   626→        # Always include autoparts for car-related queries
+   627→        auto_keywords = [
+   628→            "запчаст", "деталь", "артикул", "купить запчас", "купить детал",
+   629→            "оригинал", "аналог", "замена", "подбор", "номер детал",
+   630→            "oem", "оригинальн", "поиск запчас", "найти запчас",
+   631→            "фильтр", "колодки", "свечи", "ремень", "прокладк",
+   632→            "сальник", "подшипник", "амортизатор", "реле", "датчик",
+   633→            "масло", "антифриз", "тормозн", "где купить",
+   634→            "росско", "rossko", "autopiter", "автопитер",
+   635→            "vin", "вин", "машина", "авто", "мотор", "двигатель",
+   636→            "ремонт", "поломк", "стучит", "диагност",
+   637→            "avtoall", "exist", "emex", "autodoc",
+   638→        ]
+   639→        tire_keywords = [
+   640→            "шины", "диски", "резина", "колёса", "зимняя", "летняя",
+   641→            "шипованные", "шиповк", "покрышк", "euro-diski", "bs-tyres",
+   642→            "сезонная смен", "переобув",
+   643→        ]
+   644→        tools_keywords = [
+   645→            "инструмент", "ключ", "набор", "гараж", "домкрат",
+   646→            "avtoall", "подъёмник", "станок",
+   647→        ]
+   648→        insurance_keywords = [
+   649→            "страховка", "осаго", "каско", "страхование", "полис",
+   650→            "petrolplus", "автострахов",
+   651→        ]
+   652→        checkauto_keywords = [
+   653→            "проверка", "вин", "vin", "история", "автокод", "пробить",
+   654→            "hyperauto", "проверить авто", "история автомобил",
+   655→        ]
+   656→        rent_keywords = [
+   657→            "аренда", "прокат", "рент", "арендовать", "напрокат",
+   658→            "discovercars", "localrent",
+   659→        ]
+   660→
+   661→        if any(kw in text_lower for kw in auto_keywords):
+   662→            relevant_categories.add("autoparts")
+   663→        if any(kw in text_lower for kw in tire_keywords):
+   664→            relevant_categories.add("tires")
+   665→        if any(kw in text_lower for kw in tools_keywords):
+   666→            relevant_categories.add("tools")
+   667→        if any(kw in text_lower for kw in insurance_keywords):
+   668→            relevant_categories.add("autoinsurance")
+   669→        if any(kw in text_lower for kw in checkauto_keywords):
+   670→            relevant_categories.add("checkauto")
+   671→        if any(kw in text_lower for kw in rent_keywords):
+   672→            relevant_categories.add("autorent")
+   673→
+   674→        # If no specific category detected, default to autoparts for car queries
+   675→        if not relevant_categories:
+   676→            # Check if it's a car-related query at all
+   677→            car_kw = ["авто", "машина", "машин", "двигатель", "мотор", "car", "auto",
+   678→                      "кузов", "ходов", "подвеск", "тормоз", "руль", "коробк"]
+   679→            if any(kw in text_lower for kw in car_kw):
+   680→                relevant_categories.add("autoparts")
+   681→                # For car queries, also include these common cross-categories
+   682→                relevant_categories.add("tires")
+   683→                relevant_categories.add("tools")
+   684→                relevant_categories.add("checkauto")
+   685→
+   686→        # Collect programs from all relevant categories
+   687→        for cat in relevant_categories:
+   688→            cat_programs = self.get_by_category(cat, region)
+   689→            for p in cat_programs:
+   690→                if p.name not in seen_names and p.goto_link:
+   691→                    seen_names.add(p.name)
+   692→                    desc = p._get_category_description()
+   693→                    links.append({
+   694→                        "name": p.name,
+   695→                        "url": p.goto_link,
+   696→                        "description": f"{p.category_name} — {desc}",
+   697→                    })
+   698→
+   699→        # Always ensure primary autoparts links are included if autoparts is relevant
+   700→        if "autoparts" in relevant_categories:
+   701→            primary_sites = ["rossko.ru", "autopiter.ru", "avtoall.ru"]
+   702→            for site in primary_sites:
+   703→                prog = self.get_by_site(site)
+   704→                if prog and prog.name not in seen_names and prog.goto_link:
+   705→                    seen_names.add(prog.name)
+   706→                    desc = prog._get_category_description()
+   707→                    links.append({
+   708→                        "name": prog.name,
+   709→                        "url": prog.goto_link,
+   710→                        "description": f"{prog.category_name} — {desc}",
+   711→                    })
+   712→
+   713→        return links[:max_programs]
+   714→
+   715→    def should_post_partner(self) -> bool:
+   716→        """Check if it's time to post a partner message to channel."""
+   717→        now = time.time()
+   718→        if now - self._day_start > 86400:
+   719→            self._day_start = now
+   720→            self._posted_today = 0
+   721→
+   722→        if self._posted_today >= config.PARTNER_DAILY_LIMIT:
+   723→            return False
+   724→
+   725→        min_interval = config.PARTNER_POST_INTERVAL_HOURS * 3600
+   726→        if now - self._last_post_time < min_interval:
+   727→            return False
+   728→
+   729→        return True
+   730→
+   731→    def mark_posted(self) -> None:
+   732→        """Mark that a partner post was just made."""
+   733→        self._last_post_time = time.time()
+   734→        self._posted_today += 1
+   735→
+   736→    async def generate_partner_post_content(self, program: PartnerProgram) -> str:
+   737→        """Generate a natural-looking partner post for the channel."""
+   738→        cat_label = program.category_name or "авто"
+   739→        link = program.goto_link  # Use goto_link as-is!
+   740→
+   741→        footer = f"Автор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
+   742→
+   743→        templates = [
+   744→            f"Рекомендую обратить внимание на {program.name} — отличный вариант, если речь идёт о {cat_label.lower()}. "
+   745→            f"Проверено, надёжный сервис. Загляните: {link}\n\n"
+   746→            f"{footer}",
+   747→
+   748→            f"Для тех, кто ищет {cat_label.lower()}, советую {program.name}. "
+   749→            f"Удобный сервис, нормальные цены. Ссылка: {link}\n\n"
+   750→            f"{footer}",
+   751→
+   752→            f"Часто спрашивают про {cat_label.lower()} — из проверенных вариантов отмечу {program.name}. "
+   753→            f"Сама проверяла, всё честно. Вот ссылка: {link}\n\n"
+   754→            f"{footer}",
+   755→
+   756→            f"Если нужен {cat_label.lower()} — присмотритесь к {program.name}. "
+   757→            f"Хороший сервис, удобная навигация, адекватные цены: {link}\n\n"
+   758→            f"{footer}",
+   759→        ]
+   760→
+   761→        return random.choice(templates)
+   762→
+   763→
+   764→# ── Global instance ────────────────────────────────────────────────────────────
+   765→
+   766→partner_manager = PartnerManager()
+   767→

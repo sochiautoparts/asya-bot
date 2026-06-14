@@ -1,0 +1,944 @@
+     1→"""Pollinations AI Provider v5.0 — DUAL API KEY + FREE API FALLBACK + 60+ MODEL SUPPORT
+     2→OpenAI-compatible API at gen.pollinations.ai
+     3→
+     4→v5.0 UPDATES:
+     5→  DUAL API KEY FAILOVER + FREE API FALLBACK:
+     6→  - KEY1 (config.POLLINATIONS_API_KEY) -> KEY2 (config.POLLINATIONS_API_KEY_2) -> FREE API
+     7→  - On 402/401: mark current key as depleted, auto-switch to next
+     8→  - Depleted keys auto-retry after 600 seconds cooldown
+     9→  - FREE API: text.pollinations.ai / image.pollinations.ai WITHOUT Authorization
+    10→  - Free API is the LAST resort before router fallback to Cloudflare
+    11→  - NO hardcoded keys — all from environment/config
+    12→
+    13→  EXPANDED MODEL LIST (60+ models from API catalog, June 2026):
+    14→  - Chat: 43+ models for conversation
+    15→  - Reasoning: 17+ models for complex analysis
+    16→  - Vision: 22+ models for image understanding
+    17→  - Content: 15+ models for channel posts
+    18→  - Search: 4 Perplexity models
+    19→  - Image gen: 8 models
+    20→  - Audio: 3 models
+    21→
+    22→  IMPORTANT: Models are NEVER deleted when temporarily unavailable.
+    23→  Pollinations.ai rotates model availability -- a 402/404 today
+    24→  doesn't mean the model is gone. We keep all models and use
+    25→  circuit breaking (5-min cooldown) for recently failed models.
+    26→"""
+    27→
+    28→import httpx
+    29→import json
+    30→import base64
+    31→import logging
+    32→import time
+    33→from typing import Optional, List, Dict, Tuple
+    34→
+    35→from ai.providers.base import BaseAIProvider, AIResponse
+    36→from bot.config import config
+    37→
+    38→logger = logging.getLogger("asya.ai.pollinations")
+    39→
+    40→# ── Cooldown for depleted API keys (seconds) ──
+    41→KEY_COOLDOWN: float = 600.0  # 10 minutes before retrying a depleted key
+    42→
+    43→# No hardcoded API keys — all from config/environment
+    44→
+    45→# ── Model Categories ──────────────────────────────────────────────────────────
+    46→
+    47→# Chat models — for general conversation (43 models)
+    48→# All models from Pollinations catalog (June 2026)
+    49→# DO NOT remove models when temporarily unavailable — Pollinations rotates availability!
+    50→CHAT_MODELS = [
+    51→    "openai",              # GPT-5.4 Nano — PRIMARY, fast, 400K context, tools, text+image
+    52→    "gpt-5.4-mini",        # GPT-5.4 mini, 400K context, tools — balanced
+    53→    "mistral",             # Mistral Small, 128K context, tools, text+image — fast vision
+    54→    "mistral-4",           # Mistral 4, 262K context, tools, reasoning — better vision+reasoning
+    55→    "deepseek",            # DeepSeek V4, 1M context, tools, reasoning — fast reasoning
+    56→    "grok",                # Grok 4, 262K context, tools, text+image — good multilingual
+    57→    "gemma",               # Gemma 4, 262K context, tools, reasoning, text+image — fast MoE
+    58→    "llama",               # Llama 3.3 70B, 131K context, tools — strong base
+    59→    "llama-scout",         # Llama 4 Scout, 328K context, tools, text+image — vision+long context
+    60→    "nova-fast",           # Nova Micro, 128K context, tools — ultra fast
+    61→    "nova",                # Nova 2, 1M context, tools, reasoning, text+image — good quality
+    62→    "glm",                 # GLM 5, 198K context, tools, reasoning — multilingual, Russian OK
+    63→    "minimax-m3",          # MiniMax M3, 1M context, tools, reasoning, text+image — multilingual
+    64→    "perplexity-fast",     # Sonar, 128K context — fast web search
+    65→    "perplexity",          # Sonar Pro, 200K context — web search
+    66→    "perplexity-deep",     # Sonar deep search — deep search
+    67→    # "midijourney",       # REMOVED: text-to-music model, NOT for chat!
+    68→    "qwen-vision",         # Qwen Vision, 131K context, tools, text+image — vision specialist
+    69→    "kimi",                # Kimi K2.5, 262K context, tools, reasoning+vision
+    70→    "kimi-k2.6",           # Kimi K2.6, 262K context — latest reasoning
+    71→    "polly",               # Polly, reasoning model with tools — Pollinations reasoning
+    72→    # Models that may return empty content — kept for when they work
+    73→    # NOTE: "openai-fast" removed from CHAT_MODELS — returns empty too often
+    74→    "step-flash",          # Step Flash, 256K context, tools, reasoning+vision (may return empty)
+    75→    "qwen-large",          # Qwen Large, 1M context, reasoning+vision (may return empty)
+    76→    # Premium / quality models
+    77→    "mistral-large",       # Mistral Large, 256K context, tools — premium multilingual
+    78→    "gpt-5.5",             # GPT-5.5, 1M context — flagship
+    79→    "openai-large",        # GPT-5.4 reasoning, 400K context — best reasoning
+    80→    "deepseek-pro",        # DeepSeek V4 Pro, 1M context — best reasoning
+    81→    "grok-large",          # Grok 4 Large, 262K context — powerful reasoning
+    82→    "grok-4.3",            # Grok 4.3, 262K context — latest Grok
+    83→    "qwen-coder",          # Qwen Coder, 262K context, tools — structured content
+    84→    # Additional models
+    85→    "nova-micro",          # Amazon Nova Micro — ultra fast, cheapest
+    86→    "nova-2",              # Nova 2 Lite — fast, Russian OK
+    87→    "mistral-small",       # Mistral Small 3.2, 24B, tools, text+image — fast vision
+    88→    "mistral-small-3.2",   # Mistral Small 3.2 (alias), 24B — fastest vision
+    89→    "deepseek-v4",         # DeepSeek V4 Flash — fast alias
+    90→    "llama-3.3",           # Llama 3.3 70B (explicit), 131K context
+    91→    "llama-4-scout",       # Llama 4 Scout (alias), 328K context
+    92→    "step-3.5-flash",      # Step 3.5 Flash, 262K context, tools, reasoning — fast reasoning
+    93→    "openai-reasoning",    # OpenAI Reasoning — reasoning+vision
+    94→    "qwen3-coder",         # Qwen3 Coder 30B, tools — code reasoning
+    95→    "qwen-vision-pro",     # Qwen Vision Pro, 262K context, reasoning, text+image — pro vision
+    96→    "qwen-safety",         # Qwen Safety — content moderation
+    97→    "perplexity-reasoning",# Sonar Reasoning Pro — search+reasoning
+    98→    "minimax",             # MiniMax M2, 200K context, tools, reasoning — good chat
+    99→    # PAID-ONLY models (return 402 without paid balance) — kept for paid users
+   100→    "claude",              # Claude — premium, needs paid balance
+   101→    "gemini",              # Gemini — needs paid balance
+   102→    "gemini-large",        # Gemini Large — needs paid balance
+   103→    "llama-maverick",      # Llama Maverick — needs paid balance
+   104→    # Models needing special handling
+   105→    "openai-audio",        # OpenAI Audio — needs audio input, empty for text-only
+   106→]
+   107→
+   108→# Reasoning models — for complex analysis and diagnostics (17 models)
+   109→REASONING_MODELS = [
+   110→    "openai-large",        # GPT-5.4 reasoning — best reasoning
+   111→    "gpt-5.5",             # GPT-5.5 — flagship
+   112→    "deepseek-pro",        # DeepSeek V4 Pro — best reasoning
+   113→    "deepseek",            # DeepSeek V4 — fast reasoning
+   114→    "grok-large",          # Grok Large — powerful reasoning
+   115→    "grok-4.3",            # Grok 4.3 — latest Grok reasoning
+   116→    "kimi",                # Kimi K2.5 — reasoning+vision
+   117→    "kimi-k2.6",           # Kimi K2.6 — latest reasoning
+   118→    "mistral-large",       # Mistral Large — premium reasoning
+   119→    "mistral-4",           # Mistral 4 — reasoning
+   120→    "gemma",               # Gemma 4 — MoE reasoning
+   121→    "minimax-m3",          # MiniMax M3 — reasoning
+   122→    "polly",               # Polly — Pollinations reasoning
+   123→    "qwen-large",          # Qwen Large — reasoning+vision (may return empty)
+   124→    "step-flash",          # Step Flash — reasoning+vision (may return empty)
+   125→    "openai-reasoning",    # OpenAI Reasoning — reasoning+vision
+   126→    "perplexity-reasoning",# Sonar Reasoning Pro — search+reasoning
+   127→]
+   128→
+   129→# Vision models — can understand images (22 models)
+   130→VISION_MODELS = [
+   131→    "openai",              # Primary vision model
+   132→    "openai-large",        # Vision + reasoning
+   133→    "gpt-5.5",             # GPT-5.5 vision
+   134→    "mistral",             # Vision capable — fast
+   135→    "mistral-4",           # Vision + reasoning
+   136→    "mistral-small",       # Vision capable — fast
+   137→    "mistral-small-3.2",   # Vision capable — fastest
+   138→    "qwen-vision",         # Qwen Vision specialist
+   139→    "qwen-vision-pro",     # Qwen Vision Pro — pro vision
+   140→    "qwen-large",          # Qwen Large — reasoning+vision (may return empty)
+   141→    "llama-scout",         # Vision + long context
+   142→    "nova",                # Vision capable — good quality
+   143→    "nova-fast",           # Vision capable — ultra fast
+   144→    "minimax-m3",          # Vision capable — multilingual
+   145→    "gemma",               # Vision capable — MoE
+   146→    "grok",                # Vision capable — multilingual
+   147→    "grok-4.3",            # Vision capable — latest
+   148→    "step-flash",          # Vision capable (may return empty)
+   149→    "kimi-k2.6",           # Vision capable — latest reasoning
+   150→    "kimi",                # Vision capable — reasoning+vision
+   151→    "openai-reasoning",    # Reasoning + vision
+   152→    "polly",               # Vision capable — reasoning
+   153→]
+   154→
+   155→# Content creation models — for generating channel posts (15 models)
+   156→CONTENT_MODELS = [
+   157→    "openai-large",        # Best quality for content
+   158→    "gpt-5.5",             # GPT-5.5 — best overall
+   159→    "deepseek",            # Good analysis
+   160→    "deepseek-pro",        # Strong reasoning for content
+   161→    "mistral-large",       # High-quality writing
+   162→    "mistral-4",           # Good writing
+   163→    "kimi",                # Reasoning+vision
+   164→    "grok-large",          # Good Russian writing
+   165→    "grok-4.3",            # Latest Grok
+   166→    "minimax-m3",          # Detailed content
+   167→    "qwen-large",          # Reasoning+vision (may return empty)
+   168→    "perplexity",          # Web search for content
+   169→    "perplexity-deep",     # Deep search for content
+   170→    "nova",                # Good quality
+   171→    "gemma",               # Good MoE content
+   172→    "polly",               # Slow but thorough
+   173→]
+   174→
+   175→# Perplexity models — web-search augmented (4 models)
+   176→SEARCH_MODELS = [
+   177→    "perplexity",          # Sonar Pro
+   178→    "perplexity-fast",     # Sonar — fast
+   179→    "perplexity-deep",     # Sonar deep search
+   180→    "perplexity-reasoning",# Sonar Reasoning Pro, web + reasoning
+   181→]
+   182→
+   183→# Image generation models (8 models)
+   184→IMAGE_MODELS = [
+   185→    "flux",                # Flux — text→image
+   186→    "gptimage",            # GPT Image — text→image
+   187→    "gptimage-large",      # GPT Image Large — text→image
+   188→    "kontext",             # Kontext — text+image→image
+   189→    "zimage",              # ZImage — text→image
+   190→    "nova-canvas",         # Nova Canvas — text+image→image
+   191→    "klein",               # Klein — text→image
+   192→    "ltx-2",               # LTX-2 — text→image
+   193→]
+   194→
+   195→# Audio / transcription models (3 models)
+   196→AUDIO_MODELS = [
+   197→    "whisper",             # Whisper — audio→text
+   198→    "universal-2",         # Universal 2 — audio→text
+   199→    "universal-3-pro",     # Universal 3 Pro — audio→text
+   200→]
+   201→
+   202→# All available models (deduplicated)
+   203→POLLINATIONS_MODELS = list(dict.fromkeys(
+   204→    CHAT_MODELS + REASONING_MODELS + VISION_MODELS +
+   205→    SEARCH_MODELS + IMAGE_MODELS + AUDIO_MODELS
+   206→))
+   207→
+   208→DEFAULT_MODEL = "openai"
+   209→
+   210→# Fallback models — ordered by reliability and speed
+   211→FALLBACK_MODELS = [
+   212→    "mistral-4", "deepseek", "nova-fast", "grok", "grok-large",
+   213→    "grok-4.3", "minimax-m3", "llama-scout", "gemma", "kimi", "kimi-k2.6", "glm",
+   214→    "mistral", "step-flash", "polly", "mistral-large", "qwen-large",
+   215→    "gpt-5.4-mini", "deepseek-pro", "perplexity-deep",
+   216→    "perplexity-reasoning", "openai-reasoning", "nova-micro", "nova",
+   217→    "llama", "perplexity-fast", "perplexity", "qwen-coder",
+   218→    "qwen-vision", "nova-2", "mistral-small", "mistral-small-3.2",
+   219→]
+   220→
+   221→# Models known to sometimes return empty content
+   222→EMPTY_CONTENT_MODELS = {
+   223→    "openai-fast", "step-flash", "qwen-large", "openai-audio",
+   224→}
+   225→
+   226→# Paid-only models (return 402 without paid balance)
+   227→PAID_ONLY_MODELS = {
+   228→    "claude", "gemini", "gemini-large", "llama-maverick",
+   229→}
+   230→
+   231→# Track model failures for circuit breaking
+   232→_model_failures: Dict[str, float] = {}
+   233→_FAILURE_COOLDOWN = 300  # 5 minutes
+   234→
+   235→
+   236→class PollinationsProvider(BaseAIProvider):
+   237→    """Pollinations AI provider v5.0 — DUAL KEY + FREE API FALLBACK + 60+ MODELS!
+   238→
+   239→    Uses gen.pollinations.ai/v1/chat/completions (OpenAI-compatible).
+   240→    Falls back to text.pollinations.ai (FREE, no auth) when keys are depleted.
+   241→
+   242→    FAILOVER CHAIN (within provider):
+   243→      1. Try KEY1 first (config.POLLINATIONS_API_KEY)
+   244→      2. On 402/401 from KEY1 -> switch to KEY2 (config.POLLINATIONS_API_KEY_2)
+   245→      3. On 402/401 from KEY2 -> try FREE API (text.pollinations.ai, no auth)
+   246→      4. Depleted keys auto-retry after 600 seconds cooldown
+   247→      5. Free API always available but rate-limited and slower
+   248→
+   249→    IMPORTANT: Models are NEVER removed when unavailable.
+   250→    Pollinations.ai rotates model availability — a failure today
+   251→    doesn't mean the model is gone. Circuit breaking (5-min cooldown)
+   252→    handles temporary failures.
+   253→    """
+   254→
+   255→    def __init__(self):
+   256→        super().__init__(
+   257→            name="pollinations",
+   258→            api_key=config.POLLINATIONS_API_KEY,
+   259→            base_url=config.POLLINATIONS_BASE_URL,
+   260→        )
+   261→        # ── Dual API key storage ──
+   262→        # KEY1 = primary key from config
+   263→        self._api_key_1: str = config.POLLINATIONS_API_KEY
+   264→        self._api_key_2: str = config.POLLINATIONS_API_KEY_2
+   265→        # ── Per-key balance depletion tracking ──
+   266→        # 0 = active/never depleted; >0 = timestamp when depleted
+   267→        self._key1_depleted_at: float = 0.0
+   268→        self._key2_depleted_at: float = 0.0
+   269→
+   270→        # ── Free API endpoints (no auth required) ──
+   271→        self._free_text_url: str = config.POLLINATIONS_FREE_TEXT_URL
+   272→        self._free_image_url: str = config.POLLINATIONS_FREE_IMAGE_URL
+   273→        self._free_api_available: bool = True  # Assume available until proven otherwise
+   274→        self._free_api_cooldown_until: float = 0.0  # Timestamp when free API cooldown ends
+   275→
+   276→    # ── API Key Management ──────────────────────────────────────
+   277→
+   278→    def _is_key_available(self, key_index: int) -> bool:
+   279→        """Check if an API key is available (not depleted or cooldown expired)."""
+   280→        if key_index == 1:
+   281→            depleted_at = self._key1_depleted_at
+   282→            key_val = self._api_key_1
+   283→        elif key_index == 2:
+   284→            depleted_at = self._key2_depleted_at
+   285→            key_val = self._api_key_2
+   286→        else:
+   287→            return False  # Only KEY1 and KEY2 supported
+   288→
+   289→        if not key_val:
+   290→            return False
+   291→
+   292→        if depleted_at == 0:
+   293→            return True
+   294→
+   295→        elapsed = time.time() - depleted_at
+   296→        if elapsed >= KEY_COOLDOWN:
+   297→            if key_index == 1:
+   298→                self._key1_depleted_at = 0
+   299→            else:
+   300→                self._key2_depleted_at = 0
+   301→            logger.info(f"API KEY{key_index} cooldown expired after {elapsed:.0f}s — retrying")
+   302→            return True
+   303→
+   304→        return False
+   305→
+   306→    def _mark_key_depleted(self, key_index: int) -> None:
+   307→        """Mark an API key as depleted (balance exhausted)."""
+   308→        if key_index == 1:
+   309→            self._key1_depleted_at = time.time()
+   310→        else:
+   311→            self._key2_depleted_at = time.time()
+   312→        logger.warning(
+   313→            f"API KEY{key_index} depleted (402/401). "
+   314→            f"Will auto-retry after {KEY_COOLDOWN}s cooldown."
+   315→        )
+   316→
+   317→    def _get_active_key_tier(self) -> Tuple[str, int]:
+   318→        """Determine which key/tier to use for the next request."""
+   319→        if self._is_key_available(1):
+   320→            return self._api_key_1, 1
+   321→        if self._is_key_available(2):
+   322→            return self._api_key_2, 2
+   323→        return "", 0
+   324→
+   325→    def _get_key_status_summary(self) -> str:
+   326→        """Get a human-readable summary of key statuses."""
+   327→        parts = []
+   328→        for idx, (key_val, depleted_at) in enumerate([
+   329→            (self._api_key_1, self._key1_depleted_at),
+   330→            (self._api_key_2, self._key2_depleted_at),
+   331→        ], start=1):
+   332→            if not key_val:
+   333→                parts.append(f"KEY{idx}=not_set")
+   334→            elif depleted_at == 0:
+   335→                parts.append(f"KEY{idx}=active")
+   336→            else:
+   337→                remaining = KEY_COOLDOWN - (time.time() - depleted_at)
+   338→                parts.append(f"KEY{idx}=depleted({remaining:.0f}s)")
+   339→        return ", ".join(parts)
+   340→
+   341→    def _build_key_tier_list(self) -> List[Tuple[str, int]]:
+   342→        """Build ordered list of available key tiers to try."""
+   343→        tiers: List[Tuple[str, int]] = []
+   344→        if self._is_key_available(1):
+   345→            tiers.append((self._api_key_1, 1))
+   346→        if self._is_key_available(2):
+   347→            tiers.append((self._api_key_2, 2))
+   348→        return tiers
+   349→
+   350→    async def chat(
+   351→        self,
+   352→        messages: List[Dict[str, str]],
+   353→        model: str = "",
+   354→        temperature: float = 0.7,
+   355→        max_tokens: int = 2048,
+   356→        **kwargs,
+   357→    ) -> AIResponse:
+   358→        """Send a chat completion request to Pollinations API with DUAL-KEY FAILOVER.
+   359→
+   360→        Strategy:
+   361→        1. Try with KEY1 first (if balance available)
+   362→        2. On 402/401 from KEY1 -> switch to KEY2
+   363→        3. On 402/401 from KEY2 -> return error (router decides fallback)
+   364→
+   365→        Empty content handling:
+   366→        - If a model returns empty content, check reasoning_content field
+   367→        - If both are empty, mark as temporary failure (circuit break)
+   368→        - Models in EMPTY_CONTENT_MODELS get special logging
+   369→        - Models are NEVER removed from lists
+   370→        """
+   371→        model = model or DEFAULT_MODEL
+   372→
+   373→        # Check if model is in cooldown from recent failures
+   374→        if self._is_model_in_cooldown(model):
+   375→            alt = self._get_available_model()
+   376→            if alt:
+   377→                logger.info(f"Model {model} in cooldown, using {alt}")
+   378→                model = alt
+   379→
+   380→        # Build key tier list: active keys first
+   381→        tiers_to_try = self._build_key_tier_list()
+   382→
+   383→        # If no keys available at all, check cooldown
+   384→        if not tiers_to_try:
+   385→            return AIResponse(
+   386→                text="",
+   387→                model=model,
+   388→                provider=self.name,
+   389→                error=True,
+   390→                error_message=f"All API keys depleted [{self._get_key_status_summary()}]",
+   391→            )
+   392→
+   393→        payload = {
+   394→            "model": model,
+   395→            "messages": messages,
+   396→            "temperature": temperature,
+   397→            "max_tokens": max_tokens,
+   398→        }
+   399→
+   400→        if kwargs.get("top_p"):
+   401→            payload["top_p"] = kwargs["top_p"]
+   402→        if kwargs.get("frequency_penalty"):
+   403→            payload["frequency_penalty"] = kwargs["frequency_penalty"]
+   404→        if kwargs.get("presence_penalty"):
+   405→            payload["presence_penalty"] = kwargs["presence_penalty"]
+   406→
+   407→        last_error = None
+   408→        for api_key, tier_index in tiers_to_try:
+   409→            try:
+   410→                headers = {"Content-Type": "application/json"}
+   411→                if api_key:
+   412→                    headers["Authorization"] = f"Bearer {api_key}"
+   413→
+   414→                # Use 15s timeout for chat requests — fast response is critical for user experience.
+   415→                # The overall chat timeout in _process_text_message is 45s, and we need to
+   416→                # try multiple key tiers and models before that deadline.
+   417→                async with httpx.AsyncClient(timeout=15.0) as client:
+   418→                    start_time = time.time()
+   419→                    url = f"{self.base_url}/v1/chat/completions"
+   420→                    response = await client.post(url, headers=headers, json=payload)
+   421→                    elapsed = time.time() - start_time
+   422→
+   423→                    if response.status_code == 200:
+   424→                        data = response.json()
+   425→                        text = ""
+   426→                        choices = data.get("choices", [])
+   427→                        if choices:
+   428→                            msg = choices[0].get("message", {})
+   429→                            # Primary content
+   430→                            text = msg.get("content", "") or ""
+   431→                            # Fallback: reasoning_content (some reasoning models
+   432→                            # put their output here instead of content)
+   433→                            if not text:
+   434→                                text = msg.get("reasoning_content", "") or ""
+   435→
+   436→                        usage = data.get("usage", {})
+   437→                        tokens_used = usage.get("total_tokens", 0)
+   438→                        actual_model = data.get("model", model)
+   439→                        tier_label = f"KEY{tier_index}"
+   440→
+   441→                        # Handle empty content gracefully
+   442→                        if not text:
+   443→                            # Check if this is a known empty-content model
+   444→                            if model in EMPTY_CONTENT_MODELS:
+   445→                                logger.warning(
+   446→                                    f"Empty response from {model} (known empty-content model) "
+   447→                                    f"via {tier_label} — marking as temporary failure"
+   448→                                )
+   449→                            else:
+   450→                                logger.warning(
+   451→                                    f"Empty response from {model} via {tier_label} — "
+   452→                                    f"marking as temporary failure"
+   453→                                )
+   454→                            # Circuit break the model, but do NOT remove it
+   455→                            _model_failures[model] = time.time()
+   456→                            last_error = f"Empty response from {model}"
+   457→                            continue  # Try next key tier
+   458→
+   459→                        logger.info(
+   460→                            f"Pollinations response ({tier_label}): model={actual_model}, "
+   461→                            f"tokens={tokens_used}, time={elapsed:.1f}s, "
+   462→                            f"length={len(text)}"
+   463→                        )
+   464→
+   465→                        return AIResponse(
+   466→                            text=text,
+   467→                            model=actual_model,
+   468→                            provider=self.name,
+   469→                            tokens_used=tokens_used,
+   470→                        )
+   471→
+   472→                    elif response.status_code in (401, 402):
+   473→                        # Balance depleted or unauthorized → switch key
+   474→                        self._mark_key_depleted(tier_index)
+   475→                        last_error = f"HTTP {response.status_code} from KEY{tier_index}"
+   476→                        logger.warning(
+   477→                            f"HTTP {response.status_code} from {model} via KEY{tier_index} — "
+   478→                            f"switching to next key tier"
+   479→                        )
+   480→                        continue  # Try next key tier
+   481→
+   482→                    elif response.status_code == 429:
+   483→                        # Rate limited — short cooldown
+   484→                        logger.warning(f"Rate limited (429) on KEY{tier_index}, model={model}")
+   485→                        _model_failures[model] = time.time()
+   486→                        # Try next key tier
+   487→                        continue
+   488→
+   489→                    else:
+   490→                        error_text = response.text[:500]
+   491→                        logger.error(
+   492→                            f"Pollinations error: status={response.status_code}, "
+   493→                            f"model={model}, error={error_text}"
+   494→                        )
+   495→                        _model_failures[model] = time.time()
+   496→
+   497→                        return AIResponse(
+   498→                            text="",
+   499→                            model=model,
+   500→                            provider=self.name,
+   501→                            error=True,
+   502→                            error_message=f"HTTP {response.status_code}: {error_text}",
+   503→                        )
+   504→
+   505→            except httpx.TimeoutException:
+   506→                logger.error(f"Pollinations timeout: model={model}, tier=KEY{tier_index}")
+   507→                _model_failures[model] = time.time()
+   508→                last_error = f"Timeout from KEY{tier_index}"
+   509→                # Mark the key as potentially depleted on timeout too —
+   510→                # if it times out, trying the same key again is unlikely to help
+   511→                if tier_index == 1 and self._key1_depleted_at == 0:
+   512→                    self._key1_depleted_at = time.time() - KEY_COOLDOWN + 60  # Retry in 60s instead of 600s
+   513→                elif tier_index == 2 and self._key2_depleted_at == 0:
+   514→                    self._key2_depleted_at = time.time() - KEY_COOLDOWN + 60
+   515→                continue  # Try next key tier
+   516→
+   517→            except Exception as e:
+   518→                logger.error(f"Pollinations exception: model={model}, tier=KEY{tier_index}, error={e}")
+   519→                _model_failures[model] = time.time()
+   520→                last_error = str(e)
+   521→                continue
+   522→
+   523→        # ── All key tiers failed → return error, let router decide ──
+   524→        key_status = self._get_key_status_summary()
+   525→        logger.error(
+   526→            f"All API key tiers failed for model {model}. "
+   527→            f"Key status: [{key_status}]. Last error: {last_error}. "
+   528→            f"Router should decide fallback."
+   529→        )
+   530→
+   531→        return AIResponse(
+   532→            text="",
+   533→            model=model,
+   534→            provider=self.name,
+   535→            error=True,
+   536→            error_message=f"All API keys depleted/unavailable [{key_status}]. {last_error}",
+   537→        )
+   538→
+   539→    async def generate_image(self, prompt: str, model: str = "flux") -> Optional[bytes]:
+   540→        """Generate an image using Pollinations image API.
+   541→        Uses dual-key failover: KEY1 -> KEY2.
+   542→        Returns image bytes or None on failure.
+   543→        """
+   544→        # Build key tier list
+   545→        tiers_to_try = self._build_key_tier_list()
+   546→
+   547→        if not tiers_to_try:
+   548→            logger.warning("No API keys available for image generation")
+   549→            return None
+   550→
+   551→        for api_key, tier_index in tiers_to_try:
+   552→            try:
+   553→                url = f"{self.base_url}/v1/images/generations"
+   554→                headers = {
+   555→                    "Content-Type": "application/json",
+   556→                    "Authorization": f"Bearer {api_key}",
+   557→                }
+   558→                payload = {
+   559→                    "model": model,
+   560→                    "prompt": prompt,
+   561→                    "size": "1344x768",  # Good for Telegram channel posts
+   562→                }
+   563→
+   564→                async with httpx.AsyncClient(timeout=90.0) as client:
+   565→                    response = await client.post(url, headers=headers, json=payload)
+   566→
+   567→                    if response.status_code == 200:
+   568→                        data = response.json()
+   569→                        for item in data.get("data", []):
+   570→                            if item.get("b64_json"):
+   571→                                return base64.b64decode(item["b64_json"])
+   572→                            elif item.get("url"):
+   573→                                img_resp = await client.get(item["url"])
+   574→                                if img_resp.status_code == 200:
+   575→                                    return img_resp.content
+   576→                    elif response.status_code in (401, 402):
+   577→                        self._mark_key_depleted(tier_index)
+   578→                        logger.warning(f"Image gen HTTP {response.status_code} via KEY{tier_index}, trying next tier...")
+   579→                        continue
+   580→                    else:
+   581→                        logger.error(f"Image generation error: {response.status_code} {response.text[:300]}")
+   582→                        return None
+   583→
+   584→            except Exception as e:
+   585→                logger.error(f"Image generation exception: {e}")
+   586→                continue
+   587→
+   588→        return None
+   589→
+   590→    async def analyze_image(
+   591→        self,
+   592→        image_url: str = "",
+   593→        image_base64: str = "",
+   594→        prompt: str = "Опиши подробно что ты видишь на этом изображении.",
+   595→        model: str = "openai",
+   596→        system_prompt: str = "",
+   597→        max_tokens: int = 600,
+   598→        temperature: float = 0.7,
+   599→    ) -> AIResponse:
+   600→        """Analyze an image using vision-capable models.
+   601→        Uses dual-key failover for each vision model attempt.
+   602→        """
+   603→        # Build the content array for vision
+   604→        content = [
+   605→            {"type": "text", "text": prompt}
+   606→        ]
+   607→
+   608→        if image_url:
+   609→            content.append({
+   610→                "type": "image_url",
+   611→                "image_url": {"url": image_url}
+   612→            })
+   613→        elif image_base64:
+   614→            media_type = "image/jpeg"
+   615→            if image_base64.startswith("data:"):
+   616→                header, image_base64 = image_base64.split(",", 1)
+   617→                if "png" in header:
+   618→                    media_type = "image/png"
+   619→                elif "webp" in header:
+   620→                    media_type = "image/webp"
+   621→                elif "gif" in header:
+   622→                    media_type = "image/gif"
+   623→
+   624→            content.append({
+   625→                "type": "image_url",
+   626→                "image_url": {
+   627→                    "url": f"data:{media_type};base64,{image_base64}"
+   628→                }
+   629→            })
+   630→
+   631→        messages = []
+   632→        if system_prompt:
+   633→            messages.append({"role": "system", "content": system_prompt})
+   634→
+   635→        messages.append({"role": "user", "content": content})
+   636→
+   637→        # Try primary vision model, then fallbacks
+   638→        vision_models_to_try = [model]
+   639→        for fallback in VISION_MODELS:
+   640→            if fallback != model and not self._is_model_in_cooldown(fallback):
+   641→                vision_models_to_try.append(fallback)
+   642→
+   643→        for vision_model in vision_models_to_try[:5]:  # Try up to 5 models
+   644→            try:
+   645→                result = await self.chat(
+   646→                    messages=messages,
+   647→                    model=vision_model,
+   648→                    temperature=temperature,
+   649→                    max_tokens=max_tokens,
+   650→                )
+   651→                if not result.error and result.text:
+   652→                    return result
+   653→                logger.warning(f"Vision model {vision_model} failed, trying next...")
+   654→            except Exception as e:
+   655→                logger.error(f"Vision error with {vision_model}: {e}")
+   656→                continue
+   657→
+   658→        return AIResponse(
+   659→            text="",
+   660→            model=model,
+   661→            provider=self.name,
+   662→            error=True,
+   663→            error_message="All vision models failed",
+   664→        )
+   665→
+   666→    async def is_available(self) -> bool:
+   667→        """Check if Pollinations API is reachable (with key or free)."""
+   668→        active_key, _ = self._get_active_key_tier()
+   669→        if active_key:
+   670→            try:
+   671→                async with httpx.AsyncClient(timeout=10.0) as client:
+   672→                    response = await client.get(
+   673→                        f"{self.base_url}/v1/models",
+   674→                        headers={"Authorization": f"Bearer {active_key}"},
+   675→                    )
+   676→                    return response.status_code == 200
+   677→            except Exception:
+   678→                pass
+   679→        # Also check free API
+   680→        return self._is_free_api_available()
+   681→
+   682→    def _is_free_api_available(self) -> bool:
+   683→        """Check if free Pollinations API is available."""
+   684→        if not self._free_text_url:
+   685→            return False
+   686→        if self._free_api_cooldown_until > time.time():
+   687→            return False
+   688→        return self._free_api_available
+   689→
+   690→    def _mark_free_api_cooldown(self, duration: float = 60.0) -> None:
+   691→        """Put free API on cooldown after failures."""
+   692→        self._free_api_cooldown_until = time.time() + duration
+   693→        logger.warning(f"Free Pollinations API on cooldown for {duration:.0f}s")
+   694→
+   695→    # ── FREE API METHODS (no auth) ───────────────────────────────────
+   696→
+   697→    async def chat_free(
+   698→        self,
+   699→        messages: List[Dict[str, str]],
+   700→        model: str = "openai",
+   701→        temperature: float = 0.7,
+   702→        max_tokens: int = 2048,
+   703→    ) -> AIResponse:
+   704→        """Send a chat completion request using FREE Pollinations API.
+   705→
+   706→        Uses text.pollinations.ai WITHOUT Authorization header.
+   707→        This is the fallback when all API keys are depleted.
+   708→        Free API may be rate-limited and slower.
+   709→        """
+   710→        if not self._is_free_api_available():
+   711→            return AIResponse(
+   712→                text="",
+   713→                model=model,
+   714→                provider=f"{self.name}-free",
+   715→                error=True,
+   716→                error_message="Free API unavailable or on cooldown",
+   717→            )
+   718→
+   719→        model = model or DEFAULT_MODEL
+   720→
+   721→        payload = {
+   722→            "model": model,
+   723→            "messages": messages,
+   724→            "temperature": temperature,
+   725→            "max_tokens": max_tokens,
+   726→        }
+   727→
+   728→        try:
+   729→            headers = {"Content-Type": "application/json"}
+   730→            # NO Authorization header — this is the free API
+   731→
+   732→            # Use 12s timeout for free API — it's a fallback, should be fast or fail fast.
+   733→            # User is already waiting after the paid API attempt failed.
+   734→            async with httpx.AsyncClient(timeout=12.0) as client:
+   735→                start_time = time.time()
+   736→                url = f"{self._free_text_url}/openai/chat/completions"
+   737→                response = await client.post(url, headers=headers, json=payload)
+   738→                elapsed = time.time() - start_time
+   739→
+   740→                if response.status_code == 200:
+   741→                    data = response.json()
+   742→                    text = ""
+   743→                    choices = data.get("choices", [])
+   744→                    if choices:
+   745→                        msg = choices[0].get("message", {})
+   746→                        text = msg.get("content", "") or ""
+   747→                        if not text:
+   748→                            text = msg.get("reasoning_content", "") or ""
+   749→
+   750→                    if not text:
+   751→                        logger.warning(f"Free API: empty response from {model}")
+   752→                        return AIResponse(
+   753→                            text="",
+   754→                            model=model,
+   755→                            provider=f"{self.name}-free",
+   756→                            error=True,
+   757→                            error_message="Empty response from free API",
+   758→                        )
+   759→
+   760→                    logger.info(
+   761→                        f"Free API response: model={model}, "
+   762→                        f"time={elapsed:.1f}s, length={len(text)}"
+   763→                    )
+   764→
+   765→                    return AIResponse(
+   766→                        text=text,
+   767→                        model=model,
+   768→                        provider=f"{self.name}-free",
+   769→                    )
+   770→
+   771→                elif response.status_code == 429:
+   772→                    logger.warning(f"Free API rate limited (429)")
+   773→                    self._mark_free_api_cooldown(120.0)  # 2 min cooldown
+   774→                    return AIResponse(
+   775→                        text="",
+   776→                        model=model,
+   777→                        provider=f"{self.name}-free",
+   778→                        error=True,
+   779→                        error_message="Free API rate limited",
+   780→                    )
+   781→
+   782→                else:
+   783→                    error_text = response.text[:300]
+   784→                    logger.error(f"Free API error: {response.status_code}: {error_text}")
+   785→                    self._mark_free_api_cooldown(60.0)
+   786→                    return AIResponse(
+   787→                        text="",
+   788→                        model=model,
+   789→                        provider=f"{self.name}-free",
+   790→                        error=True,
+   791→                        error_message=f"Free API HTTP {response.status_code}: {error_text}",
+   792→                    )
+   793→
+   794→        except httpx.TimeoutException:
+   795→            logger.error(f"Free API timeout: model={model}")
+   796→            self._mark_free_api_cooldown(30.0)
+   797→            return AIResponse(
+   798→                text="",
+   799→                model=model,
+   800→                provider=f"{self.name}-free",
+   801→                error=True,
+   802→                error_message="Free API timeout",
+   803→            )
+   804→
+   805→        except Exception as e:
+   806→            logger.error(f"Free API exception: {e}")
+   807→            self._mark_free_api_cooldown(60.0)
+   808→            return AIResponse(
+   809→                text="",
+   810→                model=model,
+   811→                provider=f"{self.name}-free",
+   812→                error=True,
+   813→                error_message=f"Free API exception: {e}",
+   814→            )
+   815→
+   816→    async def analyze_image_free(
+   817→        self,
+   818→        image_url: str = "",
+   819→        image_base64: str = "",
+   820→        prompt: str = "Опиши подробно что ты видишь на этом изображении.",
+   821→        model: str = "openai",
+   822→        system_prompt: str = "",
+   823→        max_tokens: int = 600,
+   824→        temperature: float = 0.7,
+   825→    ) -> AIResponse:
+   826→        """Analyze an image using FREE Pollinations API (no auth).
+   827→        Same format as analyze_image but without API key.
+   828→        """
+   829→        # Build the content array for vision
+   830→        content = [
+   831→            {"type": "text", "text": prompt}
+   832→        ]
+   833→
+   834→        if image_url:
+   835→            content.append({
+   836→                "type": "image_url",
+   837→                "image_url": {"url": image_url}
+   838→            })
+   839→        elif image_base64:
+   840→            media_type = "image/jpeg"
+   841→            clean_base64 = image_base64
+   842→            if image_base64.startswith("data:"):
+   843→                header, clean_base64 = image_base64.split(",", 1)
+   844→                if "png" in header:
+   845→                    media_type = "image/png"
+   846→                elif "webp" in header:
+   847→                    media_type = "image/webp"
+   848→                elif "gif" in header:
+   849→                    media_type = "image/gif"
+   850→
+   851→            content.append({
+   852→                "type": "image_url",
+   853→                "image_url": {
+   854→                    "url": f"data:{media_type};base64,{clean_base64}"
+   855→                }
+   856→            })
+   857→
+   858→        messages = []
+   859→        if system_prompt:
+   860→            messages.append({"role": "system", "content": system_prompt})
+   861→
+   862→        messages.append({"role": "user", "content": content})
+   863→
+   864→        # Try with a few vision models on free API
+   865→        for vision_model in [model, "mistral", "openai"]:
+   866→            if vision_model != model and self._is_model_in_cooldown(vision_model):
+   867→                continue
+   868→            result = await self.chat_free(
+   869→                messages=messages,
+   870→                model=vision_model,
+   871→                temperature=temperature,
+   872→                max_tokens=max_tokens,
+   873→            )
+   874→            if not result.error and result.text:
+   875→                return result
+   876→
+   877→        return AIResponse(
+   878→            text="",
+   879→            model=model,
+   880→            provider=f"{self.name}-free",
+   881→            error=True,
+   882→            error_message="Free API vision failed",
+   883→        )
+   884→
+   885→    async def generate_image_free(self, prompt: str, model: str = "flux") -> Optional[bytes]:
+   886→        """Generate an image using FREE Pollinations API (no auth).
+   887→
+   888→        Uses image.pollinations.ai/prompt/{encoded_prompt} — simple GET request.
+   889→        Returns image bytes or None on failure.
+   890→        """
+   891→        if not self._free_image_url:
+   892→            return None
+   893→
+   894→        try:
+   895→            import urllib.parse
+   896→            encoded_prompt = urllib.parse.quote(prompt)
+   897→            url = f"{self._free_image_url}/prompt/{encoded_prompt}"
+   898→            # Add model and size params
+   899→            url += f"?model={model}&width=1344&height=768&nologo=true"
+   900→
+   901→            async with httpx.AsyncClient(timeout=90.0) as client:
+   902→                response = await client.get(url)
+   903→                if response.status_code == 200:
+   904→                    content_type = response.headers.get("content-type", "")
+   905→                    if "image" in content_type or len(response.content) > 10000:
+   906→                        logger.info(f"Free image API: generated image ({len(response.content)} bytes)")
+   907→                        return response.content
+   908→                    else:
+   909→                        logger.warning(f"Free image API: unexpected content type: {content_type}")
+   910→                else:
+   911→                    logger.error(f"Free image API error: {response.status_code}")
+   912→
+   913→        except Exception as e:
+   914→            logger.error(f"Free image API exception: {e}")
+   915→
+   916→        return None
+   917→
+   918→    def _is_model_in_cooldown(self, model: str) -> bool:
+   919→        """Check if a model has recently failed and is in cooldown.
+   920→
+   921→        IMPORTANT: We do NOT remove models from lists when they fail.
+   922→        Pollinations.ai rotates model availability — a failure today
+   923→        doesn't mean the model is permanently unavailable.
+   924→        """
+   925→        if model not in _model_failures:
+   926→            return False
+   927→        return time.time() - _model_failures[model] < _FAILURE_COOLDOWN
+   928→
+   929→    def _get_available_model(self) -> Optional[str]:
+   930→        """Get an available model that's not in cooldown."""
+   931→        if not self._is_model_in_cooldown(DEFAULT_MODEL):
+   932→            return DEFAULT_MODEL
+   933→        for model in FALLBACK_MODELS:
+   934→            if not self._is_model_in_cooldown(model):
+   935→                return model
+   936→        if _model_failures:
+   937→            oldest = min(_model_failures, key=_model_failures.get)
+   938→            return oldest
+   939→        return DEFAULT_MODEL
+   940→
+   941→    def get_model_list(self) -> List[str]:
+   942→        """Return list of available models."""
+   943→        return POLLINATIONS_MODELS.copy()
+   944→

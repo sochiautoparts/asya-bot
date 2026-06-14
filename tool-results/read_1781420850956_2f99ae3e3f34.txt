@@ -1,0 +1,802 @@
+     1→"""Article Fetcher — fetch full article pages, extract text & images.
+     2→
+     3→PURPOSE: RSS feeds often provide only a short summary with no images.
+     4→Google News RSS gives only a redirect URL with NO content at all.
+     5→This module resolves those issues by:
+     6→  1. Resolving Google News redirect URLs to real article URLs
+     7→  2. Fetching the full article page
+     8→  3. Extracting full article text (for fact-gathering)
+     9→  4. Extracting all quality images from the page
+    10→
+    11→This ensures posts have:
+    12→  - Full facts (not just the RSS snippet)
+    13→  - Quality photos (up to 10 per post)
+    14→  - Proper attribution to the source article
+    15→"""
+    16→
+    17→from __future__ import annotations
+    18→
+    19→import logging
+    20→import re
+    21→import time
+    22→from html import unescape as html_unescape
+    23→from html.parser import HTMLParser
+    24→from typing import Dict, List, Optional, Tuple
+    25→from urllib.parse import urlparse, urljoin
+    26→
+    27→import httpx
+    28→
+    29→logger = logging.getLogger("asya.article_fetcher")
+    30→
+    31→# ── Configuration ─────────────────────────────────────────────────────────────
+    32→
+    33→FETCH_TIMEOUT = 20.0
+    34→MAX_ARTICLE_LENGTH = 8000  # Max chars of article text to extract
+    35→MAX_IMAGES_FROM_ARTICLE = 10
+    36→
+    37→# ── Google News redirect resolution ───────────────────────────────────────────
+    38→
+    39→_GOOGLE_NEWS_URL_RE = re.compile(r'news\.google\.com/rss/articles/', re.IGNORECASE)
+    40→_GOOGLE_NEWS_BASE_RE = re.compile(r'news\.google\.com', re.IGNORECASE)
+    41→
+    42→_BROWSER_HEADERS = {
+    43→    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    44→                  "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    45→    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    46→    "Accept-Language": "en-US,en;q=0.5,ru-RU;q=0.8",
+    47→}
+    48→
+    49→
+    50→async def resolve_google_news_url(url: str, client: Optional[httpx.AsyncClient] = None) -> str:
+    51→    """Follow Google News redirect to get the real article URL.
+    52→    
+    53→    Tries multiple strategies:
+    54→    1. HEAD request with follow_redirects
+    55→    2. GET stream with follow_redirects  
+    56→    3. Parse HTML for canonical/meta-refresh
+    57→    4. Full GET with follow_redirects
+    58→    
+    59→    Returns the resolved URL, or the original URL if resolution fails.
+    60→    """
+    61→    if not url:
+    62→        return url
+    63→    
+    64→    # Not a Google News URL — return as-is
+    65→    if not _GOOGLE_NEWS_BASE_RE.search(url):
+    66→        return url
+    67→
+    68→    should_close = False
+    69→    if client is None:
+    70→        client = httpx.AsyncClient(timeout=FETCH_TIMEOUT, follow_redirects=True)
+    71→        should_close = True
+    72→
+    73→    try:
+    74→        # Try 1: HEAD with follow_redirects
+    75→        try:
+    76→            resp = await client.head(url, timeout=10.0, follow_redirects=True, headers=_BROWSER_HEADERS)
+    77→            resolved = str(resp.url)
+    78→            if resolved != url and not _GOOGLE_NEWS_BASE_RE.search(resolved):
+    79→                logger.info(f"Google News resolved (HEAD): {url[:50]}... → {resolved[:50]}...")
+    80→                return resolved
+    81→        except Exception:
+    82→            pass
+    83→
+    84→        # Try 2: GET with follow_redirects (stream mode)
+    85→        try:
+    86→            async with client.stream(
+    87→                "GET", url, timeout=10.0, follow_redirects=True, headers=_BROWSER_HEADERS,
+    88→            ) as resp:
+    89→                resolved = str(resp.url)
+    90→                if resolved != url and not _GOOGLE_NEWS_BASE_RE.search(resolved):
+    91→                    logger.info(f"Google News resolved (stream): {url[:50]}... → {resolved[:50]}...")
+    92→                    return resolved
+    93→        except Exception:
+    94→            pass
+    95→
+    96→        # Try 3: Full GET — parse HTML for canonical/meta-refresh/og:url
+    97→        try:
+    98→            resp = await client.get(url, timeout=15.0, follow_redirects=True, headers=_BROWSER_HEADERS)
+    99→            resolved = str(resp.url)
+   100→            if resolved != url and not _GOOGLE_NEWS_BASE_RE.search(resolved):
+   101→                logger.info(f"Google News resolved (GET): {url[:50]}... → {resolved[:50]}...")
+   102→                return resolved
+   103→            
+   104→            html = resp.text[:15000]
+   105→            # Check for og:url, canonical, meta-refresh
+   106→            for pattern, name in [
+   107→                (r'<meta[^>]+property=["\']og:url["\'][^>]+content=["\']([^"\']+)["\']', "og:url"),
+   108→                (r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\']([^"\']+)["\']', "canonical"),
+   109→                (r'<meta[^>]+http-equiv=["\']refresh["\'][^>]+content=["\'][^"\']*url=([^"\';\s]+)', "meta-refresh"),
+   110→                (r'data-url=["\']([^"\']+)["\']', "data-url"),
+   111→            ]:
+   112→                m = re.search(pattern, html, re.IGNORECASE)
+   113→                if m:
+   114→                    found = m.group(1)
+   115→                    if found and not _GOOGLE_NEWS_BASE_RE.search(found) and found.startswith("http"):
+   116→                        logger.info(f"Google News resolved ({name}): {found[:60]}...")
+   117→                        return found
+   118→        except Exception:
+   119→            pass
+   120→
+   121→        logger.info(f"Could not resolve Google News URL: {url[:60]}...")
+   122→        return url
+   123→    finally:
+   124→        if should_close:
+   125→            await client.aclose()
+   126→
+   127→
+   128→# ── Article text extraction ───────────────────────────────────────────────────
+   129→
+   130→class _ArticleTextExtractor(HTMLParser):
+   131→    """Extract readable article text from HTML.
+   132→    
+   133→    Heuristic approach:
+   134→    - Look for <article>, <main>, or high-content-density <div> blocks
+   135→    - Extract text from <p>, <h1>-<h6>, <li>, <blockquote> tags
+   136→    - Skip scripts, styles, nav, footer, sidebar, comments
+   137→    - Return the longest coherent text block found
+   138→    """
+   139→    
+   140→    SKIP_TAGS = {'script', 'style', 'nav', 'footer', 'header', 'aside',
+   141→                 'noscript', 'iframe', 'svg', 'form', 'button', 'input',
+   142→                 'select', 'textarea', 'label', 'figure', 'figcaption',
+   143→                 'comment', 'comments', 'sidebar', 'advertisement'}
+   144→    TEXT_TAGS = {'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li',
+   145→                'blockquote', 'pre', 'span', 'div', 'td', 'th'}
+   146→    
+   147→    def __init__(self):
+   148→        super().__init__()
+   149→        self.text_blocks: List[str] = []
+   150→        self._current_text = ""
+   151→        self._skip_depth = 0
+   152→        self._tag_stack: List[str] = []
+   153→        self._in_article = False
+   154→        self._article_depth = 0
+   155→        self._main_depth = 0
+   156→    
+   157→    def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]):
+   158→        tag_lower = tag.lower()
+   159→        self._tag_stack.append(tag_lower)
+   160→        
+   161→        # Track if we're inside <article> or <main>
+   162→        if tag_lower == 'article':
+   163→            self._in_article = True
+   164→            self._article_depth = len(self._tag_stack)
+   165→        elif tag_lower == 'main':
+   166→            self._main_depth = len(self._tag_stack)
+   167→        
+   168→        # Check for skip-indicating classes/roles
+   169→        attr_dict = dict(attrs)
+   170→        class_attr = (attr_dict.get('class') or '').lower()
+   171→        role_attr = (attr_dict.get('role') or '').lower()
+   172→        id_attr = (attr_dict.get('id') or '').lower()
+   173→        
+   174→        skip_indicators = ['sidebar', 'comment', 'footer', 'header', 'nav',
+   175→                          'advertisement', 'promo', 'related', 'social',
+   176→                          'share', 'cookie', 'banner', 'popup', 'modal',
+   177→                          'newsletter', 'subscription', 'paywall']
+   178→        
+   179→        if any(ind in class_attr or ind in id_attr or ind in role_attr 
+   180→               for ind in skip_indicators):
+   181→            self._skip_depth += 1
+   182→        
+   183→        if tag_lower in self.SKIP_TAGS:
+   184→            self._skip_depth += 1
+   185→        
+   186→        # End current text block on block-level elements
+   187→        if tag_lower in ('p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div',
+   188→                         'br', 'li', 'blockquote', 'tr'):
+   189→            if self._current_text.strip():
+   190→                self.text_blocks.append(self._current_text.strip())
+   191→            self._current_text = ""
+   192→    
+   193→    def handle_endtag(self, tag: str):
+   194→        tag_lower = tag.lower()
+   195→        
+   196→        if self._current_text.strip():
+   197→            self.text_blocks.append(self._current_text.strip())
+   198→        self._current_text = ""
+   199→        
+   200→        if tag_lower in self.SKIP_TAGS and self._skip_depth > 0:
+   201→            self._skip_depth -= 1
+   202→        
+   203→        if tag_lower == 'article':
+   204→            self._in_article = False
+   205→        elif tag_lower == 'main':
+   206→            self._main_depth = 0
+   207→        
+   208→        if self._tag_stack:
+   209→            self._tag_stack.pop()
+   210→    
+   211→    def handle_data(self, data: str):
+   212→        if self._skip_depth > 0:
+   213→            return
+   214→        text = data.strip()
+   215→        if text:
+   216→            if self._current_text:
+   217→                self._current_text += " " + text
+   218→            else:
+   219→                self._current_text = text
+   220→    
+   221→    def get_article_text(self) -> str:
+   222→        """Return the extracted article text, cleaned and limited."""
+   223→        # Flush remaining text
+   224→        if self._current_text.strip():
+   225→            self.text_blocks.append(self._current_text.strip())
+   226→        
+   227→        # Filter out very short blocks (likely UI elements)
+   228→        meaningful_blocks = [b for b in self.text_blocks if len(b) > 20]
+   229→        
+   230→        if not meaningful_blocks:
+   231→            return ""
+   232→        
+   233→        # Join blocks into article text
+   234→        text = "\n\n".join(meaningful_blocks)
+   235→        
+   236→        # Clean up
+   237→        text = re.sub(r'\n{3,}', '\n\n', text)
+   238→        text = re.sub(r' {2,}', ' ', text)
+   239→        
+   240→        # Limit length
+   241→        if len(text) > MAX_ARTICLE_LENGTH:
+   242→            text = text[:MAX_ARTICLE_LENGTH] + "..."
+   243→        
+   244→        return text.strip()
+   245→
+   246→
+   247→def _extract_article_text(html: str) -> str:
+   248→    """Extract readable article text from HTML using heuristic parser.
+   249→    
+   250→    Strategy:
+   251→    1. Remove scripts, styles, nav, footer, sidebar, comments
+   252→    2. Extract text from <p> tags (primary content)
+   253→    3. Also extract <h2>/<h3> headings for structure
+   254→    4. Join and clean up
+   255→    """
+   256→    try:
+   257→        # Remove unwanted sections first
+   258→        # Remove script/style/nav/footer/aside/comment blocks
+   259→        html = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
+   260→        html = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL | re.IGNORECASE)
+   261→        html = re.sub(r'<nav[^>]*>.*?</nav>', '', html, flags=re.DOTALL | re.IGNORECASE)
+   262→        html = re.sub(r'<footer[^>]*>.*?</footer>', '', html, flags=re.DOTALL | re.IGNORECASE)
+   263→        html = re.sub(r'<aside[^>]*>.*?</aside>', '', html, flags=re.DOTALL | re.IGNORECASE)
+   264→        # Remove noscript, iframe, svg
+   265→        html = re.sub(r'<noscript[^>]*>.*?</noscript>', '', html, flags=re.DOTALL | re.IGNORECASE)
+   266→        html = re.sub(r'<iframe[^>]*>.*?</iframe>', '', html, flags=re.DOTALL | re.IGNORECASE)
+   267→        html = re.sub(r'<svg[^>]*>.*?</svg>', '', html, flags=re.DOTALL | re.IGNORECASE)
+   268→        
+   269→        # Remove divs with sidebar/comment/ad/nav/footer/header classes
+   270→        for cls_pattern in ['sidebar', 'comment', 'footer', 'header', 'nav-',
+   271→                           'advertisement', 'promo', 'related', 'social',
+   272→                           'share', 'cookie', 'banner', 'popup', 'modal',
+   273→                           'newsletter', 'subscription', 'paywall', 'toc']:
+   274→            html = re.sub(
+   275→                rf'<div[^>]+class=["\'][^"\']*{cls_pattern}[^"\']*["\'][^>]*>.*?</div>',
+   276→                '', html, flags=re.DOTALL | re.IGNORECASE
+   277→            )
+   278→        
+   279→        # Extract text from <p> tags (main article content)
+   280→        paragraphs = []
+   281→        for m in re.finditer(r'<p[^>]*>(.*?)</p>', html, re.DOTALL | re.IGNORECASE):
+   282→            text = m.group(1)
+   283→            # Remove inner HTML tags
+   284→            text = re.sub(r'<[^>]+>', '', text)
+   285→            # Decode entities
+   286→            text = html_unescape(text).strip()
+   287→            # Skip very short paragraphs (likely UI elements)
+   288→            if len(text) < 30:
+   289→                continue
+   290→            # Skip menu/navigation items (ALL CAPS, short, with arrows)
+   291→            if text == text.upper() and len(text) < 60:
+   292→                continue
+   293→            # Skip paragraphs that are just punctuation or whitespace
+   294→            if not re.search(r'[a-zA-Zа-яА-ЯёЁ]', text):
+   295→                continue
+   296→            # Skip paragraphs with too many consecutive newlines/spaces (menu content)
+   297→            if text.count('\n') > 5:
+   298→                continue
+   299→            paragraphs.append(text)
+   300→        
+   301→        # Also extract <h2> and <h3> headings (helps with structure)
+   302→        for m in re.finditer(r'<h[23][^>]*>(.*?)</h[23]>', html, re.DOTALL | re.IGNORECASE):
+   303→            text = m.group(1)
+   304→            text = re.sub(r'<[^>]+>', '', text)
+   305→            text = html_unescape(text).strip()
+   306→            if len(text) > 10:
+   307→                paragraphs.append(text)
+   308→        
+   309→        if not paragraphs:
+   310→            # Fallback: try the HTMLParser approach
+   311→            extractor = _ArticleTextExtractor()
+   312→            extractor.feed(html)
+   313→            return extractor.get_article_text()
+   314→        
+   315→        # Join paragraphs
+   316→        text = "\n\n".join(paragraphs)
+   317→        
+   318→        # Clean up
+   319→        text = re.sub(r'\n{3,}', '\n\n', text)
+   320→        text = re.sub(r' {2,}', ' ', text)
+   321→        
+   322→        # Limit length
+   323→        if len(text) > MAX_ARTICLE_LENGTH:
+   324→            text = text[:MAX_ARTICLE_LENGTH] + "..."
+   325→        
+   326→        return text.strip()
+   327→    except Exception as e:
+   328→        logger.debug(f"Article text extraction failed: {e}")
+   329→        return ""
+   330→
+   331→
+   332→# ── Image URL extraction from article page ────────────────────────────────────
+   333→
+   334→_JUNK_DOMAINS = {
+   335→    "mc.yandex.ru", "mc.yandex.com", "google-analytics.com",
+   336→    "facebook.com/tr", "connect.facebook.net",
+   337→    "pixel.wp.com", "stats.wordpress.com",
+   338→    "doubleclick.net", "adservice.google.com",
+   339→    "pagead2.googlesyndication.com", "ad.doubleclick.net",
+   340→    "platform.twitter.com", "apis.google.com",
+   341→    "cdn.ampproject.org", "t.co",
+   342→    "gravatar.com", "secure.gravatar.com",
+   343→    "disqus.com", "disquscdn.com",
+   344→    "hotlog.ru", "liveinternet.ru", "openstat.net",
+   345→    "top.mail.ru", "counter.rambler.ru",
+   346→}
+   347→
+   348→_JUNK_PATH_KEYWORDS = [
+   349→    "favicon", "avatar", "spinner", "loading", "placeholder",
+   350→    "pixel", "tracker", "beacon", "counter", "analytics",
+   351→    "1x1", "spacer", "blank", "transparent",
+   352→    "recaptcha", "captcha", "icon", "logo", "badge",
+   353→    "button", "btn", "share", "social",
+   354→    "facebook", "twitter", "vk.", "vkontakte", "telegram",
+   355→    "whatsapp", "instagram", "youtube", "tiktok",
+   356→    "pinterest", "linkedin", "reddit",
+   357→    "advert", "banner", "sponsor", "promo",
+   358→    "newsletter", "subscribe", "paywall",
+   359→    "emoji", "smileys", "rating", "star",
+   360→]
+   361→
+   362→
+   363→def _is_junk_image_url(url: str) -> bool:
+   364→    """Check if an image URL is junk (tracking pixel, icon, ad, etc.)."""
+   365→    lower = url.lower()
+   366→    # Check domain
+   367→    parsed = urlparse(lower)
+   368→    domain = parsed.netloc.lower()
+   369→    for junk_domain in _JUNK_DOMAINS:
+   370→        if junk_domain in domain:
+   371→            return True
+   372→    # Check path
+   373→    path = parsed.path.lower()
+   374→    for kw in _JUNK_PATH_KEYWORDS:
+   375→        if kw in path:
+   376→            return True
+   377→    # Skip SVG, GIF animations
+   378→    if path.endswith('.svg') or path.endswith('.gif'):
+   379→        return True
+   380→    # Skip data URIs
+   381→    if lower.startswith('data:'):
+   382→        return True
+   383→    # Skip schema/logo URLs (JSON-LD artifacts like /#/schema/logo/image/)
+   384→    if '/schema/' in path or '/schema/logo' in path:
+   385→        return True
+   386→    # Skip hash URLs (/#/)
+   387→    if '/#/' in url:
+   388→        return True
+   389→    return False
+   390→
+   391→
+   392→def _normalize_image_url(url: str, base_url: str = "") -> str:
+   393→    """Normalize and resolve a potentially relative image URL."""
+   394→    url = html_unescape(url).strip()
+   395→    url = url.replace('&amp;', '&')
+   396→    
+   397→    if url.startswith('//'):
+   398→        url = 'https:' + url
+   399→    elif url.startswith('/'):
+   400→        if base_url:
+   401→            url = urljoin(base_url, url)
+   402→        else:
+   403→            return ""
+   404→    elif not url.startswith('http'):
+   405→        if base_url:
+   406→            url = urljoin(base_url, url)
+   407→        else:
+   408→            return ""
+   409→    
+   410→    # Skip very short URLs (likely tracking)
+   411→    if len(url) < 30:
+   412→        return ""
+   413→    
+   414→    return url
+   415→
+   416→
+   417→def extract_image_urls_from_html(html: str, base_url: str = "") -> List[str]:
+   418→    """Extract all quality image URLs from an HTML page.
+   419→    
+   420→    Priority order:
+   421→    1. og:image / twitter:image (editor-chosen hero images)
+   422→    2. JSON-LD structured data images
+   423→    3. <picture>/<source srcset> (responsive images)
+   424→    4. <img> tags (data-src first for lazy-loaded, then src)
+   425→    
+   426→    Returns deduplicated, junk-filtered list of image URLs.
+   427→    """
+   428→    images = []
+   429→    seen = set()
+   430→
+   431→    def _add(raw_url: str):
+   432→        url = _normalize_image_url(raw_url, base_url)
+   433→        if not url or _is_junk_image_url(url):
+   434→            return
+   435→        norm_key = url.lower().rstrip('/').split('?')[0]
+   436→        if norm_key in seen:
+   437→            return
+   438→        seen.add(norm_key)
+   439→        images.append(url)
+   440→
+   441→    # 1. og:image
+   442→    for pattern in [
+   443→        r'<meta[^>]+property=["\x27]og:image["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]',
+   444→        r'<meta[^>]+content=["\x27]([^"\x27]+)["\x27][^>]+property=["\x27]og:image["\x27]',
+   445→        r'<meta[^>]+property=["\x27]og:image:url["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]',
+   446→        r'<meta[^>]+property=["\x27]og:image:secure_url["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]',
+   447→    ]:
+   448→        for m in re.finditer(pattern, html, re.IGNORECASE):
+   449→            _add(m.group(1))
+   450→
+   451→    # 2. twitter:image
+   452→    for pattern in [
+   453→        r'<meta[^>]+name=["\x27]twitter:image["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]',
+   454→        r'<meta[^>]+content=["\x27]([^"\x27]+)["\x27][^>]+name=["\x27]twitter:image["\x27]',
+   455→    ]:
+   456→        for m in re.finditer(pattern, html, re.IGNORECASE):
+   457→            _add(m.group(1))
+   458→
+   459→    # 3. JSON-LD images
+   460→    for match in re.finditer(
+   461→        r'<script[^>]+type=["\x27]application/ld\+json["\x27][^>]*>(.*?)</script>',
+   462→        html, re.IGNORECASE | re.DOTALL
+   463→    ):
+   464→        try:
+   465→            import json
+   466→            data = json.loads(match.group(1))
+   467→            _extract_jsonld_images_recursive(data, _add)
+   468→        except Exception:
+   469→            pass
+   470→
+   471→    # 4. <picture>/<source srcset>
+   472→    picture_blocks = re.findall(r'<picture[^>]*>(.*?)</picture>', html, re.IGNORECASE | re.DOTALL)
+   473→    for block in picture_blocks:
+   474→        for srcset in re.findall(r'srcset=["\x27]([^"\x27]+)["\x27]', block, re.IGNORECASE):
+   475→            for part in srcset.split(','):
+   476→                u = part.strip().split()[0] if part.strip() else ''
+   477→                _add(u)
+   478→
+   479→    # 5. <img> tags — data-src first (lazy-loaded), then src
+   480→    for attr in ['data-src', 'data-lazy-src', 'data-original', 'src']:
+   481→        for m in re.finditer(
+   482→            rf'<img[^>]+{attr}=["\x27]([^"\x27]+)["\x27]', html, re.IGNORECASE
+   483→        ):
+   484→            _add(m.group(1))
+   485→
+   486→    return images[:MAX_IMAGES_FROM_ARTICLE]
+   487→
+   488→
+   489→def _extract_jsonld_images_recursive(data, callback):
+   490→    """Recursively extract image URLs from JSON-LD structured data."""
+   491→    if isinstance(data, dict):
+   492→        # Direct image field
+   493→        image = data.get('image')
+   494→        if isinstance(image, str):
+   495→            callback(image)
+   496→        elif isinstance(image, dict):
+   497→            for key in ['url', 'contentUrl', '@id']:
+   498→                if isinstance(image.get(key), str):
+   499→                    callback(image[key])
+   500→        elif isinstance(image, list):
+   501→            for item in image:
+   502→                _extract_jsonld_images_recursive(item, callback)
+   503→        
+   504→        # Recurse into nested objects
+   505→        for key in ['@graph', 'itemListElement', 'hasPart']:
+   506→            if isinstance(data.get(key), list):
+   507→                for item in data[key]:
+   508→                    _extract_jsonld_images_recursive(item, callback)
+   509→    elif isinstance(data, list):
+   510→        for item in data:
+   511→            _extract_jsonld_images_recursive(item, callback)
+   512→
+   513→
+   514→# ── Main fetcher ──────────────────────────────────────────────────────────────
+   515→
+   516→class ArticleResult:
+   517→    """Result of fetching and parsing an article page."""
+   518→    __slots__ = ('url', 'resolved_url', 'title', 'text', 'image_urls', 'lang')
+   519→    
+   520→    def __init__(self):
+   521→        self.url: str = ""
+   522→        self.resolved_url: str = ""
+   523→        self.title: str = ""
+   524→        self.text: str = ""
+   525→        self.image_urls: List[str] = []
+   526→        self.lang: str = ""  # Detected language
+   527→    
+   528→    def to_dict(self) -> Dict:
+   529→        return {
+   530→            "url": self.url,
+   531→            "resolved_url": self.resolved_url,
+   532→            "title": self.title,
+   533→            "text": self.text,
+   534→            "image_urls": self.image_urls,
+   535→            "lang": self.lang,
+   536→        }
+   537→
+   538→
+   539→async def fetch_article(url: str, client: Optional[httpx.AsyncClient] = None) -> Optional[ArticleResult]:
+   540→    """Fetch a full article page, extract text and images.
+   541→    
+   542→    Handles:
+   543→    - Google News redirect URLs → resolves to real article URL first
+   544→    - Regular article URLs → fetches and extracts directly
+   545→    - Returns ArticleResult with full text + image URLs
+   546→    
+   547→    Returns None only if the URL is completely unreachable.
+   548→    Even partial results (e.g., just images, no text) are returned.
+   549→    """
+   550→    if not url or not url.startswith(('http://', 'https://')):
+   551→        return None
+   552→    
+   553→    should_close = False
+   554→    if client is None:
+   555→        client = httpx.AsyncClient(
+   556→            timeout=FETCH_TIMEOUT,
+   557→            follow_redirects=True,
+   558→            headers=_BROWSER_HEADERS,
+   559→        )
+   560→        should_close = True
+   561→    
+   562→    result = ArticleResult()
+   563→    result.url = url
+   564→    
+   565→    try:
+   566→        # Step 1: Resolve Google News redirects
+   567→        resolved_url = url
+   568→        if _GOOGLE_NEWS_BASE_RE.search(url):
+   569→            resolved_url = await resolve_google_news_url(url, client)
+   570→            result.resolved_url = resolved_url
+   571→        else:
+   572→            result.resolved_url = url
+   573→        
+   574→        # Step 2: Fetch the article page
+   575→        fetch_url = resolved_url if resolved_url != url else url
+   576→        
+   577→        # Skip Google News URLs that couldn't be resolved
+   578→        if _GOOGLE_NEWS_BASE_RE.search(fetch_url):
+   579→            # Instead of skipping, try to find the real article via web search
+   580→            # using the title from the news item (passed via context)
+   581→            logger.info(f"Google News URL unresolved, trying web search fallback: {fetch_url[:60]}...")
+   582→            # We can't search here without a title, so return None
+   583→            # The content_engine second-pass enrichment will handle this
+   584→            return None
+   585→        
+   586→        try:
+   587→            resp = await client.get(fetch_url, headers=_BROWSER_HEADERS, timeout=FETCH_TIMEOUT)
+   588→            if resp.status_code != 200:
+   589→                logger.debug(f"Article fetch returned {resp.status_code}: {fetch_url[:60]}...")
+   590→                return None
+   591→        except httpx.TimeoutException:
+   592→            logger.debug(f"Article fetch timeout: {fetch_url[:60]}...")
+   593→            return None
+   594→        except Exception as e:
+   595→            logger.debug(f"Article fetch error: {e}")
+   596→            return None
+   597→        
+   598→        html = resp.text
+   599→        base_url = str(resp.url)
+   600→        
+   601→        # Step 3: Extract title
+   602→        title_match = re.search(
+   603→            r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)["\']',
+   604→            html, re.IGNORECASE
+   605→        )
+   606→        if title_match:
+   607→            result.title = html_unescape(title_match.group(1))
+   608→        else:
+   609→            # Fallback to <title> tag
+   610→            title_match = re.search(r'<title[^>]*>(.*?)</title>', html, re.IGNORECASE | re.DOTALL)
+   611→            if title_match:
+   612→                result.title = html_unescape(title_match.group(1).strip())
+   613→                # Clean up title (remove site name suffix)
+   614→                result.title = re.split(r'\s*[-–|·—]\s*', result.title)[0].strip()
+   615→        
+   616→        # Step 4: Detect language
+   617→        lang_match = re.search(
+   618→            r'<meta[^>]+property=["\']og:locale["\'][^>]+content=["\']([^"\']+)["\']',
+   619→            html, re.IGNORECASE
+   620→        )
+   621→        if lang_match:
+   622→            locale = lang_match.group(1).lower()
+   623→            if locale.startswith('ru'):
+   624→                result.lang = 'ru'
+   625→            elif locale.startswith('de'):
+   626→                result.lang = 'de'
+   627→            elif locale.startswith('en'):
+   628→                result.lang = 'en'
+   629→            else:
+   630→                result.lang = locale[:2]
+   631→        else:
+   632→            # Detect from HTML lang attribute
+   633→            html_lang = re.search(r'<html[^>]+lang=["\']([^"\']+)["\']', html, re.IGNORECASE)
+   634→            if html_lang:
+   635→                result.lang = html_lang.group(1).lower()[:2]
+   636→            else:
+   637→                # Detect from text content (Cyrillic = Russian)
+   638→                if any('\u0400' <= c <= '\u04FF' for c in result.title[:50]):
+   639→                    result.lang = 'ru'
+   640→                else:
+   641→                    result.lang = 'en'
+   642→        
+   643→        # Step 5: Extract article text
+   644→        result.text = _extract_article_text(html)
+   645→        
+   646→        # Step 6: Extract image URLs
+   647→        result.image_urls = extract_image_urls_from_html(html, base_url)
+   648→        
+   649→        logger.info(
+   650→            f"Article fetched: {len(result.text)} chars, {len(result.image_urls)} images "
+   651→            f"from {fetch_url[:50]}... (lang={result.lang})"
+   652→        )
+   653→        
+   654→        return result
+   655→    
+   656→    except Exception as e:
+   657→        logger.error(f"Article fetcher error for {url[:50]}...: {e}")
+   658→        return None
+   659→    finally:
+   660→        if should_close:
+   661→            await client.aclose()
+   662→
+   663→
+   664→async def enrich_news_item(item: Dict, client: Optional[httpx.AsyncClient] = None) -> Dict:
+   665→    """Enrich a news item with full article text and images.
+   666→    
+   667→    For items that have:
+   668→    - No images (image_urls is empty) — fetches the article page to get images
+   669→    - Short summary — fetches full article text for fact-gathering
+   670→    - Google News URL — resolves redirect and fetches real article
+   671→    
+   672→    The item dict is updated with:
+   673→    - image_urls: list of image URLs from the article page
+   674→    - full_text: full article text (for AI fact-gathering)
+   675→    - resolved_url: the real article URL (after Google News redirect resolution)
+   676→    - lang: detected language
+   677→    
+   678→    Returns the updated item dict.
+   679→    """
+   680→    article_url = item.get("url", "")
+   681→    existing_images = item.get("image_urls", [])
+   682→    summary = item.get("summary", "")
+   683→    
+   684→    # Skip if we already have enough images AND a good summary
+   685→    has_enough_images = len(existing_images) >= 3
+   686→    has_good_summary = len(summary) > 200
+   687→    
+   688→    if has_enough_images and has_good_summary:
+   689→        return item  # Already well-stocked
+   690→    
+   691→    # Skip AI-discovered items (no real URL)
+   692→    if article_url.startswith("ai_discovered_"):
+   693→        return item
+   694→    
+   695→    logger.info(
+   696→        f"Enriching news item: '{item.get('title', '')[:50]}' "
+   697→        f"(imgs={len(existing_images)}, summary={len(summary)} chars)"
+   698→    )
+   699→    
+   700→    try:
+   701→        result = await fetch_article(article_url, client)
+   702→        if result is None:
+   703→            return item
+   704→        
+   705→        # Update images (merge with existing, dedup)
+   706→        if result.image_urls:
+   707→            existing_set = set(url.lower().rstrip('/') for url in existing_images)
+   708→            for img_url in result.image_urls:
+   709→                norm_key = img_url.lower().rstrip('/')
+   710→                if norm_key not in existing_set:
+   711→                    existing_images.append(img_url)
+   712→                    existing_set.add(norm_key)
+   713→            item["image_urls"] = existing_images[:10]
+   714→        
+   715→        # Add full text for AI fact-gathering
+   716→        if result.text and len(result.text) > len(summary):
+   717→            item["full_text"] = result.text
+   718→        
+   719→        # Update resolved URL
+   720→        if result.resolved_url and result.resolved_url != article_url:
+   721→            item["resolved_url"] = result.resolved_url
+   722→        
+   723→        # Update language if detected
+   724→        if result.lang:
+   725→            item["lang"] = result.lang
+   726→        
+   727→        # Update title if we got a better one
+   728→        if result.title and len(result.title) > len(item.get("title", "")):
+   729→            item["title"] = result.title
+   730→        
+   731→        logger.info(
+   732→            f"Enriched: {len(item.get('image_urls', []))} images, "
+   733→            f"{len(item.get('full_text', ''))} chars text for '{item.get('title', '')[:40]}'"
+   734→        )
+   735→    
+   736→    except Exception as e:
+   737→        logger.debug(f"Article enrichment failed for '{item.get('title', '')[:40]}': {e}")
+   738→    
+   739→    return item
+   740→
+   741→
+   742→# ── Batch enrichment for news pipeline ────────────────────────────────────────
+   743→
+   744→async def enrich_news_batch(items: List[Dict], max_concurrent: int = 3) -> List[Dict]:
+   745→    """Enrich a batch of news items with article text and images.
+   746→    
+   747→    Processes items concurrently (up to max_concurrent at a time).
+   748→    Only enriches items that need it (no images or short summary).
+   749→    Skips items that are already well-stocked.
+   750→    
+   751→    Returns the updated list of items.
+   752→    """
+   753→    import asyncio
+   754→    
+   755→    # Filter items that need enrichment
+   756→    need_enrichment = []
+   757→    for item in items:
+   758→        images = item.get("image_urls", [])
+   759→        summary = item.get("summary", "")
+   760→        url = item.get("url", "")
+   761→        # Needs enrichment if: no images, or short summary, or Google News URL
+   762→        needs = (
+   763→            len(images) < 3
+   764→            or len(summary) < 200
+   765→            or _GOOGLE_NEWS_BASE_RE.search(url)
+   766→        )
+   767→        # Skip AI-discovered items
+   768→        if url.startswith("ai_discovered_"):
+   769→            needs = False
+   770→        if needs:
+   771→            need_enrichment.append(item)
+   772→    
+   773→    if not need_enrichment:
+   774→        return items
+   775→    
+   776→    logger.info(f"Enriching {len(need_enrichment)}/{len(items)} items with article content")
+   777→    
+   778→    # Use a shared client for connection pooling
+   779→    async with httpx.AsyncClient(
+   780→        timeout=FETCH_TIMEOUT,
+   781→        follow_redirects=True,
+   782→        headers=_BROWSER_HEADERS,
+   783→        limits=httpx.Limits(max_connections=max_concurrent, max_keepalive_connections=max_concurrent),
+   784→    ) as client:
+   785→        # Process with semaphore for concurrency control
+   786→        semaphore = asyncio.Semaphore(max_concurrent)
+   787→        
+   788→        async def _enrich_with_semaphore(item):
+   789→            async with semaphore:
+   790→                return await enrich_news_item(item, client)
+   791→        
+   792→        # Run all enrichments concurrently
+   793→        tasks = [_enrich_with_semaphore(item) for item in need_enrichment]
+   794→        enriched = await asyncio.gather(*tasks, return_exceptions=True)
+   795→        
+   796→        # Log results
+   797→        success = sum(1 for r in enriched if not isinstance(r, Exception))
+   798→        failed = sum(1 for r in enriched if isinstance(r, Exception))
+   799→        logger.info(f"Batch enrichment: {success} succeeded, {failed} failed")
+   800→    
+   801→    return items
+   802→
