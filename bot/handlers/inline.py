@@ -281,7 +281,7 @@ def _build_inline_results(query: str, reply_text: str, query_type: str) -> List:
             input_message_content=InputTextMessageContent(
                 message_text=short_text,
             ),
-            thumbnail_url="https://cdn-icons-png.flaticon.com/128/4195/4195 liberty.png",
+            thumbnail_url="https://cdn-icons-png.flaticon.com/128/4195/4195liberty.png",
         )
     )
 

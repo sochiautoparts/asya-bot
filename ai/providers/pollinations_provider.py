@@ -411,10 +411,12 @@ class PollinationsProvider(BaseAIProvider):
                 if api_key:
                     headers["Authorization"] = f"Bearer {api_key}"
 
-                # Use 15s timeout for chat requests — fast response is critical for user experience.
+                # Use 10s timeout for chat requests — fast response is critical for user experience.
                 # The overall chat timeout in _process_text_message is 45s, and we need to
                 # try multiple key tiers and models before that deadline.
-                async with httpx.AsyncClient(timeout=15.0) as client:
+                # REDUCED from 15s to 10s — if Pollinations doesn't respond in 10s, 
+                # Cloudflare (concurrent) will likely have responded already.
+                async with httpx.AsyncClient(timeout=10.0) as client:
                     start_time = time.time()
                     url = f"{self.base_url}/v1/chat/completions"
                     response = await client.post(url, headers=headers, json=payload)

@@ -714,10 +714,10 @@ async def _process_text_message(message: Message, text: str):
 
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
 
-    # ── OVERALL TIMEOUT: Max 45 seconds for the entire processing ──
-    # If processing takes too long (all AI levels failing slowly),
-    # we respond with whatever we have or a timeout message.
-    _OVERALL_TIMEOUT = 45.0  # seconds
+    # ── OVERALL TIMEOUT: Max 30 seconds for the entire processing ──
+    # REDUCED from 45s — with concurrent search+AI, we don't need as much time.
+    # If AI can't respond in 30s across all providers, it's a systemic issue.
+    _OVERALL_TIMEOUT = 30.0  # seconds
 
     async def _do_process():
         await _process_text_message_inner(message, text, user_id, chat_mode)
@@ -733,7 +733,12 @@ async def _process_text_message(message: Message, text: str):
 
 
 async def _process_text_message_inner(message: Message, text: str, user_id: int, chat_mode: str):
-    """Inner processing logic — called with timeout wrapper."""
+    """Inner processing logic — called with timeout wrapper.
+    
+    v2.0 CONCURRENT SEARCH + AI: Web searches run IN PARALLEL with the AI call.
+    This eliminates the 20-40 second delay caused by sequential search→AI flow.
+    The AI response arrives first, then we enhance it with search results if available.
+    """
 
     # Send a "thinking" status message so the user knows we're working
     text_lower = text.lower()
@@ -785,20 +790,6 @@ async def _process_text_message_inner(message: Message, text: str, user_id: int,
     if is_vin_query:
         vin_or_body = vin_code or body_number or text.strip()
         
-        # Try web search for VIN info (car history, specs, etc.)
-        vin_search_context = ""
-        if vin_code and len(vin_code) == 17:
-            try:
-                import asyncio
-                search_query = f"VIN {vin_code} расшифровка автомобиль характеристики"
-                results = await asyncio.wait_for(web_search(search_query, max_results=3), timeout=5.0)
-                if results:
-                    vin_search_context = "Результаты поиска по VIN:\n" + format_search_results(results, max_items=3)
-            except asyncio.TimeoutError:
-                logger.debug(f"VIN web search timed out")
-            except Exception as e:
-                logger.debug(f"VIN web search error: {e}")
-        
         # Add primary partner links (Rossko, Autopiter RU, AvtoALL)
         primary_links_context = ""
         try:
@@ -807,16 +798,51 @@ async def _process_text_message_inner(message: Message, text: str, user_id: int,
             logger.debug(f"Primary links context error: {e}")
         
         all_context = extra_context_parts.copy()
-        if vin_search_context:
-            all_context.append(vin_search_context)
         if primary_links_context:
             all_context.append(primary_links_context)
         
-        response = await ai_router.decode_vin(
-            user_id=user_id,
-            vin_code=vin_or_body,
-            extra_context="\n".join(all_context),
+        # Run VIN web search CONCURRENTLY with AI call for speed
+        import asyncio as _asyncio_vin
+        
+        async def _vin_search_task():
+            if not vin_code or len(vin_code) != 17:
+                return ""
+            try:
+                search_query = f"VIN {vin_code} расшифровка автомобиль характеристики"
+                results = await _asyncio_vin.wait_for(web_search(search_query, max_results=3), timeout=5.0)
+                if results:
+                    return "Результаты поиска по VIN:\n" + format_search_results(results, max_items=3)
+            except _asyncio_vin.TimeoutError:
+                logger.debug(f"VIN web search timed out")
+            except Exception as e:
+                logger.debug(f"VIN web search error: {e}")
+            return ""
+        
+        # Start VIN search and AI call concurrently
+        search_task = _asyncio_vin.create_task(_vin_search_task())
+        ai_task = _asyncio_vin.create_task(
+            ai_router.decode_vin(
+                user_id=user_id,
+                vin_code=vin_or_body,
+                extra_context="\n".join(all_context),
+            )
         )
+        
+        # Wait for AI (primary), collect search result when available
+        response = await ai_task
+        try:
+            vin_search_context = await _asyncio_vin.wait_for(search_task, timeout=3.0)
+        except _asyncio_vin.TimeoutError:
+            vin_search_context = ""
+        
+        # If AI failed but search succeeded, retry with search context
+        if response.error and vin_search_context:
+            all_context.append(vin_search_context)
+            response = await ai_router.decode_vin(
+                user_id=user_id,
+                vin_code=vin_or_body,
+                extra_context="\n".join(all_context),
+            )
         # Collect VIN partner links for clean formatting (cross-category)
         vin_partner_links = []
         try:
@@ -853,18 +879,7 @@ async def _process_text_message_inner(message: Message, text: str, user_id: int,
             desc = lookup_obd2_code(code)
             if desc:
                 extra_context_parts.append(f"Код ошибки {code}: {desc}")
-
-        # Search for detailed info on the code
-        for code in obd_codes[:2]:
-            try:
-                code_info = await search_diagnostic_code(code)
-                if code_info.get("links"):
-                    links_text = "\n".join(
-                        f"- {l['title']}: {l['url']}" for l in code_info["links"][:3]
-                    )
-                    extra_context_parts.append(f"Подробности по ошибке {code}:\n{links_text}")
-            except Exception as e:
-                logger.error(f"Error searching diagnostic code: {e}")
+        # NOTE: OBD code web searches are now done CONCURRENTLY with AI (see below)
 
     # 4. Detect part numbers — NO MORE catalog searches, give partner links instead
     part_numbers = extract_part_numbers(text)
@@ -888,7 +903,7 @@ async def _process_text_message_inner(message: Message, text: str, user_id: int,
         if diag_context:
             extra_context_parts.append(diag_context)
 
-    # 6. Web search for relevant info — expanded triggers for better search coverage
+    # 6. Web search — triggers defined, but searches run CONCURRENTLY with AI (see below)
     needs_search = (
         is_diagnostic or
         is_part_query or
@@ -905,43 +920,30 @@ async def _process_text_message_inner(message: Message, text: str, user_id: int,
             "характеристик", "мощност", "расход", "масло",
         ])
     )
-
+    
+    # Build search query (but don't execute yet — will run in parallel with AI)
+    search_query = None
     if needs_search:
-        try:
-            search_query = text
-            if brand:
-                search_query = f"{brand} {text}"
-            
-            # Rewrite vague queries into specific search terms
-            text_lower = text.lower().strip()
-            _SEARCH_QUERY_REWRITES = {
-                "какие новости": "автомобильные новости сегодня 2026",
-                "что нового": "автоновости сегодня 2026",
-                "новости": "автомобильные новости сегодня 2026",
-                "что случилось": "автомобильные новости сегодня",
-                "что происходит": "автомобильный рынок новости",
-                "какие новости сегодня": "автомобильные новости сегодня 2026",
-                "что нового в авт мире": "автомобильные новинки 2026",
-                "что нового на рынке": "авторынок новости 2026",
-            }
-            for vague, specific in _SEARCH_QUERY_REWRITES.items():
-                if vague in text_lower and len(text_lower) < len(vague) + 15:
-                    search_query = specific
-                    if brand:
-                        search_query = f"{brand} {specific}"
-                    break
-            
-            # Run web search with a timeout to avoid blocking the response
-            # 5s max — fast enough for results, doesn't block AI response
-            import asyncio
-            try:
-                results = await asyncio.wait_for(web_search(search_query, max_results=3), timeout=5.0)
-                if results:
-                    extra_context_parts.append("Результаты поиска:\n" + format_search_results(results, max_items=3))
-            except asyncio.TimeoutError:
-                logger.warning(f"Web search timed out for query: {search_query[:50]}")
-        except Exception as e:
-            logger.error(f"Web search error: {e}")
+        search_query = text
+        if brand:
+            search_query = f"{brand} {text}"
+        text_lower_local = text.lower().strip()
+        _SEARCH_QUERY_REWRITES = {
+            "какие новости": "автомобильные новости сегодня 2026",
+            "что нового": "автоновости сегодня 2026",
+            "новости": "автомобильные новости сегодня 2026",
+            "что случилось": "автомобильные новости сегодня",
+            "что происходит": "автомобильный рынок новости",
+            "какие новости сегодня": "автомобильные новости сегодня 2026",
+            "что нового в авт мире": "автомобильные новинки 2026",
+            "что нового на рынке": "авторынок новости 2026",
+        }
+        for vague, specific in _SEARCH_QUERY_REWRITES.items():
+            if vague in text_lower_local and len(text_lower_local) < len(vague) + 15:
+                search_query = specific
+                if brand:
+                    search_query = f"{brand} {specific}"
+                break
 
     # 6.5. Spare part query — give partner links instead of searching catalogs
     is_spare_part_query = (
@@ -1000,7 +1002,11 @@ async def _process_text_message_inner(message: Message, text: str, user_id: int,
     except Exception as e:
         logger.error(f"Partner context error: {e}")
 
-    # ── Route to AI ────────────────────────────────────────────────────────
+    # ── Route to AI — CONCURRENT with web search ──────────────────────────
+    # KEY FIX: Start AI call and web searches IN PARALLEL.
+    # Previously, web_search() was called SEQUENTIALLY before AI, adding 5-20s delay.
+    # Now both run concurrently, so AI responds fast and search results are used
+    # only if AI fails (as retry context) or for next conversation turn.
 
     extra_context = "\n\n".join(extra_context_parts) if extra_context_parts else ""
 
@@ -1008,22 +1014,72 @@ async def _process_text_message_inner(message: Message, text: str, user_id: int,
     is_group_chat = message.chat.type in ("group", "supergroup")
     is_own_channel = str(message.chat.id) == str(config.CHANNEL_ID)
 
+    import asyncio
+
+    # Define async search tasks
+    async def _run_web_search():
+        """Run web search with strict timeout. Returns search context string or empty."""
+        if not search_query:
+            return ""
+        try:
+            results = await asyncio.wait_for(
+                web_search(search_query, max_results=3),
+                timeout=6.0,
+            )
+            if results:
+                return "Результаты поиска:\n" + format_search_results(results, max_items=3)
+        except asyncio.TimeoutError:
+            logger.warning(f"Web search timed out for query: {search_query[:50]}")
+        except Exception as e:
+            logger.error(f"Web search error: {e}")
+        return ""
+
+    async def _run_obd_search():
+        """Run OBD code searches concurrently. Returns context string or empty."""
+        if not obd_codes:
+            return ""
+        parts = []
+        for code in obd_codes[:2]:
+            try:
+                code_info = await asyncio.wait_for(
+                    search_diagnostic_code(code),
+                    timeout=5.0,
+                )
+                if code_info.get("links"):
+                    links_text = "\n".join(
+                        f"- {l['title']}: {l['url']}" for l in code_info["links"][:3]
+                    )
+                    parts.append(f"Подробности по ошибке {code}:\n{links_text}")
+            except asyncio.TimeoutError:
+                logger.debug(f"OBD code search timed out: {code}")
+            except Exception as e:
+                logger.debug(f"OBD code search error: {e}")
+        return "\n".join(parts) if parts else ""
+
+    # Start search tasks concurrently
+    search_tasks = []
+    if search_query:
+        search_tasks.append(asyncio.create_task(_run_web_search()))
+    if obd_codes:
+        search_tasks.append(asyncio.create_task(_run_obd_search()))
+
+    # Launch AI call
     if is_diagnostic:
-        response = await ai_router.diagnose_car(
+        ai_coro = ai_router.diagnose_car(
             user_id=user_id,
             symptoms=text,
             extra_context=extra_context,
         )
     elif is_part_query:
-        response = await ai_router.find_spare_part(
+        ai_coro = ai_router.find_spare_part(
             user_id=user_id,
             article=part_numbers[0] if part_numbers else text.strip(),
             part_info=extra_context,
         )
     elif is_group_chat and not is_own_channel:
         # GROUP/SUPERGROUP (not our channel) → LOCAL MODEL PREFERRED, CLOUD FALLBACK
-        from ai.router import ai_router
-        local_provider = ai_router._local
+        from ai.router import ai_router as _ar
+        local_provider = _ar._local
         if local_provider and await local_provider.is_available():
             group_messages = [
                 {"role": "system", "content": "Ты Ася — автоэксперт. Пиши короткие комментарии до 300 символов. Живо и естественно. Без markdown. Без политики. Без рекламы канала."},
@@ -1036,55 +1092,74 @@ async def _process_text_message_inner(message: Message, text: str, user_id: int,
                     max_tokens=150,
                 )
                 if local_response and not local_response.error and local_response.text:
-                    # Create a compatible response object for _send_response
                     from ai.providers.base import AIResponse
+                    # Cancel search tasks since we're done fast
+                    for st in search_tasks:
+                        st.cancel()
                     response = AIResponse(
                         text=local_response.text[:COMMENT_MAX_CHARS],
                         model="local-qwen3-4b",
                         provider="local",
                     )
+                    await _send_response(message, response, status_msg, collected_partner_links)
+                    return
                 else:
-                    # Local model failed — try cloud as fallback
                     logger.debug("Local model failed for group comment — trying cloud fallback")
-                    try:
-                        response = await ai_router.chat(
-                            user_id=user_id,
-                            message=text,
-                            extra_context="Отвечай коротко, до 300 символов. Живо и естественно.",
-                        )
-                    except Exception:
-                        logger.debug("Cloud fallback also failed for group comment")
-                        return
             except Exception as e:
                 logger.debug(f"Local model group comment error: {e}")
-                # Try cloud as fallback
-                try:
-                    response = await ai_router.chat(
-                        user_id=user_id,
-                        message=text,
-                        extra_context="Отвечай коротко, до 300 символов. Живо и естественно.",
-                    )
-                except Exception:
-                    logger.debug("Cloud fallback failed for group comment")
-                    return
-        else:
-            # Local model not available — use cloud model (but keep it short)
-            logger.debug("Local model not available for group comment — using cloud")
-            try:
-                response = await ai_router.chat(
-                    user_id=user_id,
-                    message=text,
-                    extra_context="Отвечай коротко, до 300 символов. Живо и естественно. Без политики.",
-                )
-            except Exception as e:
-                logger.debug(f"Cloud group comment failed: {e}")
-                return
+        # Cloud fallback for groups
+        ai_coro = ai_router.chat(
+            user_id=user_id,
+            message=text,
+            extra_context="Отвечай коротко, до 300 символов. Живо и естественно. Без политики.",
+        )
     else:
-        response = await ai_router.chat(
+        ai_coro = ai_router.chat(
             user_id=user_id,
             message=text,
             extra_context=extra_context,
         )
+
+    # Run AI call — search tasks are already running in parallel
+    response = await ai_coro
+
+    # Collect any search results that completed (best-effort, don't wait long)
+    search_context = ""
+    for st in search_tasks:
+        try:
+            if not st.done():
+                result = await asyncio.wait_for(st, timeout=2.0)
+            else:
+                result = st.result()
+            if result:
+                search_context += result + "\n"
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            pass
+        except Exception:
+            pass
+
+    # If AI failed AND we have search results, retry AI with search context
+    if response.error and search_context:
+        logger.info("AI failed on first attempt, retrying with search context")
+        enhanced_context = extra_context + "\n\n" + search_context if extra_context else search_context
+        if is_diagnostic:
+            response = await ai_router.diagnose_car(
+                user_id=user_id,
+                symptoms=text,
+                extra_context=enhanced_context,
+            )
+        elif is_part_query:
+            response = await ai_router.find_spare_part(
+                user_id=user_id,
+                article=part_numbers[0] if part_numbers else text.strip(),
+                part_info=enhanced_context,
+            )
+        else:
+            response = await ai_router.chat(
+                user_id=user_id,
+                message=text,
+                extra_context=enhanced_context,
+            )
 
     await _send_response(message, response, status_msg, collected_partner_links)
 

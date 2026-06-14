@@ -509,11 +509,8 @@ async def search_google_news_rss(query: str, max_results: int = 5) -> List[Searc
                     summary = entry.get("summary", "").strip()
                     # Extract images from the RSS entry (Google News rarely has them, but just in case)
                     image_urls = []
-                    try:
-                        from news import _extract_entry_images
-                        image_urls = _extract_entry_images(entry)
-                    except Exception:
-                        pass
+                    # NOTE: Don't import from news.py — it may not have _extract_entry_images
+                    # Just skip image extraction for Google News RSS results
                     if title and link:
                         clean_summary = re.sub(r'<[^>]+>', '', summary)[:500]
                         results.append(SearchResult(

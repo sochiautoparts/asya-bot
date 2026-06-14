@@ -29,11 +29,12 @@ from bot.database import add_news_item, get_unposted_news, mark_news_posted, is_
 
 logger = logging.getLogger("asya.news")
 
-# ── Source JSON URL ────────────────────────────────────────────────────────────
+# ── Source JSON URLs ────────────────────────────────────────────────────────────
 NEWS_JSON_URL = "https://raw.githubusercontent.com/creastudioai-beep/news/refs/heads/main/data/news.json"
+BMW_NEWS_JSON_URL = "https://raw.githubusercontent.com/creastudioai-beep/nebm/refs/heads/main/data/news.json"
 NEWS_JSON_FALLBACK_URLS = [
-    # Fallback URLs in case primary is down
     NEWS_JSON_URL,
+    BMW_NEWS_JSON_URL,
 ]
 FETCH_TIMEOUT = 30.0
 MAX_NEWS_PER_CYCLE = 10  # Max items to process per cycle (fetch often, post 6/hour)
@@ -259,8 +260,8 @@ async def run_news_cycle() -> int:
             if _is_semantically_duplicate(title):
                 duplicates += 1
                 continue
-        except ImportError:
-            pass
+        except (ImportError, AttributeError):
+            pass  # Function may not exist in all versions
         except Exception:
             pass
 
