@@ -1,2 +1,64 @@
+<<<<<<< HEAD
 skills/
 node_modules/
+=======
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Database (preserve asya_bot.db for persistence across workflow runs)
+*.sqlite3
+*.db-journal
+# Only ignore other .db files, NOT asya_bot.db which is the main database
+/*.db
+!asya_bot.db
+
+# Cache
+.cache/
+*.log
+
+# Image cache (downloaded original photos)
+data/image_cache/
+
+# Local LLM model files (too large for Git — ~2.5GB)
+models/*.gguf
+
+# Partner data (contains affiliate links)
+admitad_ads.json
+
+# Lock file
+/tmp/asya_bot.lock
+
+
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp files
+tmp/
+temp/
+>>>>>>> ca356ad4ea9ced5c676ccea6418cc1fa4681c6a7
