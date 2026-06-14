@@ -90,15 +90,18 @@ _SEMANTIC_STOP_WORDS = frozenset([
 
 
 def _is_semantically_duplicate(title: str) -> bool:
-    """Check if 3+ significant words from title match a recently posted title.
+    """Check if 4+ significant words from title match a recently posted title.
     
     Uses a TWO-LEVEL check:
-    - Level 1: 3+ significant words overlap -> DUPLICATE
-    - Level 2: 2+ CORE words (brand + model/event) overlap -> DUPLICATE
+    - Level 1: 4+ significant words overlap -> DUPLICATE (was 3, too aggressive)
+    - Level 2: 3+ CORE words (brand + model + event) overlap -> DUPLICATE (was 2)
     
-    This catches both obvious and subtle duplicates like:
-    - "BMW X5 получил новый двигатель" vs "Новый мотор для BMW X5"
-    - "Tesla отзывает 10000 машин" vs "Tesla начала отзывную кампанию"
+    v2.1: Raised thresholds to reduce false blocks. With 3 significant words,
+    different news about the same brand were incorrectly blocked:
+    - "BMW X5 получил новый двигатель" vs "BMW X5 отзывают из-за дефекта" 
+      These are DIFFERENT news about the same car — both should be posted!
+    - With 4+ word match, only near-identical rewrites are blocked.
+    - Core words threshold raised from 2 to 3 (brand + model + event must ALL match).
     """
     global _recent_post_keywords
 
@@ -106,23 +109,24 @@ def _is_semantically_duplicate(title: str) -> bool:
     words = re.findall(r'[a-zа-яё]{3,}', title.lower())
     significant = [w for w in words if w not in _SEMANTIC_STOP_WORDS]
 
-    if len(significant) < 2:
+    if len(significant) < 3:
         return False
 
     # Extract core words (brands, models, events) for Level 2 check
     core_words = _extract_core_words_from_title(title)
 
     for recent_words in _recent_post_keywords:
-        # Level 1: 3+ significant words overlap
+        # Level 1: 4+ significant words overlap (was 3 — too many false blocks)
         matches = sum(1 for w in significant if w in recent_words)
-        if matches >= 3:
+        if matches >= 4:
             return True
         
-        # Level 2: 2+ core words overlap (brand + model/event)
-        if len(core_words) >= 2:
+        # Level 2: 3+ core words overlap (brand + model + event must ALL match)
+        # Was 2, which blocked "BMW X5 engine" + "BMW X5 recall" — different events!
+        if len(core_words) >= 3:
             recent_core = [w for w in recent_words if w in _ALL_CORE_WORDS_SET]
             core_matches = sum(1 for w in core_words if w in recent_core)
-            if core_matches >= 2:
+            if core_matches >= 3:
                 return True
 
     return False
@@ -1032,13 +1036,16 @@ class ChannelManager:
 
             # ── DEDUPLICATION LAYER 1.5: Direct channel_posts check ──
             # Check the actual posted content in the channel — this catches cases where
-            # AI rephrased the title significantly but it's the same event
+            # AI rephrased the title significantly but it's the same event.
+            # v2.1: Raised overlap threshold from 2 to 3 core words to reduce false blocks.
+            # With 2 core words, different news about the same brand were blocked:
+            #   "BMW X5 новый двигатель" vs "BMW X5 отзыв" — different events, same brand+model.
             try:
                 from bot.database import _connect_db
                 async with _connect_db() as db:
-                    cutoff = time.time() - (72 * 3600)  # 72h window
+                    cutoff = time.time() - (48 * 3600)  # 48h window (was 72h, reduced)
                     async with db.execute(
-                        "SELECT content FROM channel_posts WHERE created_at >= ? AND post_type = 'news' ORDER BY created_at DESC LIMIT 30",
+                        "SELECT content FROM channel_posts WHERE created_at >= ? AND post_type = 'news' ORDER BY created_at DESC LIMIT 20",
                         (cutoff,),
                     ) as cursor:
                         rows = await cursor.fetchall()
@@ -1050,13 +1057,13 @@ class ChannelManager:
                             first_line = content.split('\n')[0].strip()
                             if not first_line:
                                 continue
-                            # Check core word overlap with the first line of posted content
+                            # Check core word overlap — need 3+ matching core words (brand + model + event)
                             from bot.database import _extract_core_words
                             posted_core = _extract_core_words(first_line)
                             new_core = _extract_core_words(news_item["title"])
-                            if len(posted_core) >= 2 and len(new_core) >= 2:
+                            if len(posted_core) >= 3 and len(new_core) >= 3:
                                 overlap = posted_core & new_core
-                                if len(overlap) >= 2:
+                                if len(overlap) >= 3:
                                     logger.warning(f"CHANNEL DEDUP blocked (core words match: {overlap}): {news_item['title'][:60]}")
                                     if news_item.get("url"):
                                         await mark_news_posted(news_item["url"])

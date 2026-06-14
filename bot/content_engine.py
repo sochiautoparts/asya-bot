@@ -146,24 +146,29 @@ def _extract_entities(title: str) -> str:
 
 
 def _is_topic_covered(entity_key: str) -> bool:
-    """Check if this topic/entity was already posted about recently."""
+    """Check if this topic/entity was already posted about recently.
+    
+    v2.1: Reduced coverage window. Was blocking same entity for 24-72h,
+    now only blocks for 12h. Different events about the same car model
+    (e.g., "bmw_m5_launch" vs "bmw_m5_recall") should BOTH be posted.
+    Only block if it's truly the SAME event posted recently.
+    """
     if not entity_key:
         return False
     
     now = time.time()
-    max_age = _REGISTRY_MAX_AGE_HOURS * 3600
     
     if entity_key in _topic_registry:
         entry = _topic_registry[entity_key]
         age = now - entry["last_posted"]
-        if age < max_age:
-            # If posted in last 24h — DEFINITELY covered
-            if age < 24 * 3600:
-                return True
-            # If posted 24-72h ago — covered unless it's a significantly different angle
-            if entry["post_count"] >= 2:
-                return True
-        else:
+        # v2.1: Only block if posted within 12h (was 24h — too aggressive)
+        # Same entity within 12h = likely same news being re-fetched
+        if age < 12 * 3600:
+            return True
+        # 12-72h ago — only block if posted 3+ times (was 2 — too strict)
+        if age < _REGISTRY_MAX_AGE_HOURS * 3600 and entry["post_count"] >= 3:
+            return True
+        if age >= _REGISTRY_MAX_AGE_HOURS * 3600:
             # Old entry — remove
             del _topic_registry[entity_key]
     
@@ -190,23 +195,11 @@ def _register_topic(entity_key: str, title: str):
             "titles": [title],
         }
     
-    # Also register brand-only key for broader dedup
-    for b in _AUTO_BRANDS:
-        b_key = b.lower().replace(" ", "_")
-        if b_key == entity_key:
-            continue
-        if b_key in entity_key and "_" in entity_key:
-            # e.g., "bmw_m5_reveal" → also register "bmw"
-            if b_key not in _topic_registry or \
-               now - _topic_registry[b_key]["last_posted"] > 12 * 3600:
-                _topic_registry[b_key] = {
-                    "first_seen": now,
-                    "last_posted": now,
-                    "post_count": 1,
-                    "titles": [title],
-                }
-            break
-
+    # Brand-only registration — DISABLED in v2.1
+    # Was registering brand-only keys (e.g., "bmw") when posting about "bmw_m5_reveal",
+    # which then blocked ALL other BMW news for 24-72 hours.
+    # Entity-level dedup (brand+model+event) is sufficient without brand-only blocking.
+    
 
 def _cleanup_registry():
     """Remove old entries from topic registry."""
@@ -392,16 +385,11 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
             logger.debug(f"Topic already covered: {entity_key} — {title[:50]}")
             continue
         
-        # Brand-only dedup
-        brand_blocked = False
-        for b in _AUTO_BRANDS:
-            b_key = b.lower().replace(" ", "_")
-            if b_key in title.lower() and _is_topic_covered(b_key):
-                if not entity_key or entity_key == b_key:
-                    brand_blocked = True
-                    break
-        if brand_blocked:
-            continue
+        # Brand-only dedup — DISABLED in v2.1
+        # Was blocking ALL news about a brand after just 1 post about it.
+        # Example: "BMW recalls X5" blocked "BMW launches new M3" — different events!
+        # Entity-level dedup (_is_topic_covered with entity_key) is sufficient.
+        # Brand-only dedup was causing the bot to skip 80%+ of available news.
         
         # Score interest
         interest = _score_interest(title, summary)

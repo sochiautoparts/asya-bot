@@ -2,12 +2,12 @@ name: Asya Bot — LOCAL-FIRST v10 — Ася + Редакция
 
 on:
   schedule:
-    - cron: '0 */5 * * *'
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 concurrency:
   group: asya-bot-single
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -187,13 +187,13 @@ jobs:
             echo "ENABLE_LOCAL_MODEL=false" >> $GITHUB_ENV
           fi
 
-          MAX_RESTARTS=10
+          MAX_RESTARTS=3
           RESTART_COUNT=0
 
           while [ $RESTART_COUNT -lt $MAX_RESTARTS ]; do
             echo "=== Bot start attempt $((RESTART_COUNT + 1))/$MAX_RESTARTS ==="
 
-            timeout 18000 python -m bot.main || EXIT_CODE=$?
+            timeout 15000 python -m bot.main || EXIT_CODE=$?
             EXIT_CODE=${EXIT_CODE:-0}
 
             echo "Bot exited with code: $EXIT_CODE"
@@ -228,8 +228,17 @@ jobs:
         run: |
           echo "Re-dispatching workflow for continuous operation..."
           sleep 30
-          curl -X POST \
-            -H "Authorization: token ${{ secrets.GH_PAT_TOKEN }}" \
+          # Check if another workflow is already running (avoid duplicate runs)
+          RUNNING=$(curl -s -H "Authorization: token ${{ secrets.GH_PAT_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/sochiautoparts/asya-bot/actions/workflows/bot.yml/dispatches" \
-            -d '{"ref":"main"}' || echo "Re-dispatch failed, will retry on next schedule"
+            "https://api.github.com/repos/sochiautoparts/asya-bot/actions/runs?status=in_progress&per_page=1" | \
+            python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('workflow_runs',[])))" 2>/dev/null || echo "0")
+          if [ "$RUNNING" -gt "0" ]; then
+            echo "Another workflow is already running — skipping re-dispatch"
+          else
+            curl -X POST \
+              -H "Authorization: token ${{ secrets.GH_PAT_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/sochiautoparts/asya-bot/actions/workflows/bot.yml/dispatches" \
+              -d '{"ref":"main"}' || echo "Re-dispatch failed, will retry on next schedule"
+          fi

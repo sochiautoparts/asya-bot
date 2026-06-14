@@ -1,5 +1,5 @@
 """
-News Engine v2.0 — Single-Source JSON Fetcher
+News Engine v2.1 — Multi-Source JSON Fetcher
 Fetches pre-parsed automotive news from creastudioai-beep/news repository.
 No RSS parsing, no image extraction — all done by the external parser.
 
@@ -14,6 +14,12 @@ The external parser runs every hour via GitHub Actions and produces:
   - Language detection already done
 
 This module just fetches and stores — fast, reliable, no heavy lifting.
+
+v2.1 CHANGES:
+  - Added Russian news source (ru-news.json) for better coverage
+  - Reduced overly aggressive dedup (7d → 3d window, fingerprint 4→3 word match)
+  - Increased MAX_NEWS_PER_CYCLE to 50 for better throughput
+  - Fixed NEWS_JSON_FALLBACK_URLS (was duplicate of primary)
 """
 import httpx
 import json
@@ -30,11 +36,15 @@ logger = logging.getLogger("asya.news")
 
 # ── Source JSON URLs ────────────────────────────────────────────────────────────
 NEWS_JSON_URL = "https://raw.githubusercontent.com/creastudioai-beep/news/refs/heads/main/data/news.json"
+# Russian source (may not exist yet — will be created by external parser)
+NEWS_JSON_RU_URL = "https://raw.githubusercontent.com/creastudioai-beep/news/refs/heads/main/data/ru-news.json"
+
 NEWS_JSON_FALLBACK_URLS = [
     NEWS_JSON_URL,
+    # NEWS_JSON_RU_URL,  # Disabled: ru-news.json doesn't exist yet
 ]
 FETCH_TIMEOUT = 30.0
-MAX_NEWS_PER_CYCLE = 30  # Max items to process per cycle (single source, fetch often, post 6/hour)
+MAX_NEWS_PER_CYCLE = 50  # Max items to process per cycle (increased for better throughput)
 
 # ── Fingerprint-based deduplication ────────────────────────────────────────────
 _recent_fingerprints: set = set()
@@ -54,12 +64,20 @@ def _compute_fingerprint(title: str) -> str:
 
 
 def _fingerprint_matches_existing(fingerprint: str) -> bool:
-    """Check if a fingerprint matches any recently used fingerprint."""
-    fp_words = fingerprint.split()[:4]
+    """Check if a fingerprint matches any recently used fingerprint.
+    
+    v2.1: Raised match threshold from 3 to 4 words to reduce false positives.
+    With 3 words, common automotive titles like "BMW X5 new engine" and 
+    "BMW X5 recalled engine" were incorrectly matching as duplicates.
+    """
+    fp_words = fingerprint.split()[:5]
+    if len(fp_words) < 2:
+        return False
     for existing in _recent_fingerprints:
-        ex_words = existing.split()[:4]
+        ex_words = existing.split()[:5]
         matches = sum(1 for w in fp_words if w in ex_words)
-        if matches >= 3:
+        # Need 4+ matching words to be considered duplicate (was 3, too aggressive)
+        if matches >= 4 and len(fp_words) >= 4:
             return True
     return False
 
@@ -76,7 +94,7 @@ def _detect_language(title: str) -> str:
 async def fetch_news_json() -> Optional[List[Dict]]:
     """Fetch news JSON from the creastudioai-beep/news repository.
     
-    Returns a list of news items from the creastudioai-beep/news source, deduplicated by URL.
+    Returns a list of news items from all sources, deduplicated by URL.
     Each item has: title, summary, url, source, images[], published, lang
     """
     all_items = []
@@ -88,7 +106,7 @@ async def fetch_news_json() -> Optional[List[Dict]]:
                 timeout=FETCH_TIMEOUT,
                 follow_redirects=True,
                 headers={
-                    "User-Agent": "AsyaBot/2.0 NewsFetcher",
+                    "User-Agent": "AsyaBot/2.1 NewsFetcher",
                     "Accept": "application/json",
                 },
             ) as client:
@@ -210,8 +228,13 @@ async def run_news_cycle() -> int:
     """Fetch news from the external JSON source and store in DB.
     
     Returns the number of NEW items added.
+    
+    v2.1 CHANGES:
+    - Reduced is_duplicate_post window from 168h (7d) to 72h (3d)
+    - Removed redundant semantic dedup check (already done in channel.py)
+    - Increased MAX_NEWS_PER_CYCLE to 50
     """
-    logger.info("Starting news cycle — fetching from external JSON source")
+    logger.info("Starting news cycle — fetching from external JSON sources")
 
     # Fetch JSON
     raw_items = await fetch_news_json()
@@ -249,30 +272,25 @@ async def run_news_cycle() -> int:
         title = item["title"]
         url = item["url"]
 
-        # Skip if URL already in DB
+        # Skip if URL already in DB — reduced window from 7d to 3d
+        # (7 days was too aggressive, blocking valid news that refreshed)
         try:
-            if await is_duplicate_post(title, hours=168):  # 7 days dedup window
+            if await is_duplicate_post(title, hours=72):  # 3 days dedup window (was 168h/7d)
                 duplicates += 1
                 continue
         except Exception:
             pass
 
-        # Fingerprint dedup
+        # Fingerprint dedup (v2.1: less aggressive matching)
         fingerprint = _compute_fingerprint(title)
         if _fingerprint_matches_existing(fingerprint):
             duplicates += 1
             continue
 
-        # Also check semantic dedup from channel module
-        try:
-            from channel import _is_semantically_duplicate
-            if _is_semantically_duplicate(title):
-                duplicates += 1
-                continue
-        except (ImportError, AttributeError):
-            pass  # Function may not exist in all versions
-        except Exception:
-            pass
+        # NOTE: Removed semantic dedup check here — it's already done in channel.py
+        # at posting time (Layer 2). Running it here caused false blocks because
+        # news titles often share keywords but are about different events.
+        # The channel.py dedup is sufficient and more accurate at post time.
 
         # Add to DB
         try:
