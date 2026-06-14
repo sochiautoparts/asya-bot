@@ -1077,21 +1077,19 @@ class ChannelManager:
         extra_instructions = (
             f"{date_context} "
             "ПРАВИЛА ДЛЯ ТЕКСТА ПОСТА:\n"
-            "1. Перепиши полностью своими словами — оригинальная авторская заметка, не пересказ.\n"
-            "2. Пиши живо и интересно — добавь мнение, эмоцию, вопрос или интригу.\n"
-            "3. Объясни почему это важно и что значит для обычного водителя.\n"
-            "4. Меняй структуру: начинай с вопроса, факта или эмоции.\n"
-            "5. Твой ответ — это ГОТОВЫЙ ТЕКСТ ПОСТА для публикации. ТОЛЬКО текст поста, больше ничего.\n"
-            "6. Если новость НЕ про автомобили — верни пустой ответ.\n"
-            "7. НЕ ДОБАВЛЯЙ никаких редакционных заметок, пометок, внутренних комментариев, "
-            "обсуждений темы, пояснений почему тема подходит или не подходит. "
-            "ТОЛЬКО чистый текст поста для читателей канала.\n"
-            "8. БУДЬ КОМПАКТЕН: 500-900 символов — оптимально. Пост ОБЯЗАТЕЛЬНО публикуется с фото, "
-            "а Telegram ограничивает подпись к фото 1024 символами. "
-            "Если текст длиннее 1024 — пост теряет фото! Без фото пост пойдёт только если "
-            "контент ОЧЕНЬ интересный и требует подробностей (до 4096 символов). "
+            "1. Напиши ПОЛНОСТЬЮ оригинальный текст — это авторская заметка автожурналиста, не пересказ и не перевод.\n"
+            "2. Пиши живо, эмоционально и неформально — как будто рассказываешь другу за кофе.\n"
+            "3. Начни с цепляющего заголовка/хука: вопроса, неожиданного факта или эмоции.\n"
+            "4. Объясни ПОЧЕМУ это важно для обычного водителя — личный опыт, сравнения, аналогии.\n"
+            "5. Добавь СВОЁ мнение, оценку или прогноз — это авторская колонка, не новость.\n"
+            "6. Твой ответ — это ГОТОВЫЙ ТЕКСТ ПОСТА для публикации. ТОЛЬКО текст поста.\n"
+            "7. Если новость НЕ про автомобили — верни пустой ответ.\n"
+            "8. НЕ ДОБАВЛЯЙ никаких редакционных заметок, пометок, обсуждений. ТОЛЬКО текст для читателей.\n"
+            "9. БУДЬ КОМПАКТЕН: 500-900 символов — оптимально. Пост с фото ограничен 1024 символами. "
             "Старайся уложиться в 950 символов включая подпись. "
-            "МАКСИМУМ ОДИН персонаж редакции за пост — не перечисляй всех!\n"
+            "МАКСИМУМ ОДИН персонаж редакции за пост.\n"
+            "10. УНИКАЛИЗАЦИЯ: измени структуру, начни с другого факта, используй другие слова. "
+            "Не повторяй формулировки источника — напиши СВОИМИ словами.\n"
         )
         # Channel context removed — was causing AI to discuss editorial decisions
         # in the post text instead of just picking a different topic.
@@ -1571,9 +1569,13 @@ class ChannelManager:
 
     async def post_partner_content(self) -> bool:
         """
-        Post a partner/admitad post to the channel with partner image.
-        Only posts if within daily limits and interval.
-        Deduplicates — won't post the same partner program twice in a row.
+        Post a partner/admitad post to the channel with partner image and link.
+        
+        RULES:
+        - Partner post MUST have a photo (from partner image URL)
+        - Partner post MUST contain the goto_link from admitad_ads.json
+        - The link is guaranteed to be in the text (appended if AI forgot it)
+        - Text + photo must fit within Telegram caption limit (1024 chars)
         """
         if not self._bot:
             logger.error("Bot not set in ChannelManager")
@@ -1608,18 +1610,18 @@ class ChannelManager:
             logger.info(f"Partner program '{program.name}' was already posted recently, skipping")
             return False
 
-        # Try to use partner image from the PartnerProgram object directly
-        # (use program.image URL — don't search by category/name matching)
+        # ── MANDATORY: Download partner image FIRST ──
         partner_image_url = program.image
         partner_image_data = None
         if partner_image_url:
             try:
                 partner_image_data = await self._download_partner_image(partner_image_url)
                 if partner_image_data:
-                    logger.info(f"Using partner image from program object: {partner_image_url[:60]}")
+                    logger.info(f"Using partner image: {partner_image_url[:60]}")
             except Exception as e:
                 logger.debug(f"Partner image download failed: {e}")
 
+        # If no partner image, try AI generation as fallback
         if not partner_image_data:
             try:
                 partner_image_data = await self._generate_post_image(f"{program.name} automotive service")
@@ -1628,16 +1630,26 @@ class ChannelManager:
 
         has_media = partner_image_data is not None
 
-        post_content = await partner_manager.generate_partner_post_content(program)
-
+        # ── GENERATE PARTNER POST TEXT WITH GUARANTEED LINK ──
+        # The goto_link is the MOST IMPORTANT part of the post
+        goto_link = program.goto_link
+        partner_name = program.name
+        cat_label = program.category_name or "авто"
+        
+        # Build the footer
+        footer = f"\n\nАвтор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
+        
+        # Generate text with AI, but ENSURE the link is always present
         response = await ai_router.generate_channel_post(
-            topic=f"Рекомендация сервиса: {program.name}",
-            source_text=f"Партнёрская программа: {program.name}. Описание: {program.description or 'Автомобильный сервис'}",
+            topic=f"Рекомендация сервиса: {partner_name}",
+            source_text=f"Партнёрская программа: {partner_name}. Описание: {program.description or 'Автомобильный сервис'}. Категория: {cat_label}",
             extra_instructions=(
-                "Это партнёрский пост — рекомендация сервиса для автомобилистов. "
-                "Напиши естественно, как живая девушка-автоэксперт, которая советует проверенный сервис. "
-                "Не делай это откровенной рекламой — вставь рекомендацию органично. "
-                f"Ссылка: {program.format_link()}"
+                f"Это партнёрский пост — рекомендация {partner_name} для автомобилистов. "
+                f"Напиши коротко (400-600 символов), живо и естественно, как автоэксперт рекомендует сервис. "
+                f"НЕ ДЕЛАЙ откровенной рекламой — вставь рекомендацию органично. "
+                f"ОБЯЗАТЕЛЬНО включи эту ссылку в текст: {goto_link} "
+                f"Ссылка ДОЛЖНА быть в тексте! Без ссылки пост бессмысленнен. "
+                f"Пост будет опубликован с фото, поэтому текст ДОЛЖЕН быть короче 950 символов."
             ),
             has_media=has_media,
             media_count=1,
@@ -1645,75 +1657,56 @@ class ChannelManager:
 
         if not response.error and response.text:
             post_content = response.text
+        else:
+            # AI failed — use template
+            post_content = (
+                f"Рекомендую {partner_name} — проверенный сервис для {cat_label.lower()}. "
+                f"Удобный поиск, нормальные цены. Ссылка: {goto_link}"
+            )
 
         post_content = _clean_post_text(post_content)
+        
+        # ── GUARANTEE: Ensure goto_link is in the text ──
+        # If AI forgot the link, add it before footer
+        if goto_link and goto_link not in post_content:
+            # Remove footer, add link, re-add footer
+            content_without_footer = post_content
+            for foot_part in ["\n\nАвтор @asiaexp_bot", "\n@sochiautoparts", "\n#sochiautoparts"]:
+                content_without_footer = content_without_footer.replace(foot_part, "")
+            content_without_footer = content_without_footer.rstrip()
+            content_without_footer += f"\n\n{partner_name}: {goto_link}"
+            post_content = content_without_footer
+        
         post_content = _ensure_footer(post_content)
 
-        # Validate — partner posts use relaxed validation (skip political keyword check)
-        # Partner posts are about auto services/parts, they don't contain political content
+        # Validate — partner posts use relaxed validation
         if not _validate_post_text_partner(post_content):
             return False
 
-        # ── SMART MEDIA DECISION: partner posts also need media ──
-        # Try to get an image, but don't block — text-only is acceptable as last resort.
-        if not has_media and len(post_content) <= config.TELEGRAM_CAPTION_LIMIT:
-            # Short text but no image — try to generate one
-            logger.warning(
-                f"Partner post has NO media and text is only {len(post_content)} chars. "
-                f"Attempting AI image generation to avoid text-only post."
-            )
+        # If still no media, try ONE more time
+        if not has_media:
             try:
-                ai_image = await self._generate_post_image(f"{program.name} automotive service logo")
+                ai_image = await self._generate_post_image(f"{partner_name} automotive service logo")
                 if ai_image:
                     partner_image_data = ai_image
                     has_media = True
-                    logger.info("Generated AI image for partner post — avoiding text-only")
-                else:
-                    # Try ONE generic prompt with ONE model (fast)
-                    try:
-                        ai_resp = await asyncio.wait_for(
-                            ai_router._primary.generate_image(
-                                f"Auto service {program.name}, professional logo, clean design, no text.",
-                                model="flux",
-                            ),
-                            timeout=60.0,
-                        )
-                        img_bytes = self._ai_response_to_bytes(ai_resp)
-                        if img_bytes:
-                            partner_image_data = img_bytes
-                            has_media = True
-                            logger.info("Generic partner image SUCCEEDED with flux")
-                    except (asyncio.TimeoutError, Exception) as e:
-                        logger.warning(f"Generic partner image generation failed: {e}")
-            except Exception as e:
-                logger.warning(f"Partner AI image generation failed: {e}")
+            except Exception:
+                pass
 
-            if not has_media:
-                # LAST RESORT: publish text-only rather than skipping partner post
-                logger.warning(
-                    f"PARTNER POST TEXT-ONLY (last resort): No image available, "
-                    f"text={len(post_content)} chars. Publishing without photo."
-                )
-
-        elif has_media and len(post_content) > config.TELEGRAM_CAPTION_LIMIT:
-            # Text too long for caption — try to compress first, keep media
-            compressed = _enforce_char_limit(post_content, has_media=True)
-            if len(compressed) <= config.TELEGRAM_CAPTION_LIMIT and len(compressed) >= 400:
-                post_content = compressed
-                logger.info(
-                    f"Partner text compressed to {len(compressed)} chars — keeping media."
-                )
-            else:
-                # Genuinely long content — allow text-only as last resort (partner posts are always useful)
-                logger.info(
-                    f"Partner post {len(post_content)} chars > caption limit. "
-                    f"Publishing WITHOUT media to preserve full text."
-                )
-                has_media = False
-                partner_image_data = None
-
-        # Smart character limit — always preserve footer
+        # Enforce character limit — partner posts with media MUST fit in caption
         post_content = _enforce_char_limit(post_content, has_media)
+        
+        # ── FINAL CHECK: goto_link still in text after truncation ──
+        if goto_link and goto_link not in post_content:
+            # Link was truncated! Rebuild with link guaranteed
+            footer = "\n\nАвтор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
+            max_content = config.TELEGRAM_CAPTION_LIMIT - len(footer) - 5
+            short_text = f"{partner_name} — {cat_label.lower()}. Ссылка: {goto_link}"
+            if len(short_text + footer) <= config.TELEGRAM_CAPTION_LIMIT:
+                post_content = short_text + footer
+            else:
+                # Even minimal text doesn't fit — just link + footer
+                post_content = f"{goto_link}{footer}"
 
         try:
             if has_media and partner_image_data:
@@ -1739,6 +1732,8 @@ class ChannelManager:
                 except OSError:
                     pass
             else:
+                # No image available — send text-only (last resort)
+                logger.warning(f"Partner post text-only (no image): {partner_name}")
                 sent = await self._bot.send_message(
                     chat_id=config.CHANNEL_ID,
                     text=post_content,
@@ -1764,7 +1759,7 @@ class ChannelManager:
 
             partner_manager.mark_posted()
             self._last_partner_time = time.time()
-            self._last_partner_name = program.name  # Track last partner for dedup
+            self._last_partner_name = program.name
 
             # Store fingerprint for partner dedup
             await add_post_fingerprint(

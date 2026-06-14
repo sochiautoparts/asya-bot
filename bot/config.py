@@ -46,14 +46,16 @@ class BotConfig:
     DB_PATH: str = os.getenv("DB_PATH", "asya_bot.db")
 
     # News settings
-    NEWS_INTERVAL_MINUTES: int = int(os.getenv("NEWS_INTERVAL_MINUTES", "30"))
-    NEWS_MAX_ITEMS_PER_CYCLE: int = 5
+    NEWS_INTERVAL_MINUTES: int = int(os.getenv("NEWS_INTERVAL_MINUTES", "10"))
+    NEWS_MAX_ITEMS_PER_CYCLE: int = 10
     NEWS_CACHE_HOURS: int = 24
 
     # Channel posting
-    CHANNEL_POST_INTERVAL_MINUTES: int = int(os.getenv("CHANNEL_POST_INTERVAL_MINUTES", "30"))
-    CHANNEL_MAX_POSTS_PER_HOUR: int = 6  # 3 posts per 30-min cycle
-    CHANNEL_MAX_POSTS_PER_DAY: int = 72  # 3 posts per 30-min cycle × 24 hours — diverse content with good coverage
+    # Schedule: 10-min cycle → 6 news posts/hour + 1 partner post/hour
+    # Each 10-min cycle posts 1 news item; partner post every 6th cycle (hourly)
+    CHANNEL_POST_INTERVAL_MINUTES: int = int(os.getenv("CHANNEL_POST_INTERVAL_MINUTES", "10"))
+    CHANNEL_MAX_POSTS_PER_HOUR: int = 7  # 6 news + 1 partner
+    CHANNEL_MAX_POSTS_PER_DAY: int = 168  # 7 posts/hour × 24 hours
 
     # Telegram character limits
     TELEGRAM_TEXT_LIMIT: int = 4096       # Max chars for text-only message
@@ -62,8 +64,8 @@ class BotConfig:
 
     # Partner / admitad / Rossko
     ADMITAD_ADS_FILE: str = os.getenv("ADMITAD_ADS_FILE", "admitad_ads.json")
-    PARTNER_POST_INTERVAL_HOURS: int = int(os.getenv("PARTNER_POST_INTERVAL_HOURS", "4"))
-    PARTNER_DAILY_LIMIT: int = 4  # Up to 4 partner posts per day
+    PARTNER_POST_INTERVAL_HOURS: int = int(os.getenv("PARTNER_POST_INTERVAL_HOURS", "1"))
+    PARTNER_DAILY_LIMIT: int = 24  # Up to 24 partner posts per day (1 per hour)
     # Rossko professional parts selection
     ROSSKO_AFFILIATE_URL: str = os.getenv("ROSSKO_AFFILIATE_URL", "https://rossko.ru")
     ROSSKO_SEARCH_URL: str = "https://rossko.ru/search?text="

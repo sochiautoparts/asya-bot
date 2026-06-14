@@ -49,9 +49,9 @@ env:
   MODEL_DOWNLOAD_URL: "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf"
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
   # Schedule settings
-  NEWS_INTERVAL_MINUTES: "30"
-  CHANNEL_POST_INTERVAL_MINUTES: "30"
-  PARTNER_POST_INTERVAL_HOURS: "4"
+  NEWS_INTERVAL_MINUTES: "10"
+  CHANNEL_POST_INTERVAL_MINUTES: "10"
+  PARTNER_POST_INTERVAL_HOURS: "1"
 
 jobs:
   run-bot:
@@ -183,7 +183,7 @@ jobs:
           echo "EDITORIAL TEAM: Ася + Лёха + Димон + Марина + Кеша(попугай) + Сеньор Помидор(кот)"
           echo "CONTENT: RSS-first (22+ sources), Google News RSS, Reddit, AI Discovery"
           echo "FORMATS: 16 content types for 24/7 diverse schedule"
-          echo "SCHEDULE: 30 min intervals, 3 posts/cycle + partner posts"
+          echo "SCHEDULE: 10 min intervals, 6 news/hour + 1 partner/hour"
           echo ""
 
           # Verify model file before starting

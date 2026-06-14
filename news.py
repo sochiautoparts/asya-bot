@@ -36,7 +36,7 @@ NEWS_JSON_FALLBACK_URLS = [
     NEWS_JSON_URL,
 ]
 FETCH_TIMEOUT = 30.0
-MAX_NEWS_PER_CYCLE = 50  # Max items to process per cycle
+MAX_NEWS_PER_CYCLE = 10  # Max items to process per cycle (fetch often, post 6/hour)
 
 # ── Fingerprint-based deduplication ────────────────────────────────────────────
 _recent_fingerprints: set = set()
@@ -241,7 +241,7 @@ async def run_news_cycle() -> int:
 
         # Skip if URL already in DB
         try:
-            if await is_duplicate_post(title, hours=72):
+            if await is_duplicate_post(title, hours=168):  # 7 days dedup window
                 duplicates += 1
                 continue
         except Exception:
@@ -252,6 +252,17 @@ async def run_news_cycle() -> int:
         if _fingerprint_matches_existing(fingerprint):
             duplicates += 1
             continue
+
+        # Also check semantic dedup from channel module
+        try:
+            from channel import _is_semantically_duplicate
+            if _is_semantically_duplicate(title):
+                duplicates += 1
+                continue
+        except ImportError:
+            pass
+        except Exception:
+            pass
 
         # Add to DB
         try:

@@ -22,6 +22,7 @@ from bot.asya import (
     is_part_number, identify_car_brand, detect_symptoms,
     detect_obd2_codes, lookup_obd2_code,
 )
+from bot.partners import partner_manager
 from ai.router import ai_router
 
 logger = logging.getLogger("asya.handlers.inline")
@@ -172,10 +173,21 @@ async def _generate_inline_response(query: str, query_type: str):
         )
 
     elif query_type == "parts":
-        return await ai_router.find_spare_part(
+        response = await ai_router.find_spare_part(
             user_id=inline_user_id,
             article=query.strip(),
         )
+        # Add partner links to inline parts response
+        if response and response.text:
+            try:
+                primary_links = partner_manager.get_primary_parts_links()
+                if primary_links:
+                    links_section = "\n\nГде купить:"
+                    for link in primary_links[:3]:
+                        links_section += f"\n{link['name']} — {link['url']}"
+                    response.text += links_section
+            except Exception:
+                pass
 
     else:
         # General chat

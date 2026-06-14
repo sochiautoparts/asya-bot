@@ -986,9 +986,7 @@ async def _process_text_message(message: Message, text: str):
             part_info=extra_context,
         )
     elif is_group_chat and not is_own_channel:
-        # GROUP/SUPERGROUP (not our channel) → LOCAL MODEL ONLY
-        # No cloud API waste on casual group comments! User requirement.
-        # Use singleton from ai_router — no reloading the model every time!
+        # GROUP/SUPERGROUP (not our channel) → LOCAL MODEL PREFERRED, CLOUD FALLBACK
         from ai.router import ai_router
         local_provider = ai_router._local
         if local_provider and await local_provider.is_available():
@@ -1011,15 +1009,41 @@ async def _process_text_message(message: Message, text: str):
                         provider="local",
                     )
                 else:
-                    # Local model failed — skip comment entirely (no cloud!)
-                    logger.debug("Local model failed for group comment — skipping (no cloud)")
-                    return
+                    # Local model failed — try cloud as fallback
+                    logger.debug("Local model failed for group comment — trying cloud fallback")
+                    try:
+                        response = await ai_router.chat(
+                            user_id=user_id,
+                            message=text,
+                            extra_context="Отвечай коротко, до 300 символов. Живо и естественно.",
+                        )
+                    except Exception:
+                        logger.debug("Cloud fallback also failed for group comment")
+                        return
             except Exception as e:
                 logger.debug(f"Local model group comment error: {e}")
-                return
+                # Try cloud as fallback
+                try:
+                    response = await ai_router.chat(
+                        user_id=user_id,
+                        message=text,
+                        extra_context="Отвечай коротко, до 300 символов. Живо и естественно.",
+                    )
+                except Exception:
+                    logger.debug("Cloud fallback failed for group comment")
+                    return
         else:
-            logger.debug("Local model not available for group comment — skipping (no cloud)")
-            return
+            # Local model not available — use cloud model (but keep it short)
+            logger.debug("Local model not available for group comment — using cloud")
+            try:
+                response = await ai_router.chat(
+                    user_id=user_id,
+                    message=text,
+                    extra_context="Отвечай коротко, до 300 символов. Живо и естественно. Без политики.",
+                )
+            except Exception as e:
+                logger.debug(f"Cloud group comment failed: {e}")
+                return
     else:
         response = await ai_router.chat(
             user_id=user_id,
