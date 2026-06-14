@@ -1,0 +1,795 @@
+     1→"""Smart Content Engine v3.0 — Single-Source JSON Pipeline for @sochiautoparts.
+     2→
+     3→ARCHITECTURE (v3.0 — Single Source):
+     4→  Phase 1: FETCH — News from creastudioai-beep/news JSON (external parser)
+     5→  Phase 2: SCORE — Interest scoring + image bonus + freshness
+     6→  Phase 3: AI PICK — AI selects the BEST topic from top 5 candidates
+     7→  Phase 4: DEDUPLICATE — Topic registry with entity extraction
+     8→  Phase 5: ENRICH — Translation + unique text + expert opinion (via AI post generation)
+     9→  Phase 6: POST — Quality validation with interest scoring
+    10→
+    11→KEY CHANGES FROM v2.0:
+    12→  - NO RSS PARSING — external parser handles all RSS/HTML/image extraction
+    13→  - NO WEB SEARCH — external parser provides pre-curated news
+    14→  - NO AI DISCOVERY — external parser runs every hour with 20+ sources
+    15→  - Images come directly from JSON (pre-extracted by external parser)
+    16→  - Bot only: fetches JSON → scores → picks best → generates post → publishes
+    17→
+    18→KEPT FROM v2.0:
+    19→  - Topic registry prevents duplicate coverage of same event
+    20→  - AI interest scoring — skip boring/technical news nobody reads
+    21→  - Entity extraction — brand, model, event tracking for smart dedup
+    22→  - Date context — Ася always knows what year it is!
+    23→  - Tone analysis — appropriate jokes for different news types
+    24→  - Translation & uniquification hints for AI
+    25→  - Editorial team personality (Лёха, Димон, Марина, Кеша, Сеньор Помидор)
+    26→"""
+    27→
+    28→import logging
+    29→import re
+    30→import time
+    31→import random
+    32→import hashlib
+    33→import asyncio
+    34→from typing import Dict, List, Optional, Tuple
+    35→from datetime import datetime, timedelta
+    36→from zoneinfo import ZoneInfo
+    37→
+    38→from bot.config import config, persona
+    39→
+    40→logger = logging.getLogger("asya.content_engine")
+    41→
+    42→# ── Topic Registry — persistent dedup by entities/events ──────────────────────
+    43→# Maps: entity_key → {first_seen, last_posted, post_count, titles}
+    44→_topic_registry: Dict[str, Dict] = {}
+    45→_REGISTRY_MAX_AGE_HOURS = 72  # Keep topics for 72 hours
+    46→
+    47→# Auto brands for entity extraction
+    48→_AUTO_BRANDS = [
+    49→    "BMW", "Mercedes", "Audi", "Volkswagen", "Toyota", "Honda", "Nissan",
+    50→    "Mazda", "Subaru", "Hyundai", "Kia", "Ford", "Chevrolet", "GMC",
+    51→    "Porsche", "Lexus", "Volvo", "Tesla", "BYD", "Zeekr", "Li Auto",
+    52→    "NIO", "Chery", "Haval", "Geely", "Changan", "Exeed", "Tank",
+    53→    "Renault", "Peugeot", "Citroen", "Fiat", "Alfa Romeo",
+    54→    "Jaguar", "Land Rover", "Mini", "Smart", "Suzuki", "Mitsubishi",
+    55→    "Infiniti", "Acura", "Genesis", "Rivian", "Lucid", "Polestar",
+    56→    "Maserati", "Ferrari", "Lamborghini", "Bentley", "Rolls-Royce",
+    57→    "Bugatti", "McLaren", "Aston Martin", "Lotus",
+    58→]
+    59→
+    60→# Notable people / F1 drivers for entity extraction
+    61→_NOTABLE_PEOPLE = [
+    62→    "Alonso", "Hamilton", "Verstappen", "Vettel", "Leclerc", "Norris",
+    63→    "Sainz", "Russell", "Perez", "Piastri", "Ricciardo", "Stroll",
+    64→    "Ocon", "Gasly", "Tsunoda", "Albon", "Bottas", "Hulkenberg",
+    65→    "Musk", "Маск", "Шумахер", "Сенна",
+    66→]
+    67→
+    68→# F1 / motorsport teams
+    69→_MOTORSPORT_TEAMS = [
+    70→    "Red Bull", "Ferrari", "Mercedes", "McLaren", "Aston Martin",
+    71→    "Alpine", "Williams", "Haas", "RB", "Sauber",
+    72→    "F1", "Formula 1", "Формула 1", "WRC", "WEC", "Le Mans",
+    73→    "NASCAR", "IndyCar", "MotoGP",
+    74→]
+    75→
+    76→# Event keywords for entity extraction
+    77→_EVENT_KEYWORDS = [
+    78→    "reveal", "launch", "debut", "unveil", "release", "announce",
+    79→    "премьера", "запуск", "дебют", "анонс", "представлен", "выпуск",
+    80→    "recalls", "отзыв", "ban", "запрет", "record", "рекорд",
+    81→    "crash", "авария", "merger", "слияни", "bankruptcy", "банкрот",
+    82→    "redesign", "рестайлинг", "facelift", "update", "обновлен",
+    83→    "discontinue", "снят", "сняти", "spy", "шпионск", "prototype", "прототип",
+    84→]
+    85→
+    86→# Moscow timezone
+    87→_MOSCOW_TZ = ZoneInfo("Europe/Moscow")
+    88→
+    89→
+    90→def _extract_entities(title: str) -> str:
+    91→    """Extract key entities from a news title for dedup.
+    92→    
+    93→    Returns a normalized entity key like "bmw_m5_reveal", "alonso_criticism", or "toyota_recalls".
+    94→    """
+    95→    title_lower = title.lower()
+    96→    
+    97→    # Extract brand
+    98→    brand = ""
+    99→    for b in _AUTO_BRANDS:
+   100→        if b.lower() in title_lower:
+   101→            brand = b.lower().replace(" ", "_")
+   102→            break
+   103→    
+   104→    # Extract notable person
+   105→    person = ""
+   106→    for p in _NOTABLE_PEOPLE:
+   107→        if p.lower() in title_lower:
+   108→            person = p.lower().replace(" ", "_")
+   109→            break
+   110→    
+   111→    # Extract motorsport team/series
+   112→    team = ""
+   113→    for t in _MOTORSPORT_TEAMS:
+   114→        if t.lower() in title_lower:
+   115→            team = t.lower().replace(" ", "_")
+   116→            break
+   117→    
+   118→    # Extract model
+   119→    model = ""
+   120→    if brand:
+   121→        model_patterns = [
+   122→            r'\b([mglxqsec]\d+)\b',
+   123→            r'\b(\d{3,4}[ix]?)\b',
+   124→            r'\b(class|series|corolla|camry|civic|accord|model\s?[s3xy])\b',
+   125→            r'\b(mustang|camaro|corvette|prius|rav4|highlander|pilot|tahoe)\b',
+   126→            r'\b(supra|gr86|brz|miata|wrangler|bronco|range rover|defender)\b',
+   127→            r'\b(taycan|macan|cayenne|panamera|911|718|boxster)\b',
+   128→        ]
+   129→        for pattern in model_patterns:
+   130→            match = re.search(pattern, title_lower)
+   131→            if match:
+   132→                model = match.group(1).replace(" ", "_")
+   133→                break
+   134→    
+   135→    # Extract event type
+   136→    event = ""
+   137→    for e in _EVENT_KEYWORDS:
+   138→        if e in title_lower:
+   139→            event = e
+   140→            break
+   141→    
+   142→    parts = [p for p in [brand, person, team, model, event] if p]
+   143→    entity_key = "_".join(parts) if parts else ""
+   144→    
+   145→    return entity_key
+   146→
+   147→
+   148→def _is_topic_covered(entity_key: str) -> bool:
+   149→    """Check if this topic/entity was already posted about recently."""
+   150→    if not entity_key:
+   151→        return False
+   152→    
+   153→    now = time.time()
+   154→    max_age = _REGISTRY_MAX_AGE_HOURS * 3600
+   155→    
+   156→    if entity_key in _topic_registry:
+   157→        entry = _topic_registry[entity_key]
+   158→        age = now - entry["last_posted"]
+   159→        if age < max_age:
+   160→            # If posted in last 24h — DEFINITELY covered
+   161→            if age < 24 * 3600:
+   162→                return True
+   163→            # If posted 24-72h ago — covered unless it's a significantly different angle
+   164→            if entry["post_count"] >= 2:
+   165→                return True
+   166→        else:
+   167→            # Old entry — remove
+   168→            del _topic_registry[entity_key]
+   169→    
+   170→    return False
+   171→
+   172→
+   173→def _register_topic(entity_key: str, title: str):
+   174→    """Register that this topic was posted about."""
+   175→    if not entity_key:
+   176→        return
+   177→    
+   178→    now = time.time()
+   179→    if entity_key in _topic_registry:
+   180→        _topic_registry[entity_key]["post_count"] += 1
+   181→        _topic_registry[entity_key]["last_posted"] = now
+   182→        _topic_registry[entity_key]["titles"].append(title)
+   183→        # Keep only last 5 titles
+   184→        _topic_registry[entity_key]["titles"] = _topic_registry[entity_key]["titles"][-5:]
+   185→    else:
+   186→        _topic_registry[entity_key] = {
+   187→            "first_seen": now,
+   188→            "last_posted": now,
+   189→            "post_count": 1,
+   190→            "titles": [title],
+   191→        }
+   192→    
+   193→    # Also register brand-only key for broader dedup
+   194→    for b in _AUTO_BRANDS:
+   195→        b_key = b.lower().replace(" ", "_")
+   196→        if b_key == entity_key:
+   197→            continue
+   198→        if b_key in entity_key and "_" in entity_key:
+   199→            # e.g., "bmw_m5_reveal" → also register "bmw"
+   200→            if b_key not in _topic_registry or \
+   201→               now - _topic_registry[b_key]["last_posted"] > 12 * 3600:
+   202→                _topic_registry[b_key] = {
+   203→                    "first_seen": now,
+   204→                    "last_posted": now,
+   205→                    "post_count": 1,
+   206→                    "titles": [title],
+   207→                }
+   208→            break
+   209→
+   210→
+   211→def _cleanup_registry():
+   212→    """Remove old entries from topic registry."""
+   213→    now = time.time()
+   214→    max_age = _REGISTRY_MAX_AGE_HOURS * 3600
+   215→    expired = [k for k, v in _topic_registry.items() if now - v["last_posted"] > max_age]
+   216→    for k in expired:
+   217→        del _topic_registry[k]
+   218→    if expired:
+   219→        logger.debug(f"Cleaned up {len(expired)} expired topic registry entries")
+   220→
+   221→
+   222→def _score_interest(title: str, summary: str = "") -> float:
+   223→    """Score news interest level (0.0 to 1.0+).
+   224→    
+   225→    Higher score = more interesting for channel audience.
+   226→    Factors: brand popularity, event type, emotional keywords.
+   227→    """
+   228→    text = f"{title} {summary}".lower()
+   229→    score = 0.4  # Base score
+   230→    
+   231→    # Premium/sports brands = more interest
+   232→    premium_brands = ["ferrari", "lamborghini", "porsche", "mclaren", "bugatti", "aston martin",
+   233→                      "bentley", "rolls-royce", "maserati", "lotus", "tesla"]
+   234→    for brand in premium_brands:
+   235→        if brand in text:
+   236→            score += 0.3
+   237→            break
+   238→    
+   239→    # Popular brands = moderate interest
+   240→    popular_brands = ["bmw", "mercedes", "audi", "toyota", "honda", "porsche",
+   241→                      "lexus", "volvo", "hyundai", "kia", "byd", "zeekr",
+   242→                      "geely", "chery", "haval", "changan", "exeed"]
+   243→    for brand in popular_brands:
+   244→        if brand in text:
+   245→            score += 0.15
+   246→            break
+   247→    
+   248→    # Chinese brands in Russia = high interest for RU audience
+   249→    chinese_brands = ["byd", "zeekr", "geely", "chery", "haval", "changan", "exeed",
+   250→                      "tank", "li auto", "nio", "omicron", "jaecoo", "jetour"]
+   251→    for brand in chinese_brands:
+   252→        if brand in text:
+   253→            score += 0.2
+   254→            break
+   255→    
+   256→    # Exciting events = more interest
+   257→    exciting_events = [
+   258→        "reveal", "debut", "launch", "unveil", "премьер", "дебют",
+   259→        "record", "рекорд", "breakthrough", "прорыв",
+   260→    ]
+   261→    for event in exciting_events:
+   262→        if event in text:
+   263→            score += 0.2
+   264→            break
+   265→    
+   266→    # Negative events = moderate interest (recalls, bans)
+   267→    negative_events = ["recall", "отзыв", "ban", "запрет", "crash", "авария"]
+   268→    for event in negative_events:
+   269→        if event in text:
+   270→            score += 0.15
+   271→            break
+   272→    
+   273→    # Boring events = less interest
+   274→    boring_events = ["report", "отчёт", "quarterly", "earnings", "прибыл",
+   275→                     "investment", "инвестиц", "factory", "завод", "plant"]
+   276→    for event in boring_events:
+   277→        if event in text:
+   278→            score -= 0.15
+   279→            break
+   280→    
+   281→    # Emotional keywords = more engagement
+   282→    emotional_kw = ["shocking", "incredible", "unbelievable", "historic",
+   283→                    "невероятн", "шокиру", "историче", "скандал", "сенсаци"]
+   284→    for kw in emotional_kw:
+   285→        if kw in text:
+   286→            score += 0.15
+   287→            break
+   288→    
+   289→    # Electric/EV = trendy
+   290→    ev_kw = ["electric", "ev ", "battery", "электриче", "электромобил", "заряд"]
+   291→    for kw in ev_kw:
+   292→        if kw in text:
+   293→            score += 0.1
+   294→            break
+   295→    
+   296→    return max(0.0, min(1.5, score))
+   297→
+   298→
+   299→def _score_freshness(published_time) -> float:
+   300→    """Score freshness bonus based on publication time."""
+   301→    if not published_time:
+   302→        return 0.0
+   303→    
+   304→    try:
+   305→        if isinstance(published_time, (int, float)):
+   306→            age_hours = (time.time() - published_time) / 3600
+   307→        elif isinstance(published_time, str):
+   308→            # ISO format
+   309→            from datetime import datetime
+   310→            try:
+   311→                pub_dt = datetime.fromisoformat(published_time.replace("Z", "+00:00"))
+   312→                age_hours = (datetime.now(_MOSCOW_TZ) - pub_dt).total_seconds() / 3600
+   313→            except Exception:
+   314→                return 0.0
+   315→        else:
+   316→            return 0.0
+   317→        
+   318→        if age_hours < 1:
+   319→            return 0.5  # Very fresh
+   320→        elif age_hours < 3:
+   321→            return 0.3
+   322→        elif age_hours < 6:
+   323→            return 0.2
+   324→        elif age_hours < 12:
+   325→            return 0.1
+   326→        elif age_hours < 24:
+   327→            return 0.0
+   328→        else:
+   329→            return -0.3  # Stale
+   330→    except Exception:
+   331→        return 0.0
+   332→
+   333→
+   334→async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
+   335→    """Select the best news item to post from pre-fetched JSON data.
+   336→    
+   337→    Pipeline (v3.0 — Single Source):
+   338→    1. Score all items for interest
+   339→    2. Extract entities and check topic registry
+   340→    3. Filter out covered topics
+   341→    4. Take top 5 candidates → AI picks the BEST one
+   342→    5. Return selected item
+   343→    """
+   344→    # Cleanup old registry entries
+   345→    _cleanup_registry()
+   346→    
+   347→    # Load persisted registry from DB if empty (first call after restart)
+   348→    global _topic_registry
+   349→    if not _topic_registry:
+   350→        try:
+   351→            from bot.database import load_topic_registry
+   352→            _topic_registry = await load_topic_registry()
+   353→            if _topic_registry:
+   354→                logger.info(f"Loaded {len(_topic_registry)} topics from DB registry")
+   355→        except Exception as e:
+   356→            logger.debug(f"Could not load topic registry from DB: {e}")
+   357→    
+   358→    if not unposted_items:
+   359→        logger.info("No unposted items available")
+   360→        return None
+   361→    
+   362→    # ── SCORE & DEDUPLICATE ──
+   363→    scored_items = []
+   364→    seen_titles = set()
+   365→    
+   366→    now_ts = time.time()
+   367→    
+   368→    for item in unposted_items:
+   369→        title = item.get("title", "")
+   370→        summary = item.get("summary", "")
+   371→        
+   372→        # Skip exact title duplicates
+   373→        title_lower = title.lower().strip()
+   374→        if title_lower in seen_titles:
+   375→            continue
+   376→        seen_titles.add(title_lower)
+   377→        
+   378→        # ── DB fingerprint check ──
+   379→        try:
+   380→            from bot.database import is_duplicate_post
+   381→            if await is_duplicate_post(title, hours=72):
+   382→                logger.debug(f"DB dedup blocked: {title[:50]}")
+   383→                continue
+   384→        except Exception:
+   385→            pass
+   386→        
+   387→        # Extract entities for dedup
+   388→        entity_key = _extract_entities(title)
+   389→        
+   390→        # Check if topic is already covered
+   391→        if _is_topic_covered(entity_key):
+   392→            logger.debug(f"Topic already covered: {entity_key} — {title[:50]}")
+   393→            continue
+   394→        
+   395→        # Brand-only dedup
+   396→        brand_blocked = False
+   397→        for b in _AUTO_BRANDS:
+   398→            b_key = b.lower().replace(" ", "_")
+   399→            if b_key in title.lower() and _is_topic_covered(b_key):
+   400→                if not entity_key or entity_key == b_key:
+   401→                    brand_blocked = True
+   402→                    break
+   403→        if brand_blocked:
+   404→            continue
+   405→        
+   406→        # Score interest
+   407→        interest = _score_interest(title, summary)
+   408→        
+   409→        # Freshness bonus
+   410→        published = item.get("published", "") or item.get("published_time", 0)
+   411→        freshness_bonus = _score_freshness(published)
+   412→        interest += freshness_bonus
+   413→        
+   414→        # BONUS for having photos — items WITH images get MASSIVE priority
+   415→        image_count = len(item.get("image_urls", []))
+   416→        if image_count >= 5:
+   417→            interest += 1.0
+   418→        elif image_count >= 3:
+   419→            interest += 0.7
+   420→        elif image_count >= 1:
+   421→            interest += 0.4
+   422→        else:
+   423→            interest -= 0.3  # Text-only = less engaging
+   424→        
+   425→        scored_items.append({
+   426→            "item": item,
+   427→            "interest": interest,
+   428→            "entity_key": entity_key,
+   429→        })
+   430→    
+   431→    if not scored_items:
+   432→        logger.info("No fresh topics from JSON source — skipping this cycle")
+   433→        return None
+   434→    
+   435→    # Sort by interest score
+   436→    scored_items.sort(key=lambda x: x["interest"], reverse=True)
+   437→    
+   438→    # ── AI picks the BEST from top 5 ──
+   439→    top_n = scored_items[:min(5, len(scored_items))]
+   440→    
+   441→    if len(top_n) == 1:
+   442→        chosen = top_n[0]
+   443→    else:
+   444→        # Let AI pick the most interesting one
+   445→        try:
+   446→            from ai.router import ai_router
+   447→            candidates_summary = []
+   448→            for i, entry in enumerate(top_n):
+   449→                item = entry["item"]
+   450→                candidates_summary.append(
+   451→                    f"{i+1}. [{entry['interest']:.2f}] {item.get('title', '')[:100]}"
+   452→                )
+   453→            
+   454→            candidates_text = "\n".join(candidates_summary)
+   455→            
+   456→            _TOPIC_PICK_MODELS = ["mistral-4", "deepseek", "qwen-large"]
+   457→            
+   458→            chosen = top_n[0]  # Default
+   459→            for model_name in _TOPIC_PICK_MODELS:
+   460→                try:
+   461→                    response = await ai_router._primary.chat(
+   462→                        messages=[
+   463→                            {"role": "system", "content": (
+   464→                                "Ты редактор автоканала в Telegram. Тебе даны кандидаты на публикацию "
+   465→                                "с оценкой интереса. Выбери САМЫЙ интересный для широкой аудитории — "
+   466→                                "то, что вызовет наибольший отклик и обсуждение. "
+   467→                                "НЕ выбирай новости про АвтоВАЗ/LADA/УАЗ — скучно. "
+   468→                                "Ответь ТОЛЬКО цифрой — номер лучшего кандидата."
+   469→                            )},
+   470→                            {"role": "user", "content": f"Кандидаты:\n{candidates_text}"},
+   471→                        ],
+   472→                        model=model_name,
+   473→                        temperature=0.3,
+   474→                        max_tokens=5,
+   475→                    )
+   476→                    
+   477→                    if not response.error and response.text and response.text.strip():
+   478→                        pick_match = re.search(r'[1-5]', response.text.strip())
+   479→                        if pick_match:
+   480→                            pick_idx = int(pick_match.group()) - 1
+   481→                            if 0 <= pick_idx < len(top_n):
+   482→                                chosen = top_n[pick_idx]
+   483→                                logger.info(f"AI picked #{pick_idx + 1}: {chosen['item'].get('title', '')[:60]}")
+   484→                        break
+   485→                except Exception:
+   486→                    continue
+   487→        except Exception as e:
+   488→            logger.debug(f"AI topic selection failed, using top-1: {e}")
+   489→            chosen = top_n[0]
+   490→    
+   491→    best_item = chosen["item"]
+   492→    
+   493→    logger.info(
+   494→        f"Selected news: interest={chosen['interest']:.2f}, entity={chosen.get('entity_key', 'none')}, "
+   495→        f"title={best_item.get('title', '')[:60]}"
+   496→    )
+   497→    
+   498→    # NOTE: Do NOT register topic here!
+   499→    # Topic registration happens in channel.py AFTER the post is actually published.
+   500→    
+   501→    return best_item
+   502→
+   503→
+   504→def get_editorial_team_comment() -> str:
+   505→    """Get a random dialogue/comment from the editorial team characters."""
+   506→    team_comments = [
+   507→        # Ася
+   508→        "Я на своей Quadrifoglio уже на третьем комплекте колодок за год — но я и не медленно езжу",
+   509→        "Звук V6 лечит головную боль. Научных подтверждений нет, но редакция верит",
+   510→        "На моей Альфе всё чинится в три раза дороже — и это я ещё экономлю",
+   511→        "Ася запретила шутки про Alfa Romeo — теперь шутим тихо",
+   512→        "Ася прочитала черновик и молча ушла. Вернулась с эспрессо и правками",
+   513→        # Лёха
+   514→        "Оригинал? Это тот же Lemförder с логотипом за двойную цену",
+   515→        "Лёха глянул на новые фары и спросил: а лампочки-то менять как? Через экран?",
+   516→        "Лёха чинит всё что сломано, и ломает всё что работало",
+   517→        "Лёха смотрит на электромобиль как на личное оскорбление",
+   518→        # Димон
+   519→        "Димон предлагает внедрить AI в диагностику. Лёха предлагает внедрить кувалду",
+   520→        "Димон обновил всё — и теперь ничего не работает. Зато безопасно!",
+   521→        "У Димона 47 вкладок открыто — и он утверждает что все нужны",
+   522→        # Марина
+   523→        "Марина посчитала стоимость владения и ушла плакать. Вернулась с купоном на Росско",
+   524→        "Мне всё равно какой 0-100. Мне важно: влезут ли два кресла и коляска",
+   525→        "Марина: 'А где расходники?' — вопрос, от которого всё замолкает",
+   526→        # Кеша (попугай)
+   527→        "Кеша с жёрдочки кричит 'Свободная пресса!'",
+   528→        "Кеша считает что BMW — это разновидность птицы",
+   529→        "Кеша уронил семечко на 'Отправить' — пост ушёл раньше времени",
+   530→        # Сеньор Помидор (кот)
+   531→        "Сеньор Помидор лёг на клавиатуру — пост прерывается на 'гвфдыаопр'",
+   532→        "Кот редакции внёс правки — удалил половину текста и уснул",
+   533→        "Кот проверил новость лапой — одобрено (потянулся и уснул)",
+   534→    ]
+   535→    return random.choice(team_comments)
+   536→
+   537→
+   538→def get_editorial_aside() -> str:
+   539→    """Get a random editorial aside/joke for channel posts.
+   540→    45% chance of returning empty for variety.
+   541→    """
+   542→    if random.random() < 0.45:
+   543→        return ""
+   544→    if random.random() < 0.5 and hasattr(persona, 'editorial_asides') and persona.editorial_asides:
+   545→        return random.choice(persona.editorial_asides)
+   546→    return get_editorial_team_comment()
+   547→
+   548→
+   549→def get_translation_uniquification_hint(lang: str) -> str:
+   550→    """Get a hint for the AI about translating/uniquifying content.
+   551→    
+   552→    Uses a 7-step transformation process to ensure unique, high-quality content.
+   553→    """
+   554→    _7_STEP_PROCESS = (
+   555→        "ПРОЦЕСС ТРАНСФОРМАЦИИ (7 шагов — ОБЯЗАТЕЛЬНО):\n"
+   556→        "Шаг 1: Извлеки факты из источника (марка, модель, цена, характеристики, событие)\n"
+   557→        "Шаг 2: Глобальная перспектива — как это влияет на водителей в России, Казахстане, ЕС, Ближнем Востоке\n"
+   558→        "Шаг 3: Экспертное мнение Аси — её личный взгляд как владелицы Alfa Romeo и автоэксперта\n"
+   559→        "Шаг 4: Голос редакции — иногда добавь комментарий от ОДНОГО персонажа (Лёха/Димон/Марина/Кеша — выбери только одного!)\n"
+   560→        "Шаг 5: Контекст и мировые тренды — как эта новость вписывается в глобальные тенденции\n"
+   561→        "Шаг 6: Вовлечение аудитории — задай вопрос глобальной аудитории в конце поста\n"
+   562→        "Шаг 7: Шутка от редакции — добавь лёгкий юмор от команды\n"
+   563→    )
+   564→    
+   565→    if lang == "en":
+   566→        return (
+   567→            "ВНИМАНИЕ: Исходная новость на АНГЛИЙСКОМ. "
+   568→            "ПЕРЕВЕДИ на русский и ОБЯЗАТЕЛЬНО ПЕРЕСКАЗЫВАЙ СВОИМИ СЛОВАМИ. "
+   569→            "Добавь мнение редакции, экспертный комментарий или сравнение. "
+   570→            "Пост НЕ ДОЛЖЕН быть дословным переводом — это должен быть УНИКАЛЬНЫЙ "
+   571→            "авторский текст редакции @sochiautoparts. "
+   572→            "Упомяни что 'зарубежные источники сообщают' или 'по данным иностранных СМИ' — "
+   573→            "это покажет что новость международная.\n\n"
+   574→            + _7_STEP_PROCESS
+   575→        )
+   576→    return (
+   577→        "ПЕРЕПИШИ НОВОСТЬ ПОЛНОСТЬЮ СВОИМИ СЛОВАМИ. "
+   578→        "Это ОБЯЗАТЕЛЬНО — нельзя копировать фразы из источника. "
+   579→        "Измени структуру, начни с другого факта или эмоции. "
+   580→        "Добавь экспертное мнение от лица редакции, "
+   581→        "сравнение с другими марками/моделями, или контекст для аудитории. "
+   582→        "Пост должен быть уникальным авторским текстом редакции @sochiautoparts.\n\n"
+   583→        + _7_STEP_PROCESS
+   584→    )
+   585→
+   586→
+   587→def get_date_context() -> str:
+   588→    """Get current date/time context string for AI prompts."""
+   589→    now = datetime.now(_MOSCOW_TZ)
+   590→    days_ru = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
+   591→    months_ru = ["января", "февраля", "марта", "апреля", "мая", "июня",
+   592→                 "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+   593→    return (
+   594→        f"СЕГОДНЯ: {days_ru[now.weekday()]}, {now.day} {months_ru[now.month - 1]} "
+   595→        f"{now.year} года, время {now.strftime('%H:%M')} МСК. "
+   596→        f"Дата: {now.strftime('%d.%m.%Y')}. "
+   597→        f"Пиши только о событиях СЕГОДНЯ или самых свежих новостях!"
+   598→    )
+   599→
+   600→
+   601→def get_registry_stats() -> Dict:
+   602→    """Get topic registry statistics for monitoring."""
+   603→    return {
+   604→        "total_topics": len(_topic_registry),
+   605→        "topics": {k: {"post_count": v["post_count"], "age_hours": round((time.time() - v["first_seen"]) / 3600, 1)}
+   606→                   for k, v in list(_topic_registry.items())[:20]},
+   607→    }
+   608→
+   609→
+   610→# ── TONE ANALYSIS ────────────────────────────────────────────────────────────
+   611→
+   612→from enum import Enum
+   613→from dataclasses import dataclass
+   614→
+   615→class NewsTone(Enum):
+   616→    SERIOUS = "serious"
+   617→    HYPE = "hype"
+   618→    ROUTINE = "routine"
+   619→    FUN = "fun"
+   620→    TECHNICAL = "technical"
+   621→
+   622→@dataclass
+   623→class ExtractedFacts:
+   624→    brand: str
+   625→    model: str
+   626→    year: Optional[str]
+   627→    price: Optional[str]
+   628→    power: Optional[str]
+   629→    key_event: str
+   630→    tone: NewsTone
+   631→    is_partner: bool = False
+   632→
+   633→async def analyze_news_tone(title: str, summary: str, content: str = "") -> ExtractedFacts:
+   634→    """Analyze news tone and extract facts for post generation."""
+   635→    text = f"{title} {summary} {content}".lower()
+   636→    
+   637→    # Extract brand
+   638→    brand = ""
+   639→    for b in _AUTO_BRANDS:
+   640→        if b.lower() in text:
+   641→            brand = b
+   642→            break
+   643→    
+   644→    # Extract model
+   645→    model = ""
+   646→    if brand:
+   647→        model_patterns = [
+   648→            rf'{brand.lower()}\s+([a-z0-9]+)',
+   649→            rf'{brand.lower()}\s+([mglxqsec]\d+)',
+   650→        ]
+   651→        for pattern in model_patterns:
+   652→            match = re.search(pattern, text, re.IGNORECASE)
+   653→            if match:
+   654→                model = match.group(1).upper()
+   655→                break
+   656→    
+   657→    # Extract facts
+   658→    price = None
+   659→    power = None
+   660→    year = None
+   661→    
+   662→    price_match = re.search(r'\$([\d,]+)', text)
+   663→    if price_match:
+   664→        price = price_match.group(1)
+   665→    else:
+   666→        price_match = re.search(r'([\d,]+)\s*(?:руб|рубл|rub|₽)', text, re.IGNORECASE)
+   667→        if price_match:
+   668→            price = price_match.group(1)
+   669→    
+   670→    power_match = re.search(r'(\d+)\s*(?:л\.?с|hp|horsepower|лс)', text, re.IGNORECASE)
+   671→    if power_match:
+   672→        power = power_match.group(1)
+   673→    
+   674→    year_match = re.search(r'\b(20[12]\d)\b', text)
+   675→    if year_match:
+   676→        year = year_match.group(1)
+   677→    
+   678→    tone = _determine_tone(text, title)
+   679→    
+   680→    return ExtractedFacts(
+   681→        brand=brand or "Неизвестно",
+   682→        model=model,
+   683→        year=year,
+   684→        price=price,
+   685→        power=power,
+   686→        key_event=title,
+   687→        tone=tone,
+   688→        is_partner=False
+   689→    )
+   690→
+   691→def _determine_tone(text: str, title: str) -> NewsTone:
+   692→    """Determine news tone based on keywords"""
+   693→    text_lower = text.lower()
+   694→    title_lower = title.lower()
+   695→    
+   696→    serious_kw = ["дтп", "авария", "катастроф", "погиб", "смерть", "жертв",
+   697→                  "отзыв", "отзывают", "recalls", "бан", "запрет", "штраф",
+   698→                  "crash", "accident", "death", "fatal", "recall", "ban"]
+   699→    for kw in serious_kw:
+   700→        if kw in text_lower or kw in title_lower:
+   701→            return NewsTone.SERIOUS
+   702→    
+   703→    fun_kw = ["забавн", "курьез", "смешн", "необычн", "удивител",
+   704→              "funny", "curious", "weird", "strange", "amazing"]
+   705→    for kw in fun_kw:
+   706→        if kw in text_lower or kw in title_lower:
+   707→            return NewsTone.FUN
+   708→    
+   709→    hype_kw = ["премьер", "дебют", "анонс", "представлен", "новинк",
+   710→               "рекорд", "суперкар", "гиперкар", "прорыв",
+   711→               "reveal", "debut", "launch", "unveil", "record", "supercar"]
+   712→    for kw in hype_kw:
+   713→        if kw in text_lower or kw in title_lower:
+   714→            return NewsTone.HYPE
+   715→    
+   716→    tech_kw = ["характеристик", "мощност", "скорост", "разгон",
+   717→               "тест-драйв", "сравнен", "обзор", "техническ",
+   718→               "specifications", "horsepower", "speed", "test", "comparison"]
+   719→    for kw in tech_kw:
+   720→        if kw in text_lower or kw in title_lower:
+   721→            return NewsTone.TECHNICAL
+   722→    
+   723→    return NewsTone.ROUTINE
+   724→
+   725→def get_tone_specific_joke(tone: NewsTone) -> str:
+   726→    """Get a joke appropriate for the news tone"""
+   727→    if tone == NewsTone.SERIOUS:
+   728→        return ""
+   729→    
+   730→    joke_pools = {
+   731→        NewsTone.HYPE: [
+   732→            "Редакция в шоке: даже кофе не бодрит так, как эта новость! ☕",
+   733→            "Ася чуть не уронила эспрессо, когда увидела эту новость! 😱",
+   734→            "Лёха отложил гаечный ключ — а он его НИКОГДА не откладывает 🔧",
+   735→            "Кеша даже перестал есть семечки — новость THAT хороша! 🦜",
+   736→            "Сеньор Помидор ПРОСНУЛСЯ — вот это реально редкость 🐱",
+   737→        ],
+   738→        NewsTone.ROUTINE: [
+   739→            "Пока варим утренний кофе, делимся новостью... ☕",
+   740→            "Сломали очередной карандаш, составляя этот пост ✏️",
+   741→            "Рутина — но с характером. Как утренний дедлайн ☀️",
+   742→            "Среда, рутина, новость. Редакция работает дальше 💪",
+   743→        ],
+   744→        NewsTone.FUN: [
+   745→            "В редакции смеялись до слез 😂",
+   746→            "Кеша танцует на жёрдочке — новость его развеселила 💃🦜",
+   747→            "Сеньор Помидор мурлычет — а он мурлычет только на хорошие новости 😻",
+   748→            "Лёха УЛЫБНУЛСЯ. Мы это запечатлили — редкий кадр! 😁",
+   749→        ],
+   750→        NewsTone.TECHNICAL: [
+   751→            "Разбираемся в цифрах, пока кофе остывает... ☕📊",
+   752→            "Димон в восторге от спецификаций — Лёха скептичен. Классика 🤓🔧",
+   753→            "Марина проверила расчёты — всё сходится. Редкость! 🧮",
+   754→        ],
+   755→    }
+   756→    
+   757→    pool = joke_pools.get(tone, [])
+   758→    return random.choice(pool) if pool else ""
+   759→
+   760→
+   761→def validate_facts_in_text(text: str, facts: ExtractedFacts) -> str:
+   762→    """Ensure key facts are preserved in generated text"""
+   763→    if facts.price and facts.price not in text:
+   764→        text += f"\n💰 Цена: {facts.price}"
+   765→    if facts.power and facts.power not in text:
+   766→        text += f"\n⚡ Мощность: {facts.power} л.с."
+   767→    if facts.year and facts.year not in text:
+   768→        text += f"\n📅 Год: {facts.year}"
+   769→    return text
+   770→
+   771→
+   772→def trim_to_telegram_limits(text: str, has_media: bool) -> str:
+   773→    """Trim text to Telegram limits"""
+   774→    MAX_CAPTION = 1024
+   775→    MAX_MESSAGE = 4096
+   776→    max_len = MAX_CAPTION if has_media else MAX_MESSAGE
+   777→    
+   778→    if len(text) <= max_len:
+   779→        return text
+   780→    
+   781→    lines = text.split('\n')
+   782→    trimmed = []
+   783→    current_len = 0
+   784→    
+   785→    for line in lines:
+   786→        if current_len + len(line) + 1 <= max_len:
+   787→            trimmed.append(line)
+   788→            current_len += len(line) + 1
+   789→        else:
+   790→            if current_len + 3 <= max_len:
+   791→                trimmed.append("...")
+   792→            break
+   793→    
+   794→    return '\n'.join(trimmed)
+   795→

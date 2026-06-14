@@ -1,0 +1,602 @@
+   900→   900→                try:
+   901→   901→                    from PIL import Image
+   902→   902→                    import io
+   903→   903→                    img = Image.open(io.BytesIO(content))
+   904→   904→                    width, height = img.size
+   905→   905→                    # Only skip extremely tiny images (under 50px)
+   906→   906→                    if width < 50 or height < 50:
+   907→   907→                        logger.debug(f"Partner image too small: {width}x{height}")
+   908→   908→                        return None
+   909→   909→                except ImportError:
+   910→   910→                    # No PIL — accept the image anyway for partner posts
+   911→   911→                    logger.debug("PIL not available, accepting partner image without dimension check")
+   912→   912→                except Exception:
+   913→   913→                    # Can't read — accept anyway for partner posts
+   914→   914→                    logger.debug("Can't read partner image dimensions, accepting as-is")
+   915→   915→
+   916→   916→                return content
+   917→   917→        except Exception as e:
+   918→   918→            logger.debug(f"Could not download partner image: {e}")
+   919→   919→        return None
+   920→   920→
+   921→   921→    async def _create_poll_from_news(self, news_title: str, news_summary: str = "") -> Optional[Dict]:
+   922→   922→        """Generate a poll question and options based on a news item using AI."""
+   923→   923→        try:
+   924→   924→            response = await ai_router._primary.chat(
+   925→   925→                messages=[
+   926→   926→                    {"role": "system", "content": (
+   927→   927→                        "Ты создаёшь опросы для автоканала в Telegram. "
+   928→   928→                        "На основе новости создай опрос: вопрос и 4 варианта ответа. "
+   929→   929→                        "Формат строго JSON: {\"question\": \"...\", \"options\": [\"...\", \"...\", \"...\", \"...\"]}. "
+   930→   930→                        "Никакого текста кроме JSON. Вопрос короткий и живой. "
+   931→   931→                        "Варианты ответа короткие (до 20 символов)."
+   932→   932→                    )},
+   933→   933→                    {"role": "user", "content": f"Новость: {news_title}\n{news_summary[:300]}"},
+   934→   934→                ],
+   935→   935→                model="mistral",
+   936→   936→                temperature=0.8,
+   937→   937→                max_tokens=200,
+   938→   938→            )
+   939→   939→
+   940→   940→            if response.error or not response.text:
+   941→   941→                return None
+   942→   942→
+   943→   943→            import json
+   944→   944→            text = response.text.strip()
+   945→   945→            if "```" in text:
+   946→   946→                text = text.split("```")[1].strip()
+   947→   947→                if text.startswith("json"):
+   948→   948→                    text = text[4:].strip()
+   949→   949→
+   950→   950→            start = text.find("{")
+   951→   951→            end = text.rfind("}") + 1
+   952→   952→            if start >= 0 and end > start:
+   953→   953→                data = json.loads(text[start:end])
+   954→   954→                question = data.get("question", "")
+   955→   955→                options = data.get("options", [])
+   956→   956→                if question and len(options) >= 2:
+   957→   957→                    return {"question": question, "options": options[:4]}
+   958→   958→
+   959→   959→        except Exception as e:
+   960→   960→            logger.error(f"Poll generation error: {e}")
+   961→   961→
+   962→   962→        return None
+   963→   963→
+   964→   964→    async def post_news(self, news_item: Optional[Dict] = None) -> bool:
+   965→   965→        """
+   966→   966→        Post a news item to the channel.
+   967→   967→        If no item specified, picks the best unposted news or searches internet.
+   968→   968→        """
+   969→   969→        if not self._bot:
+   970→   970→            logger.error("Bot not set in ChannelManager — cannot post")
+   971→   971→            return False
+   972→   972→
+   973→   973→        logger.info(f"post_news: called with item={'provided' if news_item else 'None (will pick best)'}")
+   974→   974→
+   975→   975→        # Check daily limit
+   976→   976→        today_count = await get_today_post_count()
+   977→   977→        if today_count >= config.CHANNEL_MAX_POSTS_PER_DAY:
+   978→   978→            logger.info(f"Daily post limit reached ({today_count}/{config.CHANNEL_MAX_POSTS_PER_DAY})")
+   979→   979→            return False
+   980→   980→
+   981→   981→        # Check hourly limit — max 6 posts per hour (3 posts × 2 cycles)
+   982→   982→        hourly_count = await get_hourly_post_count()
+   983→   983→        if hourly_count >= config.CHANNEL_MAX_POSTS_PER_HOUR:
+   984→   984→            logger.info(f"Hourly post limit reached ({hourly_count}/{config.CHANNEL_MAX_POSTS_PER_HOUR})")
+   985→   985→            return False
+   986→   986→
+   987→   987→        # Check minimum interval — allow 3s between posts (hourly batch mode)
+   988→   988→        # In hourly batch mode, we publish 7 posts with 3-5s gaps
+   989→   989→        min_interval = 3  # 3 seconds minimum between posts in batch mode
+   990→   990→        if time.time() - self._last_post_time < min_interval:
+   991→   991→            logger.info(f"Post interval too short ({time.time() - self._last_post_time:.0f}s < {min_interval}s)")
+   992→   992→            return False
+   993→   993→
+   994→   994→        # Get news item if not provided — use Smart Content Engine!
+   995→   995→        if not news_item:
+   996→   996→            unposted = await get_unposted_news(limit=25)
+   997→   997→            logger.info(f"post_news: {len(unposted)} unposted items in DB")
+   998→   998→            # Use content engine to pick the best item (interest scoring + topic dedup)
+   999→   999→            news_item = await get_best_news_item(unposted)
+  1000→  1000→            if not news_item:
+  1001→  1001→                # Content engine couldn't find anything fresh — skip this cycle
+  1002→  1002→                logger.info("No fresh topics found (content engine)")
+  1003→  1003→                return False
+  1004→  1004→            logger.info(f"post_news: content engine selected: {news_item.get('title', '')[:60]}")
+  1005→  1005→
+  1006→  1006→        # ── DEDUPLICATION LAYER 1: DB-level dedup (title hash, keyword overlap) ──
+  1007→  1007→        if news_item and news_item.get("title"):
+  1008→  1008→            # Check with extended 72h window — same topic should not reappear within 3 days
+  1009→  1009→            if await is_duplicate_post(news_item["title"], hours=72):
+  1010→  1010→                logger.warning(f"DB DUPLICATE blocked: {news_item['title'][:60]}")
+  1011→  1011→                if news_item.get("url"):
+  1012→  1012→                    await mark_news_posted(news_item["url"])
+  1013→  1013→                return False
+  1014→  1014→
+  1015→  1015→            # ── DEDUPLICATION LAYER 1.5: Direct channel_posts check ──
+  1016→  1016→            # Check the actual posted content in the channel — this catches cases where
+  1017→  1017→            # AI rephrased the title significantly but it's the same event
+  1018→  1018→            try:
+  1019→  1019→                from bot.database import _connect_db
+  1020→  1020→                async with _connect_db() as db:
+  1021→  1021→                    cutoff = time.time() - (72 * 3600)  # 72h window
+  1022→  1022→                    async with db.execute(
+  1023→  1023→                        "SELECT content FROM channel_posts WHERE created_at >= ? AND post_type = 'news' ORDER BY created_at DESC LIMIT 30",
+  1024→  1024→                        (cutoff,),
+  1025→  1025→                    ) as cursor:
+  1026→  1026→                        rows = await cursor.fetchall()
+  1027→  1027→                        for row in rows:
+  1028→  1028→                            content = row[0] if row else ""
+  1029→  1029→                            if not content:
+  1030→  1030→                                continue
+  1031→  1031→                            # Extract first line (title) from content
+  1032→  1032→                            first_line = content.split('\n')[0].strip()
+  1033→  1033→                            if not first_line:
+  1034→  1034→                                continue
+  1035→  1035→                            # Check core word overlap with the first line of posted content
+  1036→  1036→                            from bot.database import _extract_core_words
+  1037→  1037→                            posted_core = _extract_core_words(first_line)
+  1038→  1038→                            new_core = _extract_core_words(news_item["title"])
+  1039→  1039→                            if len(posted_core) >= 2 and len(new_core) >= 2:
+  1040→  1040→                                overlap = posted_core & new_core
+  1041→  1041→                                if len(overlap) >= 2:
+  1042→  1042→                                    logger.warning(f"CHANNEL DEDUP blocked (core words match: {overlap}): {news_item['title'][:60]}")
+  1043→  1043→                                    if news_item.get("url"):
+  1044→  1044→                                        await mark_news_posted(news_item["url"])
+  1045→  1045→                                    return False
+  1046→  1046→            except Exception as e:
+  1047→  1047→                logger.debug(f"Channel posts dedup check failed: {e}")
+  1048→  1048→
+  1049→  1049→            # ── DEDUPLICATION LAYER 2: In-memory semantic dedup ──
+  1050→  1050→            if _is_semantically_duplicate(news_item["title"]):
+  1051→  1051→                logger.warning(f"SEMANTIC DUPLICATE blocked: {news_item['title'][:60]}")
+  1052→  1052→                if news_item.get("url"):
+  1053→  1053→                    await mark_news_posted(news_item["url"])
+  1054→  1054→                return False
+  1055→  1055→
+  1056→  1056→            # ── Channel scanner REMOVED ──
+  1057→  1057→            # Was causing false blocks from GitHub Actions IPs (403/429).
+  1058→  1058→            # DB fingerprint + semantic dedup are sufficient.
+  1059→  1059→
+  1060→  1060→        # Generate post content using AI
+  1061→  1061→        source_text = ""
+  1062→  1062→        # Use full_text if available (from external parser), otherwise summary
+  1063→  1063→        if news_item.get("full_text"):
+  1064→  1064→            source_text = news_item["full_text"]
+  1065→  1065→        elif news_item.get("summary"):
+  1066→  1066→            source_text = news_item["summary"]
+  1067→  1067→
+  1068→  1068→        # ── DATE CONTEXT — Ася знает какой сейчас год! ──
+  1069→  1069→        date_context = get_date_context()
+  1070→  1070→
+  1071→  1071→        # ── CHANNEL CONTEXT DISABLED ──
+  1072→  1072→        # Was causing editorial leakage — AI discussed why it can't post about topics
+  1073→  1073→        # instead of just choosing a different one. Topic registry deprioritization
+  1074→  1074→        # handles dedup without triggering editorial discussion.
+  1075→  1075→        channel_context = ""
+  1076→  1076→
+  1077→  1077→        extra_instructions = (
+  1078→  1078→            f"{date_context} "
+  1079→  1079→            "ПРАВИЛА ДЛЯ ТЕКСТА ПОСТА:\n"
+  1080→  1080→            "1. Напиши ПОЛНОСТЬЮ оригинальный текст — это авторская заметка автожурналиста, не пересказ и не перевод.\n"
+  1081→  1081→            "2. Пиши живо, эмоционально и неформально — как будто рассказываешь другу за кофе.\n"
+  1082→  1082→            "3. Начни с цепляющего заголовка/хука: вопроса, неожиданного факта или эмоции.\n"
+  1083→  1083→            "4. Объясни ПОЧЕМУ это важно для обычного водителя — личный опыт, сравнения, аналогии.\n"
+  1084→  1084→            "5. Добавь СВОЁ мнение, оценку или прогноз — это авторская колонка, не новость.\n"
+  1085→  1085→            "6. Твой ответ — это ГОТОВЫЙ ТЕКСТ ПОСТА для публикации. ТОЛЬКО текст поста.\n"
+  1086→  1086→            "7. Если новость НЕ про автомобили — верни пустой ответ.\n"
+  1087→  1087→            "8. НЕ ДОБАВЛЯЙ никаких редакционных заметок, пометок, обсуждений. ТОЛЬКО текст для читателей.\n"
+  1088→  1088→            "9. БУДЬ КОМПАКТЕН: 500-900 символов — оптимально. Пост с фото ограничен 1024 символами. "
+  1089→  1089→            "Старайся уложиться в 950 символов включая подпись. "
+  1090→  1090→            "МАКСИМУМ ОДИН персонаж редакции за пост.\n"
+  1091→  1091→            "10. УНИКАЛИЗАЦИЯ: измени структуру, начни с другого факта, используй другие слова. "
+  1092→  1092→            "Не повторяй формулировки источника — напиши СВОИМИ словами.\n"
+  1093→  1093→        )
+  1094→  1094→        # Channel context removed — was causing AI to discuss editorial decisions
+  1095→  1095→        # in the post text instead of just picking a different topic.
+  1096→  1096→
+  1097→  1097→        # ── Translation & uniquification hint based on language ──
+  1098→  1098→        news_lang = news_item.get("lang", "ru")
+  1099→  1099→        translation_hint = get_translation_uniquification_hint(news_lang)
+  1100→  1100→        if translation_hint:
+  1101→  1101→            extra_instructions += f"\n{translation_hint}\n"
+  1102→  1102→
+  1103→  1103→        # ── Editorial aside / joke — adds personality ──
+  1104→  1104→        editorial_aside = get_editorial_aside()
+  1105→  1105→        if editorial_aside:
+  1106→  1106→            extra_instructions += (
+  1107→  1107→                f"\nРЕДАКЦИОННАЯ ШУТКА (вставь её органично в текст, если уместно): "
+  1108→  1108→                f"«{editorial_aside}»\n"
+  1109→  1109→                "Не вставляй насильно — только если это естественно вписывается в текст.\n"
+  1110→  1110→            )
+  1111→  1111→
+  1112→  1112→        if news_item.get("lang") and news_item.get("lang") != "ru":
+  1113→  1113→            extra_instructions += (
+  1114→  1114→                "Это новость из зарубежного источника. "
+  1115→  1115→                "Переведи на русский язык и АДАПТИРУЙ для русскоязычной аудитории: "
+  1116→  1116→                "добавь контекст (почему это важно для России/СНГ), переведи цены в рубли если возможно, "
+  1117→  1117→                "используй российские аналоги если уместно (марки, модели, цены). "
+  1118→  1118→                "Сохрани суть и факты, но напиши естественно на русском — "
+  1119→  1119→                "не как машинный перевод, а как живой автожурналист. "
+  1120→  1120→                "Объясни непонятные термины, добавь сравнения с российским рынком. "
+  1121→  1121→            )
+  1122→  1122→
+  1123→  1123→        # Get images: pre-fetched images → RSS images → article page images → done
+  1124→  1124→        image_list: List[bytes] = []
+  1125→  1125→        image_source = "none"
+  1126→  1126→        has_media = False
+  1127→  1127→
+  1128→  1128→        # Check if images were already pre-downloaded
+  1129→  1129→        pre_fetched = news_item.get("_fetched_images", [])
+  1130→  1130→        if pre_fetched:
+  1131→  1131→            image_list = pre_fetched
+  1132→  1132→            image_source = news_item.get("_image_source", "pre-fetched")
+  1133→  1133→            logger.info(f"Using {len(image_list)} pre-fetched images (source={image_source})")
+  1134→  1134→        
+  1135→  1135→        if not image_list:
+  1136→  1136→            try:
+  1137→  1137→                image_list, image_source = await self._get_post_images(news_item)
+  1138→  1138→            except Exception as e:
+  1139→  1139→                logger.warning(f"Image download skipped: {e}")
+  1140→  1140→
+  1141→  1141→            has_media = len(image_list) > 0
+  1142→  1142→        else:
+  1143→  1143→            has_media = True
+  1144→  1144→
+  1145→  1145→        media_count = len(image_list) if has_media else 0
+  1146→  1146→        
+  1147→  1147→        # Tell AI that real article photos are attached
+  1148→  1148→        if has_media:
+  1149→  1149→            extra_instructions += (
+  1150→  1150→                "К посту прикреплены РЕАЛЬНЫЕ фотографии из новости. "
+  1151→  1151→                "Не описывай фото — они уже прикреплены. Пиши текст новости. "
+  1152→  1152→            )
+  1153→  1153→
+  1154→  1154→        # ── TONE ANALYSIS — Determine appropriate tone for this news ──
+  1155→  1155→        # NOTE: Tone joke is added AFTER post_text is generated (see below)
+  1156→  1156→        tone_joke = ""
+  1157→  1157→        tone_value = "neutral"
+  1158→  1158→        try:
+  1159→  1159→            from bot.content_engine import analyze_news_tone, get_tone_specific_joke
+  1160→  1160→            facts = await analyze_news_tone(
+  1161→  1161→                news_item.get("title", ""),
+  1162→  1162→                news_item.get("summary", ""),
+  1163→  1163→                source_text
+  1164→  1164→            )
+  1165→  1165→            logger.info(f"Tone analysis: {facts.tone.value}, brand={facts.brand}, model={facts.model}")
+  1166→  1166→            tone_value = facts.tone.value
+  1167→  1167→            
+  1168→  1168→            # Prepare tone-specific joke if appropriate (NOT for serious news)
+  1169→  1169→            if facts.tone.value != "serious" and not news_item.get("is_partner"):
+  1170→  1170→                tone_joke = get_tone_specific_joke(facts.tone)
+  1171→  1171→        except Exception as e:
+  1172→  1172→            logger.debug(f"Tone analysis skipped: {e}")
+  1173→  1173→        
+  1174→  1174→        response = await ai_router.generate_channel_post(
+  1175→  1175→            topic=news_item["title"],
+  1176→  1176→            source_text=source_text,
+  1177→  1177→            extra_instructions=extra_instructions,
+  1178→  1178→            has_media=has_media,
+  1179→  1179→            media_count=media_count,
+  1180→  1180→        )
+  1181→  1181→
+  1182→  1182→        if response.error or not response.text:
+  1183→  1183→            logger.error(f"Failed to generate channel post: {response.error_message}")
+  1184→  1184→            return False
+  1185→  1185→
+  1186→  1186→        post_text = _clean_post_text(response.text)
+  1187→  1187→        post_text = _ensure_footer(post_text)
+  1188→  1188→
+  1189→  1189→        # ── Add tone-specific joke AFTER post generation (if applicable) ──
+  1190→  1190→        if tone_joke and tone_joke not in post_text:
+  1191→  1191→            # Pre-check: only add joke if post has room within Telegram limits
+  1192→  1192→            # Conservative: assume media post (1024 char limit) as worst case
+  1193→  1193→            joke_len = len(tone_joke) + 2  # joke text + \n\n separator
+  1194→  1194→            char_limit = config.TELEGRAM_CAPTION_LIMIT  # 1024 — worst case
+  1195→  1195→            if len(post_text) + joke_len <= char_limit:
+  1196→  1196→                # Insert joke before footer
+  1197→  1197→                footer_marker = "\n\nАвтор @asiaexp_bot"
+  1198→  1198→                if footer_marker in post_text:
+  1199→  1199→                    post_text = post_text.replace(footer_marker, f"\n\n{tone_joke}{footer_marker}")
+  1200→  1200→                else:
+  1201→  1201→                    post_text = post_text.rstrip() + f"\n\n{tone_joke}"
+  1202→  1202→                logger.info(f"Added tone joke for {tone_value}")
+  1203→  1203→            else:
+  1204→  1204→                logger.debug(f"Skipped tone joke — post already {len(post_text)} chars (limit {char_limit})")
+  1205→  1205→
+  1206→  1206→        # Validate before posting
+  1207→  1207→        if not _validate_post_text(post_text):
+  1208→  1208→            logger.error(f"Post validation failed, skipping")
+  1209→  1209→            return False
+  1210→  1210→
+  1211→  1211→        # ── Post-generation dedup REMOVED ──
+  1212→  1212→        # The DB fingerprint check at Layer 1 already covers this.
+  1213→  1213→        # Post-gen checks were redundant and caused false blocks when AI rewrote
+  1214→  1214→        # the same news differently (which is the desired behavior).
+  1215→  1215→
+  1216→  1216→        # ── SMART MEDIA DECISION: media-first policy ──
+  1217→  1217→        #
+  1218→  1218→        # RULES (Telegram limits: caption=1024, text-only=4096):
+  1219→  1219→        #   1. Post with photo — ALWAYS preferred. Optimal text: 500-900 chars, max 1024.
+  1220→  1220→        #   2. Post without photo — ONLY allowed when ALL conditions are met:
+  1221→  1221→        #      a) Text > 1024 chars (genuinely doesn't fit in caption)
+  1222→  1222→        #      b) Text <= 4096 chars (Telegram text-only limit)
+  1223→  1223→        #      c) Content is interesting/valuable (interest score >= 0.5)
+  1224→  1224→        #   3. Short text without photo — BLOCKED. Must have image.
+  1225→  1225→        #
+  1226→  1226→        _CAPTION_LIMIT = config.TELEGRAM_CAPTION_LIMIT   # 1024
+  1227→  1227→        _TEXT_LIMIT = config.TELEGRAM_TEXT_LIMIT          # 4096
+  1228→  1228→        _MIN_CONTENT_FOR_TEXT_ONLY = 1025  # Must exceed caption limit to justify text-only
+  1229→  1229→
+  1230→  1230→        # ── CASE 1: No media + short text (≤1024) → text-only is fine ──
+  1231→  1231→        # No more AI image generation or image search. If the article had photos,
+  1232→  1232→        # they were already extracted by _get_post_images(). If not — text-only.
+  1233→  1233→        if not has_media and len(post_text) <= _CAPTION_LIMIT:
+  1234→  1234→            logger.info(
+  1235→  1235→                f"Post has no media, text is {len(post_text)} chars — publishing text-only."
+  1236→  1236→            )
+  1237→  1237→
+  1238→  1238→        # ── CASE 2: Has media + text > caption limit → try compress to keep media ──
+  1239→  1239→        elif has_media and len(post_text) > _CAPTION_LIMIT:
+  1240→  1240→            logger.info(
+  1241→  1241→                f"Post text {len(post_text)} chars > caption limit {_CAPTION_LIMIT}. "
+  1242→  1242→                f"Attempting to compress text to preserve media attachment."
+  1243→  1243→            )
+  1244→  1244→            compressed = _enforce_char_limit(post_text, has_media=True)
+  1245→  1245→            if len(compressed) <= _CAPTION_LIMIT and len(compressed) >= 400:
+  1246→  1246→                # Compressed enough while keeping meaningful content — keep media!
+  1247→  1247→                post_text = compressed
+  1248→  1248→                logger.info(
+  1249→  1249→                    f"Text compressed to {len(compressed)} chars — keeping media attachment."
+  1250→  1250→                )
+  1251→  1251→            else:
+  1252→  1252→                # Text genuinely too long to compress — check if it's INTERESTING
+  1253→  1253→                # enough to justify a text-only post
+  1254→  1254→                interest_score = _score_interest(
+  1255→  1255→                    news_item.get("title", ""),
+  1256→  1256→                    news_item.get("summary", "")
+  1257→  1257→                )
+  1258→  1258→                if interest_score >= 0.5 and len(post_text) <= _TEXT_LIMIT:
+  1259→  1259→                    # Interesting + within Telegram limit → allow text-only
+  1260→  1260→                    logger.info(
+  1261→  1261→                        f"Text too long for caption ({len(post_text)} chars, interest={interest_score:.2f}). "
+  1262→  1262→                        f"Publishing WITHOUT media — content is interesting enough to justify text-only "
+  1263→  1263→                        f"(up to {_TEXT_LIMIT} chars)."
+  1264→  1264→                    )
+  1265→  1265→                    has_media = False
+  1266→  1266→                    image_list = []
+  1267→  1267→                else:
+  1268→  1268→                    # Not interesting enough or too long — compress aggressively + keep media
+  1269→  1269→                    logger.info(
+  1270→  1270→                        f"Interest score {interest_score:.2f} too low for text-only. "
+  1271→  1271→                        f"Compressing text aggressively to keep media (visual > extra text)."
+  1272→  1272→                    )
+  1273→  1273→                    post_text = _enforce_char_limit(post_text, has_media=True)
+  1274→  1274→
+  1275→  1275→        # ── CASE 3: No media + long text (>1024) → text-only is fine ──
+  1276→  1276→        # No more AI image generation. If article had photos, they're already attached.
+  1277→  1277→        elif not has_media and len(post_text) > _CAPTION_LIMIT:
+  1278→  1278→            if len(post_text) > _TEXT_LIMIT:
+  1279→  1279→                post_text = _enforce_char_limit(post_text, has_media=False)
+  1280→  1280→            logger.info(
+  1281→  1281→                f"Text-only post: {len(post_text)} chars. No AI-generated images."
+  1282→  1282→            )
+  1283→  1283→
+  1284→  1284→        # Smart character limit enforcement — always preserve footer
+  1285→  1285→        post_text = _enforce_char_limit(post_text, has_media)
+  1286→  1286→
+  1287→  1287→        # Re-validate after all processing steps
+  1288→  1288→        if not _validate_post_text(post_text):
+  1289→  1289→            logger.error(f"Post validation failed after review, skipping")
+  1290→  1290→            return False
+  1291→  1291→
+  1292→  1292→        # ── Channel scanner dedup and post-gen DB fingerprint checks REMOVED ──
+  1293→  1293→        # These were causing false blocks. DB fingerprint at Layer 1 + semantic
+  1294→  1294→        # dedup at Layer 2 are sufficient. Post-gen checks were overly aggressive
+  1295→  1295→        # and blocked valid rewrites of the same topic.
+  1296→  1296→
+  1297→  1297→        # ── DB fingerprint dedup — last chance to catch duplicates ──
+  1298→  1298→        # Check both title AND generated content against DB with 72h window
+  1299→  1299→        try:
+  1300→  1300→            if await is_duplicate_post(news_item.get("title", ""), content=post_text, hours=72):
+  1301→  1301→                logger.warning(f"DB dedup blocked post (post-gen): {news_item.get('title', '')[:60]}")
+  1302→  1302→                return False
+  1303→  1303→        except Exception:
+  1304→  1304→            pass  # DB check is best-effort
+  1305→  1305→
+  1306→  1306→        # ── Register topic in registry AFTER successful validation ──
+  1307→  1307→        # (not before AI generation — that was causing premature registration)
+  1308→  1308→        entity_key = _extract_entities(news_item.get("title", ""))
+  1309→  1309→        if entity_key:
+  1310→  1310→            _register_topic(entity_key, news_item.get("title", ""))
+  1311→  1311→
+  1312→  1312→        # ── Record in in-memory dedup BEFORE publishing ──
+  1313→  1313→        # This ensures the second post in the same cycle will see this one.
+  1314→  1314→        _record_post_title(news_item.get("title", ""))
+  1315→  1315→
+  1316→  1316→        # HARD SAFETY CHECK: never post more than MAX_IMAGES_PER_POST images
+  1317→  1317→        if has_media and image_list and len(image_list) > MAX_IMAGES_PER_POST:
+  1318→  1318→            logger.warning(f"SAFETY: Truncating {len(image_list)} images to {MAX_IMAGES_PER_POST}")
+  1319→  1319→            image_list = image_list[:MAX_IMAGES_PER_POST]
+  1320→  1320→
+  1321→  1321→        # Post to channel
+  1322→  1322→        try:
+  1323→  1323→            if has_media and image_list:
+  1324→  1324→                # Save images to temp files
+  1325→  1325→                tmp_paths = []
+  1326→  1326→                for i, img_data in enumerate(image_list[:MAX_IMAGES_PER_POST]):
+  1327→  1327→                    tmp_path = os.path.join(tempfile.gettempdir(), f"asya_post_{int(time.time())}_{i}.png")
+  1328→  1328→                    with open(tmp_path, "wb") as f:
+  1329→  1329→                        f.write(img_data)
+  1330→  1330→                    tmp_paths.append(tmp_path)
+  1331→  1331→
+  1332→  1332→                if len(tmp_paths) == 1:
+  1333→  1333→                    # Single image — use send_photo (caption already enforced by _enforce_char_limit)
+  1334→  1334→                    photo = FSInputFile(tmp_paths[0], filename="asya_post.png")
+  1335→  1335→                    sent = await self._bot.send_photo(
+  1336→  1336→                        chat_id=config.CHANNEL_ID,
+  1337→  1337→                        photo=photo,
+  1338→  1338→                        caption=post_text,
+  1339→  1339→                        parse_mode=ParseMode.HTML,
+  1340→  1340→                        disable_notification=True,
+  1341→  1341→                    )
+  1342→  1342→                else:
+  1343→  1343→                    # Multiple images — use send_media_group (album/carousel up to 10)
+  1344→  1344→                    media_group = []
+  1345→  1345→                    for i, tmp_path in enumerate(tmp_paths):
+  1346→  1346→                        photo_file = FSInputFile(tmp_path, filename=f"asya_post_{i}.png")
+  1347→  1347→                        if i == 0:
+  1348→  1348→                            # First image gets the caption (already enforced by _enforce_char_limit)
+  1349→  1349→                            media_group.append(InputMediaPhoto(
+  1350→  1350→                                media=photo_file,
+  1351→  1351→                                caption=post_text,
+  1352→  1352→                                parse_mode=ParseMode.HTML,
+  1353→  1353→                            ))
+  1354→  1354→                        else:
+  1355→  1355→                            media_group.append(InputMediaPhoto(media=photo_file))
+  1356→  1356→
+  1357→  1357→                    messages = await self._bot.send_media_group(
+  1358→  1358→                        chat_id=config.CHANNEL_ID,
+  1359→  1359→                        media=media_group,
+  1360→  1360→                        disable_notification=True,
+  1361→  1361→                    )
+  1362→  1362→                    sent = messages[0]  # First message in group for DB tracking
+  1363→  1363→
+  1364→  1364→                # Clean up temp files
+  1365→  1365→                for tmp_path in tmp_paths:
+  1366→  1366→                    try:
+  1367→  1367→                        os.unlink(tmp_path)
+  1368→  1368→                    except OSError:
+  1369→  1369→                        pass
+  1370→  1370→            else:
+  1371→  1371→                sent = await self._bot.send_message(
+  1372→  1372→                    chat_id=config.CHANNEL_ID,
+  1373→  1373→                    text=post_text,
+  1374→  1374→                    parse_mode=ParseMode.HTML,
+  1375→  1375→                    disable_notification=True,
+  1376→  1376→                )
+  1377→  1377→
+  1378→  1378→            # Record in database
+  1379→  1379→            await add_channel_post(
+  1380→  1380→                content=post_text,
+  1381→  1381→                message_id=sent.message_id,
+  1382→  1382→                post_type="news",
+  1383→  1383→                source_url=news_item.get("url", ""),
+  1384→  1384→            )
+  1385→  1385→
+  1386→  1386→            # ── DEDUPLICATION: Store fingerprint to prevent duplicates ──
+  1387→  1387→            await add_post_fingerprint(
+  1388→  1388→                title=news_item.get("title", ""),
+  1389→  1389→                content=post_text,
+  1390→  1390→                post_id=sent.message_id,
+  1391→  1391→            )
+  1392→  1392→
+  1393→  1393→            # Mark news as posted
+  1394→  1394→            if news_item.get("url"):
+  1395→  1395→                await mark_news_posted(news_item["url"])
+  1396→  1396→
+  1397→  1397→            self._last_post_time = time.time()
+  1398→  1398→
+  1399→  1399→            # Add reaction to own post
+  1400→  1400→            await self._add_reaction(config.CHANNEL_ID, sent.message_id)
+  1401→  1401→
+  1402→  1402→            # Occasionally create a poll based on the news (every 3rd post)
+  1403→  1403→            self._poll_count += 1
+  1404→  1404→            if self._poll_count % 3 == 0:
+  1405→  1405→                asyncio.create_task(self._post_poll(news_item))
+  1406→  1406→
+  1407→  1407→            logger.info(f"Posted news to channel: {news_item['title'][:50]}...")
+  1408→  1408→
+  1409→  1409→            # Note: _record_post_title is already called BEFORE publishing
+  1410→  1410→            # (in the dedup section above) to ensure same-cycle dedup works.
+  1411→  1411→
+  1412→  1412→            return True
+  1413→  1413→
+  1414→  1414→        except Exception as e:
+  1415→  1415→            logger.error(f"Error posting to channel: {e}")
+  1416→  1416→            # Try sending without formatting
+  1417→  1417→            try:
+  1418→  1418→                sent = await self._bot.send_message(
+  1419→  1419→                    chat_id=config.CHANNEL_ID,
+  1420→  1420→                    text=post_text,
+  1421→  1421→                    disable_notification=True,
+  1422→  1422→                )
+  1423→  1423→                await add_channel_post(
+  1424→  1424→                    content=post_text,
+  1425→  1425→                    message_id=sent.message_id,
+  1426→  1426→                    post_type="news",
+  1427→  1427→                    source_url=news_item.get("url", ""),
+  1428→  1428→                )
+  1429→  1429→
+  1430→  1430→                # ── DEDUPLICATION: Store fingerprint for fallback post too ──
+  1431→  1431→                await add_post_fingerprint(
+  1432→  1432→                    title=news_item.get("title", ""),
+  1433→  1433→                    content=post_text,
+  1434→  1434→                    post_id=sent.message_id,
+  1435→  1435→                )
+  1436→  1436→
+  1437→  1437→                if news_item.get("url"):
+  1438→  1438→                    await mark_news_posted(news_item["url"])
+  1439→  1439→                self._last_post_time = time.time()
+  1440→  1440→                await self._add_reaction(config.CHANNEL_ID, sent.message_id)
+  1441→  1441→                return True
+  1442→  1442→            except Exception as e2:
+  1443→  1443→                logger.error(f"Error posting without formatting: {e2}")
+  1444→  1444→                return False
+  1445→  1445→
+  1446→  1446→    async def _search_internet_news(self) -> Optional[Dict]:
+  1447→  1447→        """Search the internet for fresh auto news when RSS feeds are empty.
+  1448→  1448→        Uses both web search and Perplexity AI for better coverage."""
+  1449→  1449→        try:
+  1450→  1450→            now = datetime.now(_MOSCOW_TZ)
+  1451→  1451→            queries = [
+  1452→  1452→                f"автомобильные новости сегодня {now.year}",
+  1453→  1453→                "новости автопрома новинки авто",
+  1454→  1454→                "auto news latest today",
+  1455→  1455→            ]
+  1456→  1456→            query = random.choice(queries)
+  1457→  1457→
+  1458→  1458→            # Strategy 1: Web search
+  1459→  1459→            results = await web_search(query, max_results=5)
+  1460→  1460→
+  1461→  1461→            if results:
+  1462→  1462→                random.shuffle(results)
+  1463→  1463→                for result in results:
+  1464→  1464→                    if not result.title:
+  1465→  1465→                        continue
+  1466→  1466→
+  1467→  1467→                    news_item = {
+  1468→  1468→                        "title": result.title,
+  1469→  1469→                        "url": result.url,  # Unique URL from search result
+  1470→  1470→                        "summary": result.snippet or "",
+  1471→  1471→                        "category": "auto",
+  1472→  1472→                        "lang": "ru" if any(c >= '\u0400' for c in result.title) else "en",
+  1473→  1473→                        "image_urls": [],  # Will be filled by scraping if available
+  1474→  1474→                    }
+  1475→  1475→
+  1476→  1476→                    # Check for duplicate BEFORE returning
+  1477→  1477→                    if await is_duplicate_post(result.title, hours=72):
+  1478→  1478→                        logger.info(f"Internet news is duplicate: {result.title[:60]}")
+  1479→  1479→                        continue
+  1480→  1480→
+  1481→  1481→                    logger.info(f"Found internet news: {news_item['title'][:50]}")
+  1482→  1482→                    return news_item
+  1483→  1483→
+  1484→  1484→            # Strategy 2: Perplexity AI search (web-augmented)
+  1485→  1485→            try:
+  1486→  1486→                response = await ai_router._primary.chat(
+  1487→  1487→                    messages=[
+  1488→  1488→                        {"role": "system", "content": (
+  1489→  1489→                            "Ты поисковик автоновостей. Найди самую свежую и интересную "
+  1490→  1490→                            "автомобильную новость за сегодня. Верни ТОЛЬКО название новости "
+  1491→  1491→                            "и краткое описание (2-3 предложения). Формат:\n"
+  1492→  1492→                            "ЗАГОЛОВОК: ...\nОПИСАНИЕ: ..."
+  1493→  1493→                        )},
+  1494→  1494→                        {"role": "user", "content": f"Найди свежую автоновость ({now.strftime('%d.%m.%Y')})"},
+  1495→  1495→                    ],
+  1496→  1496→                    model="perplexity-fast",
+  1497→  1497→                    temperature=0.5,
+  1498→  1498→                    max_tokens=300,
+  1499→  1499→                )
+
+[showing lines 900-1499 of 2002; use offset=1500 with limit to continue reading]
