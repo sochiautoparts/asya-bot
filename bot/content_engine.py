@@ -469,7 +469,7 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
                             if 0 <= pick_idx < len(top_n):
                                 chosen = top_n[pick_idx]
                                 logger.info(f"AI picked #{pick_idx + 1}: {chosen['item'].get('title', '')[:60]}")
-                        break
+                                break  # Only break on successful pick
                 except Exception:
                     continue
         except Exception as e:

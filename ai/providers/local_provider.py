@@ -5,7 +5,7 @@ Provides local inference for Asya Bot using llama-cpp-python with:
   - CPU-only inference (GitHub Actions compatible)
   - Thread-configurable for performance
   - Chat template formatting for instruction models
-  - Automatic /no_think prefix for fast non-reasoning responses
+  - NO /no_think prefix — model is based on Qwen3-4B-Instruct-2507 (non-thinking variant)
   - Memory management with context window sizing
   - Fallback to cloud providers on failure
 
@@ -297,7 +297,9 @@ class LocalProvider(BaseAIProvider):
     def _format_messages_chatml(self, messages: List[Dict[str, str]]) -> str:
         """Format messages using ChatML template (Qwen3 format).
 
-        Applies /no_think prefix for fast non-reasoning responses.
+        RuadaptQwen3-4B-Instruct is based on Qwen3-4B-Instruct-2507 (non-thinking
+        variant), so /no_think is NOT needed — the model doesn't generate thinking
+        tokens by default.
         Limits conversation history to MODEL_HISTORY_LIMIT exchanges.
         """
         # Limit history to reduce context length
@@ -321,8 +323,11 @@ class LocalProvider(BaseAIProvider):
                 prompt += f"{QWEN3_ASSISTANT_START}{content}{QWEN3_END}"
 
         # Add assistant prefix for generation
-        # /no_think tells Qwen3 to skip reasoning and answer directly
-        prompt += f"{QWEN3_ASSISTANT_START}/no_think\n"
+        # NO /no_think prefix — RuadaptQwen3-4B-Instruct is based on
+        # Qwen3-4B-Instruct-2507 which is a NON-THINKING variant.
+        # It doesn't generate <think> tokens by default, so /no_think
+        # is unnecessary and may degrade response quality.
+        prompt += f"{QWEN3_ASSISTANT_START}"
 
         return prompt
 
@@ -336,7 +341,8 @@ class LocalProvider(BaseAIProvider):
     ) -> AIResponse:
         """Generate a chat completion using the local model.
 
-        Uses ChatML formatting with /no_think for fast responses.
+        Uses ChatML formatting. NO /no_think — RuadaptQwen3-4B-Instruct is
+        a non-thinking variant (based on Qwen3-4B-Instruct-2507).
         Handles think tag cleanup automatically.
         """
         if not self._load_model():
@@ -423,7 +429,7 @@ class LocalProvider(BaseAIProvider):
                     if last_end > len(prompt) // 2:
                         prompt = prompt[:last_end + len(QWEN3_END)]
                     # Add assistant prefix for generation
-                    prompt += f"{QWEN3_ASSISTANT_START}/no_think\n"
+                    prompt += f"{QWEN3_ASSISTANT_START}"
                     logger.warning(
                         f"HARD TRUNCATION: prompt cut to {len(prompt)} chars "
                         f"({int(len(prompt) / CHARS_PER_TOKEN)} est. tokens)"
@@ -504,6 +510,17 @@ class LocalProvider(BaseAIProvider):
             repeat_penalty=1.1,
             stop=["<|im_end|>", "<|endoftext|>", "<|im_start|>"],
         )
+
+        # Log generation stats for monitoring
+        if isinstance(result, dict):
+            usage = result.get("usage", {})
+            gen_tokens = usage.get("completion_tokens", 0)
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            if gen_tokens > 0:
+                logger.info(
+                    f"Local model tokens: prompt={prompt_tokens}, "
+                    f"generated={gen_tokens}, max={max_tokens}"
+                )
 
         # Extract text from result
         if isinstance(result, dict):

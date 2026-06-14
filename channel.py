@@ -1020,7 +1020,7 @@ class ChannelManager:
         # of what text AI generates. Without this, AI can write different text for the same
         # news each time, and text-based dedup (fingerprints, hashes) won't catch it.
         if news_item and news_item.get("url"):
-            if await is_url_already_posted(news_item["url"], hours=168):  # 7 days
+            if await is_url_already_posted(news_item["url"], hours=72):  # 3 days (was 7 — too aggressive)
                 logger.warning(f"URL DEDUP blocked (already posted this URL): {news_item['url'][:80]}")
                 await mark_news_posted(news_item["url"])
                 return False
@@ -1068,9 +1068,9 @@ class ChannelManager:
                             from bot.database import _extract_core_words
                             posted_core = _extract_core_words(first_line)
                             new_core = _extract_core_words(news_item["title"])
-                            if len(posted_core) >= 3 and len(new_core) >= 3:
+                            if len(posted_core) >= 4 and len(new_core) >= 4:
                                 overlap = posted_core & new_core
-                                if len(overlap) >= 3:
+                                if len(overlap) >= 4:
                                     logger.warning(f"CHANNEL DEDUP blocked (core words match: {overlap}): {news_item['title'][:60]}")
                                     if news_item.get("url"):
                                         await mark_news_posted(news_item["url"])
@@ -1361,6 +1361,41 @@ class ChannelManager:
                 # Save images to temp files
                 tmp_paths = []
                 for i, img_data in enumerate(image_list[:MAX_IMAGES_PER_POST]):
+                    # Try to validate and resize with PIL before saving
+                    try:
+                        from PIL import Image
+                        import io as _io
+                        img = Image.open(_io.BytesIO(img_data))
+                        w, h = img.size
+                        needs_resize = False
+                        # Telegram requires: each side 10-10000px, w+h <= 10000
+                        if w < 10 or h < 10:
+                            logger.warning(f"Image too small ({w}x{h}), skipping")
+                            continue
+                        if w + h > 10000:
+                            scale = 8000 / (w + h)
+                            new_w = int(w * scale)
+                            new_h = int(h * scale)
+                            img = img.resize((new_w, new_h), Image.LANCZOS)
+                            needs_resize = True
+                            logger.info(f"Resized image: {w}x{h} -> {new_w}x{new_h}")
+                        elif w > 10000 or h > 10000:
+                            scale = 9000 / max(w, h)
+                            new_w = int(w * scale)
+                            new_h = int(h * scale)
+                            img = img.resize((new_w, new_h), Image.LANCZOS)
+                            needs_resize = True
+                            logger.info(f"Resized image: {w}x{h} -> {new_w}x{new_h}")
+                        if needs_resize:
+                            if img.mode in ('RGBA', 'P', 'LA'):
+                                img = img.convert('RGB')
+                            buf = _io.BytesIO()
+                            img.save(buf, format='JPEG', quality=90)
+                            img_data = buf.getvalue()
+                    except ImportError:
+                        pass
+                    except Exception as e:
+                        logger.debug(f"Image resize check failed: {e}")
                     tmp_path = os.path.join(tempfile.gettempdir(), f"asya_post_{int(time.time())}_{i}.png")
                     with open(tmp_path, "wb") as f:
                         f.write(img_data)
@@ -1460,6 +1495,33 @@ class ChannelManager:
 
         except Exception as e:
             logger.error(f"Error posting to channel: {e}")
+            # If photo failed, try posting as text-only
+            if has_media and "PHOTO" in str(e).upper():
+                logger.info("Photo failed — retrying as text-only post")
+                try:
+                    sent_message = await self._bot.send_message(
+                        chat_id=config.CHANNEL_ID,
+                        text=post_text[:4096],
+                        parse_mode=ParseMode.HTML,
+                    )
+                    if sent_message:
+                        await self._add_reaction(config.CHANNEL_ID, sent_message.message_id)
+                        await add_channel_post(
+                            content=post_text,
+                            message_id=sent_message.message_id,
+                            post_type="news",
+                            source_url=news_item.get("url", ""),
+                            has_image=False,
+                            image_url="",
+                        )
+                        if news_item.get("url"):
+                            await mark_news_posted(news_item["url"])
+                        _register_topic(entity_key, news_item["title"])
+                        _record_post_title(news_item["title"])
+                        logger.info(f"✅ Text-only fallback: {news_item['title'][:60]}")
+                        return news_item
+                except Exception as e2:
+                    logger.error(f"Text-only fallback also failed: {e2}")
             # Try sending without formatting
             try:
                 sent = await self._bot.send_message(
