@@ -583,14 +583,14 @@ class AIRouter:
         Uses ChatML format for Qwen3 with /no_think for fast responses.
         Primary for CHAT and COMMENT routes, fallback for FUNCTION routes.
         
-        CONTEXT WINDOW BUDGET (4096 tokens, ~1.3 chars/token for Russian):
-          - Output: 512 tokens (MODEL_MAX_TOKENS)
+        CONTEXT WINDOW BUDGET (8192 tokens, ~1.3 chars/token for Russian):
+          - Output: 2048 tokens (MODEL_MAX_TOKENS)
           - Safety margin: 64 tokens
-          - Available for input: 3520 tokens (~4576 chars)
-          - System prompt (local_system_prompt v2): ~2340 chars (~1800 tokens)
-          - History: 3 turns × 200 chars = ~600 chars (~462 tokens)
-          - User message: up to ~1000 chars (~770 tokens)
-          - Total: ~3940 chars (~3032 tokens) — fits in 3520 with margin!
+          - Available for input: 6080 tokens (~7904 chars)
+          - System prompt (local_system_prompt v3): ~2340 chars (~1800 tokens)
+          - History: 6 turns × 200 chars = ~1200 chars (~924 tokens)
+          - User message: up to ~2000 chars (~1538 tokens)
+          - Total: ~5540 chars (~4262 tokens) — fits in 6080 with margin!
         """
         if not self._local:
             return AIResponse(
@@ -610,34 +610,33 @@ class AIRouter:
                 error_message="Local model disabled (ENABLE_LOCAL_MODEL=false)",
             )
 
-        # Use EXPANDED system prompt for local model (v2.0 — ~1800 tokens).
-        # The full 12K-char cloud prompt (~9000 tokens) still does NOT fit.
-        # But the expanded v2 prompt gives much better quality than the old compact one.
+        # Use EXPANDED system prompt for local model (v3.0 — ~1800 tokens).
+        # With 8192 ctx, we have plenty of room for system prompt + history + user message.
         compact_prompt = persona.local_system_prompt
 
         # Build messages for local model using its own ChatML format
         messages = [{"role": "system", "content": compact_prompt}]
 
         # Add limited history for local model (saves context window)
-        # With expanded prompt (~1800 tokens), we have ~1720 tokens left for history+message.
-        # 3 history turns × ~200 chars × 1.3 chars/token = ~462 tokens
-        # User message up to ~1000 chars = ~770 tokens
-        # Total: ~1232 tokens — well within budget.
-        history_limit = min(config.MODEL_HISTORY_LIMIT, 3)
+        # With 8192 ctx and expanded prompt (~1800 tokens), we have ~4280 tokens left.
+        # 6 history turns × ~200 chars × 1.3 chars/token = ~924 tokens
+        # User message up to ~2000 chars = ~1538 tokens
+        # Total: ~2462 tokens — well within 4280 budget.
+        history_limit = min(config.MODEL_HISTORY_LIMIT, 6)
         limited_history = history[-history_limit:] if history else []
         for msg in limited_history:
             role = msg.get("role", "user")
             content = msg.get("content", "")
             # Truncate long history messages to save context tokens
             if role in ("user", "assistant") and content:
-                messages.append({"role": role, "content": content[:200]})
+                messages.append({"role": role, "content": content[:300]})
 
         # Truncate user message to prevent context overflow.
-        # With expanded system prompt, allow up to ~1000 chars for user message.
+        # With 8192 ctx, allow up to ~2000 chars for user message.
         # The local_provider.chat() has its own safety truncation as well.
-        truncated_message = message[:1000] if len(message) > 1000 else message
-        if len(message) > 1000:
-            logger.debug(f"Truncated user message for local model: {len(message)} → 1000 chars")
+        truncated_message = message[:2000] if len(message) > 2000 else message
+        if len(message) > 2000:
+            logger.debug(f"Truncated user message for local model: {len(message)} → 2000 chars")
         messages.append({"role": "user", "content": truncated_message})
 
         return await self._local.chat(

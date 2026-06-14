@@ -88,9 +88,9 @@ class BotConfig:
     # Local model toggle — Qwen3-4B as PRIMARY for simple chat (saves cloud balance!)
     ENABLE_LOCAL_MODEL: bool = os.getenv("ENABLE_LOCAL_MODEL", "true").lower() in ("true", "1", "yes")
     MODEL_PATH: str = os.getenv("MODEL_PATH", "models/Qwen3-4B-Q4_K_M.gguf") if ENABLE_LOCAL_MODEL else ""
-    MODEL_N_CTX: int = int(os.getenv("MODEL_N_CTX", "4096"))  # Context window — 4096 for Qwen3-4B Q4
+    MODEL_N_CTX: int = int(os.getenv("MODEL_N_CTX", "8192"))  # Context window — 8192 for Qwen3-4B Q4_K_M
     MODEL_N_THREADS: int = int(os.getenv("MODEL_N_THREADS", "4"))  # CPU threads — GitHub Actions has 2-4 cores
-    MODEL_MAX_TOKENS: int = int(os.getenv("MODEL_MAX_TOKENS", "256"))  # Max output tokens — 256 for fast chat responses
+    MODEL_MAX_TOKENS: int = int(os.getenv("MODEL_MAX_TOKENS", "2048"))  # Max output tokens — 2048 for quality responses
     MODEL_HISTORY_LIMIT: int = int(os.getenv("MODEL_HISTORY_LIMIT", "6"))  # Max history turns for local model
     # HuggingFace model download URL (for auto-download + GitHub Actions)
     MODEL_DOWNLOAD_URL: str = os.getenv("MODEL_DOWNLOAD_URL",
@@ -124,17 +124,17 @@ class AsyaPersona:
         "\nsochiautoparts.ru"
     )
 
-    # EXPANDED system prompt for LOCAL MODEL (Qwen3-4B, 4096 ctx).
-    # v2.0: Expanded from ~600 tokens to ~1800 tokens for much better quality.
+    # EXPANDED system prompt for LOCAL MODEL (Qwen3-4B, 8192 ctx).
+    # v3.0: Expanded for 8192 context window with 2048 max output tokens.
     #
-    # CONTEXT WINDOW BUDGET (4096 tokens total):
-    #   - Output: 512 tokens (MODEL_MAX_TOKENS)
+    # CONTEXT WINDOW BUDGET (8192 tokens total):
+    #   - Output: 2048 tokens (MODEL_MAX_TOKENS)
     #   - Safety margin: 64 tokens
-    #   - Available for input: 3520 tokens
+    #   - Available for input: 6080 tokens
     #   - System prompt: ~1800 tokens (~2340 chars at 1.3 chars/token for Russian)
-    #   - History: 3 turns × 200 chars = ~462 tokens
-    #   - User message: up to ~1000 chars = ~770 tokens
-    #   - Total input: ~3032 tokens — fits comfortably in 3520!
+    #   - History: 6 turns × 200 chars = ~924 tokens
+    #   - User message: up to ~2000 chars = ~1538 tokens
+    #   - Total input: ~4262 tokens — fits comfortably in 6080!
     #
     # This prompt is optimized for Qwen3-4B quality:
     #   - Clear role definition and personality

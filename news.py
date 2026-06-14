@@ -15,7 +15,6 @@ The external parser runs every hour via GitHub Actions and produces:
 
 This module just fetches and stores — fast, reliable, no heavy lifting.
 """
-
 import httpx
 import json
 import time
@@ -31,13 +30,11 @@ logger = logging.getLogger("asya.news")
 
 # ── Source JSON URLs ────────────────────────────────────────────────────────────
 NEWS_JSON_URL = "https://raw.githubusercontent.com/creastudioai-beep/news/refs/heads/main/data/news.json"
-BMW_NEWS_JSON_URL = "https://raw.githubusercontent.com/creastudioai-beep/nebm/refs/heads/main/data/news.json"
 NEWS_JSON_FALLBACK_URLS = [
     NEWS_JSON_URL,
-    BMW_NEWS_JSON_URL,
 ]
 FETCH_TIMEOUT = 30.0
-MAX_NEWS_PER_CYCLE = 30  # Max items to process per cycle (2 sources, fetch often, post 6/hour)
+MAX_NEWS_PER_CYCLE = 30  # Max items to process per cycle (single source, fetch often, post 6/hour)
 
 # ── Fingerprint-based deduplication ────────────────────────────────────────────
 _recent_fingerprints: set = set()
@@ -77,9 +74,9 @@ def _detect_language(title: str) -> str:
 
 
 async def fetch_news_json() -> Optional[List[Dict]]:
-    """Fetch news JSON from ALL external parser repositories and merge them.
+    """Fetch news JSON from the creastudioai-beep/news repository.
     
-    Returns a MERGED list from all sources (news + nebm), deduplicated by URL.
+    Returns a list of news items from the creastudioai-beep/news source, deduplicated by URL.
     Each item has: title, summary, url, source, images[], published, lang
     """
     all_items = []

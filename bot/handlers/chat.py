@@ -5,6 +5,7 @@ and personalized communication with conversation context.
 """
 
 import re
+import random
 import logging
 import base64
 from typing import Optional
@@ -206,7 +207,6 @@ async def cmd_start(message: Message):
     name = message.from_user.first_name or ""
     gender = _guess_gender(name)
 
-    import random
     from datetime import datetime
     from zoneinfo import ZoneInfo
     import os
@@ -514,7 +514,7 @@ async def handle_photo(message: Message):
                 response = await local_provider.chat(
                     messages=messages,
                     temperature=0.8,
-                    max_tokens=100,
+                    max_tokens=256,  # 8192 ctx — more room for quality responses
                 )
                 if response and not response.error and response.text:
                     reply_text = response.text[:COMMENT_MAX_CHARS]
@@ -707,7 +707,6 @@ async def _process_text_message(message: Message, text: str):
     Has an OVERALL TIMEOUT of 45 seconds to prevent the user from waiting indefinitely
     when all AI providers and searches fail slowly.
     """
-    import random
     import asyncio
     user_id = message.from_user.id
     chat_mode = await get_chat_mode(user_id)
@@ -1089,7 +1088,7 @@ async def _process_text_message_inner(message: Message, text: str, user_id: int,
                 local_response = await local_provider.chat(
                     messages=group_messages,
                     temperature=0.8,
-                    max_tokens=150,
+                    max_tokens=512,  # 8192 ctx — more room for quality group responses
                 )
                 if local_response and not local_response.error and local_response.text:
                     from ai.providers.base import AIResponse
