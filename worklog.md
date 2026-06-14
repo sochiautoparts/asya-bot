@@ -21,3 +21,28 @@ Stage Summary:
 - Actions workflow running — bot step is in_progress
 - Key files changed: news.py, bot/content_engine.py, channel.py
 - Key files UNCHANGED: bot/partners.py, bot/web_search.py, bot/media_handler.py, ai/router.py, all handlers
+
+---
+Task ID: nebm-setup
+Agent: Main Agent
+Task: Create BMW-specific news parser in creastudioai-beep/nebm repository
+
+Work Log:
+- Read existing parser code from /home/z/my-project/news/ (parser.py, workflow, requirements.txt)
+- Cloned empty nebm repository
+- Created BMW-focused parser.py with:
+  - 36 RSS sources (12 BMW-specific, 18 general auto with BMW filter, 4 Reddit BMW communities, 2 motorsport)
+  - 34 Google News queries (EN: BMW models, M Power, electric, Neue Klasse, business, events; DE: BMW Nachrichten)
+  - BMW keyword filter function - articles from general sources must contain BMW-related keywords
+  - BMW_SPECIFIC_SOURCES set to skip keyword filtering for dedicated BMW feeds
+- Created GitHub Actions workflow (cron every hour at :10 UTC)
+- Created requirements.txt, README.md, setup.sh, data/news.json, data/seen_urls.json
+- Pushed to GitHub, set GH_PAT secret for Actions
+- First workflow run completed successfully: 100 news, 98 with photos, 390 images, 16 unique sources
+
+Stage Summary:
+- BMW parser is live at https://github.com/creastudioai-beep/nebm
+- News data URL: https://raw.githubusercontent.com/creastudioai-beep/nebm/refs/heads/main/data/news.json
+- First run: 100 BMW news collected, 98 with photos, sources include BMW Blog (14), BimmerToday DE (12), Carscoops BMW (16), CarExpert BMW AU (22), Reddit BMW (12), and others
+- All content is strictly BMW-themed (filtered by keywords)
+- Workflow runs hourly at :10 UTC
