@@ -110,8 +110,13 @@ async def handle_inline_query(inline_query: InlineQuery):
     query_type = _detect_query_type(query)
 
     # Generate AI response based on query type
+    # Inline must respond within ~20 seconds (Telegram limit)
     try:
-        response = await _generate_inline_response(query, query_type)
+        import asyncio
+        response = await asyncio.wait_for(
+            _generate_inline_response(query, query_type),
+            timeout=20.0
+        )
 
         if response.error or not response.text:
             results = [
@@ -139,6 +144,19 @@ async def handle_inline_query(inline_query: InlineQuery):
 
         await inline_query.answer(results, cache_time=60, is_personal=True)
 
+    except asyncio.TimeoutError:
+        logger.warning(f"Inline query timed out: {query[:50]}")
+        results = [
+            InlineQueryResultArticle(
+                id="timeout",
+                title="Ася думает слишком долго",
+                description="Напишите в личку @asiaexp_bot для быстрого ответа",
+                input_message_content=InputTextMessageContent(
+                    message_text=f"🚗 Вопрос: {query}\n\n⏱️ Ася не успела ответить. Напишите в личку @asiaexp_bot",
+                ),
+            ),
+        ]
+        await inline_query.answer(results, cache_time=10)
     except Exception as e:
         logger.error(f"Inline query error: {e}")
         results = [
@@ -188,6 +206,7 @@ async def _generate_inline_response(query: str, query_type: str):
                     response.text += links_section
             except Exception:
                 pass
+        return response
 
     else:
         # General chat

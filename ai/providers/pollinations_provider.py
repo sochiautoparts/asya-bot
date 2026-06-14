@@ -411,7 +411,7 @@ class PollinationsProvider(BaseAIProvider):
                 if api_key:
                     headers["Authorization"] = f"Bearer {api_key}"
 
-                async with httpx.AsyncClient(timeout=90.0) as client:
+                async with httpx.AsyncClient(timeout=30.0) as client:
                     start_time = time.time()
                     url = f"{self.base_url}/v1/chat/completions"
                     response = await client.post(url, headers=headers, json=payload)
@@ -720,7 +720,7 @@ class PollinationsProvider(BaseAIProvider):
             headers = {"Content-Type": "application/json"}
             # NO Authorization header — this is the free API
 
-            async with httpx.AsyncClient(timeout=90.0) as client:
+            async with httpx.AsyncClient(timeout=25.0) as client:
                 start_time = time.time()
                 url = f"{self._free_text_url}/openai/chat/completions"
                 response = await client.post(url, headers=headers, json=payload)

@@ -226,7 +226,7 @@ async def search_searxng(query: str, max_results: int = 5, language: str = "ru",
     random.shuffle(instances)
     
     CONCURRENT_LIMIT = 5  # Try 5 instances at once
-    PER_INSTANCE_TIMEOUT = 6.0  # 6 seconds per instance (was 8, reduced for speed)
+    PER_INSTANCE_TIMEOUT = 4.0  # 4 seconds per instance (was 6, reduced for speed)
     
     async def _try_instance(instance: str) -> List[SearchResult]:
         """Try a single SearXNG instance."""

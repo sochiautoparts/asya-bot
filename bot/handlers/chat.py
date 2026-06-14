@@ -586,9 +586,9 @@ async def handle_photo(message: Message):
 
         import httpx
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(file_url)
-            if response.status_code == 200:
-                image_base64 = base64.b64encode(response.content).decode("utf-8")
+            dl_response = await client.get(file_url)
+            if dl_response.status_code == 200:
+                image_base64 = base64.b64encode(dl_response.content).decode("utf-8")
 
                 # Determine media type
                 media_type = "image/jpeg"
@@ -599,18 +599,18 @@ async def handle_photo(message: Message):
 
                 extra_context = "\n\n".join(extra_context_parts) if extra_context_parts else ""
 
-                response = await ai_router.analyze_image(
+                ai_response = await ai_router.analyze_image(
                     user_id=message.from_user.id,
                     image_base64=image_base64,
                     prompt=prompt,
                     extra_context=extra_context,
                 )
 
-                if response.error or not response.text:
+                if ai_response.error or not ai_response.text:
                     await message.answer("Ой, не получилось разглядеть фото 😅 Попробуй ещё раз!")
                     return
 
-                reply_text = response.text
+                reply_text = ai_response.text
                 reply_text = _clean_markdown(reply_text)
 
                 # CRITICAL: Replace any plain partner URLs with affiliate goto_link
@@ -702,12 +702,38 @@ async def handle_text(message: Message):
 
 
 async def _process_text_message(message: Message, text: str):
-    """Core message processing with AI, search, diagnostics, parts, VIN, and personalization."""
+    """Core message processing with AI, search, diagnostics, parts, VIN, and personalization.
+    
+    Has an OVERALL TIMEOUT of 45 seconds to prevent the user from waiting indefinitely
+    when all AI providers and searches fail slowly.
+    """
     import random
+    import asyncio
     user_id = message.from_user.id
     chat_mode = await get_chat_mode(user_id)
 
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+
+    # ── OVERALL TIMEOUT: Max 45 seconds for the entire processing ──
+    # If processing takes too long (all AI levels failing slowly),
+    # we respond with whatever we have or a timeout message.
+    _OVERALL_TIMEOUT = 45.0  # seconds
+
+    async def _do_process():
+        await _process_text_message_inner(message, text, user_id, chat_mode)
+
+    try:
+        await asyncio.wait_for(_do_process(), timeout=_OVERALL_TIMEOUT)
+    except asyncio.TimeoutError:
+        logger.error(f"Overall timeout ({_OVERALL_TIMEOUT}s) for user {user_id}")
+        await message.answer(
+            "Ой, я немного застряла 🙈 Давай попробуем ещё раз? "
+            "Иногда мне нужно чуть-чуть времени, чтобы собраться с мыслями"
+        )
+
+
+async def _process_text_message_inner(message: Message, text: str, user_id: int, chat_mode: str):
+    """Inner processing logic — called with timeout wrapper."""
 
     # Send a "thinking" status message so the user knows we're working
     text_lower = text.lower()
@@ -763,10 +789,13 @@ async def _process_text_message(message: Message, text: str):
         vin_search_context = ""
         if vin_code and len(vin_code) == 17:
             try:
+                import asyncio
                 search_query = f"VIN {vin_code} расшифровка автомобиль характеристики"
-                results = await web_search(search_query, max_results=3)
+                results = await asyncio.wait_for(web_search(search_query, max_results=3), timeout=8.0)
                 if results:
                     vin_search_context = "Результаты поиска по VIN:\n" + format_search_results(results, max_items=3)
+            except asyncio.TimeoutError:
+                logger.debug(f"VIN web search timed out")
             except Exception as e:
                 logger.debug(f"VIN web search error: {e}")
         
@@ -902,9 +931,14 @@ async def _process_text_message(message: Message, text: str):
                         search_query = f"{brand} {specific}"
                     break
             
-            results = await web_search(search_query, max_results=5)
-            if results:
-                extra_context_parts.append("Результаты поиска:\n" + format_search_results(results, max_items=5))
+            # Run web search with a timeout to avoid blocking the response
+            import asyncio
+            try:
+                results = await asyncio.wait_for(web_search(search_query, max_results=3), timeout=8.0)
+                if results:
+                    extra_context_parts.append("Результаты поиска:\n" + format_search_results(results, max_items=3))
+            except asyncio.TimeoutError:
+                logger.warning(f"Web search timed out for query: {search_query[:50]}")
         except Exception as e:
             logger.error(f"Web search error: {e}")
 

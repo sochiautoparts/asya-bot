@@ -350,16 +350,15 @@ class AIRouter:
 
             if is_key_error:
                 fallback_models = [m for m in FALLBACK_MODELS
-                                   if m != model and not self._primary._is_model_in_cooldown(m)][:3]
+                                   if m != model and not self._primary._is_model_in_cooldown(m)][:1]
                 if fallback_models:
-                    logger.info(f"Key error, trying {len(fallback_models)} fallback models")
+                    logger.info(f"Key error, trying {len(fallback_models)} fallback model")
             else:
                 fallback_models = [
-                    m for m in ["mistral-small", "deepseek-v4", "llama-3.3", "nova-fast",
-                                "gemma", "qwen3-coder", "step-3.5-flash", "nova-micro"]
+                    m for m in ["mistral-small", "nova-fast", "gemma"]
                     if m != model and not self._primary._is_model_in_cooldown(m)
-                ][:3]
-                logger.info(f"Non-key error, trying fallbacks: {fallback_models}")
+                ][:1]
+                logger.info(f"Non-key error, trying fallback: {fallback_models}")
 
             for fallback_model in fallback_models:
                 if fallback_model == model:
@@ -385,11 +384,11 @@ class AIRouter:
         messages = self._primary.format_messages(sys_prompt, history, message)
 
         # Use simpler models for free API — they're more reliable
-        free_models = ["openai", "mistral", "openai-large"]
+        free_models = ["openai", "mistral"]
         if model and model not in free_models:
             free_models.insert(0, model)
 
-        for free_model in free_models[:3]:
+        for free_model in free_models[:2]:
             if self._primary._is_model_in_cooldown(free_model):
                 continue
             result = await self._primary.chat_free(
