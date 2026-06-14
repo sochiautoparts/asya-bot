@@ -983,10 +983,17 @@ class ChannelManager:
             logger.info(f"Daily post limit reached ({today_count}/{config.CHANNEL_MAX_POSTS_PER_DAY})")
             return False
 
-        # Check hourly limit — max 6 posts per hour (3 posts × 2 cycles)
-        hourly_count = await get_hourly_post_count()
-        if hourly_count >= config.CHANNEL_MAX_POSTS_PER_HOUR:
-            logger.info(f"Hourly post limit reached ({hourly_count}/{config.CHANNEL_MAX_POSTS_PER_HOUR})")
+        # Check hourly limit — separate news vs total quota
+        # News posts have their own quota (CHANNEL_NEWS_PER_HOUR = 6)
+        # Partner posts have their own quota (CHANNEL_PARTNER_PER_HOUR = 1)
+        # Total hourly limit remains CHANNEL_MAX_POSTS_PER_HOUR (7)
+        news_hourly = await get_hourly_post_count(post_type="news")
+        if news_hourly >= config.CHANNEL_NEWS_PER_HOUR:
+            logger.info(f"News hourly limit reached ({news_hourly}/{config.CHANNEL_NEWS_PER_HOUR})")
+            return False
+        total_hourly = await get_hourly_post_count()
+        if total_hourly >= config.CHANNEL_MAX_POSTS_PER_HOUR:
+            logger.info(f"Total hourly limit reached ({total_hourly}/{config.CHANNEL_MAX_POSTS_PER_HOUR})")
             return False
 
         # Check minimum interval — allow 3s between posts (hourly batch mode)
@@ -1633,6 +1640,18 @@ class ChannelManager:
 
         today_count = await get_today_post_count()
         if today_count >= config.CHANNEL_MAX_POSTS_PER_DAY:
+            return False
+
+        # Check partner-specific hourly limit (max 1 partner post per hour)
+        partner_hourly = await get_hourly_post_count(post_type="partner")
+        if partner_hourly >= config.CHANNEL_PARTNER_PER_HOUR:
+            logger.info(f"Partner hourly limit reached ({partner_hourly}/{config.CHANNEL_PARTNER_PER_HOUR})")
+            return False
+
+        # Check total hourly limit (partner + news combined)
+        total_hourly = await get_hourly_post_count()
+        if total_hourly >= config.CHANNEL_MAX_POSTS_PER_HOUR:
+            logger.info(f"Total hourly limit reached ({total_hourly}/{config.CHANNEL_MAX_POSTS_PER_HOUR}), skipping partner")
             return False
 
         # Get the last posted partner program name to avoid duplicates

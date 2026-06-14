@@ -468,15 +468,28 @@ async def get_today_post_count() -> int:
             return row[0] if row else 0
 
 
-async def get_hourly_post_count() -> int:
-    """Get number of posts made in the last hour."""
+async def get_hourly_post_count(post_type: str = "") -> int:
+    """Get number of posts made in the last hour.
+    
+    Args:
+        post_type: If specified, only count posts of this type ('news' or 'partner').
+                   If empty, count all posts (backward compatible).
+    """
     hour_ago = time.time() - 3600
     async with _connect_db() as db:
-        async with db.execute(
-            "SELECT COUNT(*) FROM channel_posts WHERE created_at >= ?", (hour_ago,),
-        ) as cursor:
-            row = await cursor.fetchone()
-            return row[0] if row else 0
+        if post_type:
+            async with db.execute(
+                "SELECT COUNT(*) FROM channel_posts WHERE created_at >= ? AND post_type = ?",
+                (hour_ago, post_type),
+            ) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else 0
+        else:
+            async with db.execute(
+                "SELECT COUNT(*) FROM channel_posts WHERE created_at >= ?", (hour_ago,),
+            ) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else 0
 
 
 async def get_ai_cached(query_hash: str) -> Optional[str]:
@@ -741,9 +754,12 @@ async def is_duplicate_post(title: str, content: str = "", hours: int = 48,
                     if len(existing_core) < 2:
                         continue
                     core_common = core_words & existing_core
-                    # If 2+ core words match (e.g., "BMW" + "X5" or "Tesla" + "recalls"),
-                    # it's almost certainly the same event
-                    if len(core_common) >= 2:
+                    # If 3+ core words match (e.g., "BMW" + "X5" + "recall"),
+                    # it's almost certainly the same event.
+                    # Was 2, which blocked DIFFERENT news about the same car:
+                    #   "BMW X5 получил новый двигатель" vs "BMW X5 отзывают" — different events!
+                    # With 3+, only truly same-event rewrites are blocked.
+                    if len(core_common) >= 3:
                         return True
 
         # Check 5: Content hash match (if content provided)
