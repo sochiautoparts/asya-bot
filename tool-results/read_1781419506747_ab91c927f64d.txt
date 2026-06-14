@@ -1,0 +1,1399 @@
+     1→"""
+     2→Chat Handler — Main user interaction with AI, web search, partner links,
+     3→car diagnostics, spare part search, VIN decoding, photo analysis,
+     4→and personalized communication with conversation context.
+     5→"""
+     6→
+     7→import re
+     8→import logging
+     9→import base64
+    10→from typing import Optional
+    11→
+    12→from aiogram import Router, F, types
+    13→from aiogram.filters import Command, CommandStart
+    14→from aiogram.types import Message, CallbackQuery, PhotoSize, WebAppInfo
+    15→from aiogram.enums import ChatAction
+    16→from aiogram.client.default import DefaultBotProperties
+    17→from aiogram.utils.keyboard import InlineKeyboardBuilder
+    18→
+    19→from bot.config import config, persona
+    20→from bot.database import (
+    21→    get_or_create_user, is_user_blocked, add_chat_message,
+    22→    clear_chat_history, get_chat_mode, set_chat_mode,
+    23→    add_user_car, get_user_cars, delete_user_car, update_car_mileage,
+    24→    check_rate_limit,
+    25→)
+    26→from bot.asya import (
+    27→    is_part_number, extract_part_numbers, identify_car_brand,
+    28→    detect_symptoms, detect_obd2_codes, lookup_obd2_code,
+    29→    build_diagnostic_context, ASYA_PHRASES,
+    30→)
+    31→from bot.web_search import web_search, search_spare_part, search_parts_by_vin, format_search_results
+    32→from bot.tech_docs import (
+    33→    search_part_by_article, search_diagnostic_code,
+    34→    search_repair_procedure, format_part_info, format_tech_context,
+    35→)
+    36→from bot.partners import partner_manager
+    37→from ai.router import ai_router
+    38→from ai.voice import process_voice_message
+    39→
+    40→logger = logging.getLogger("asya.handlers.chat")
+    41→
+    42→chat_router = Router()
+    43→
+    44→# ── Character limits for chat responses ──────────────────────────────────────
+    45→CHAT_MAX_CHARS = 1500    # Private chat max (system prompt asks for 500-1000, this is hard limit)
+    46→GROUP_MAX_CHARS = 600    # Group/supergroup max (system prompt asks for 300, this is hard limit)
+    47→COMMENT_MAX_CHARS = 300  # Comments in other groups (not Ася's own channel)
+    48→
+    49→
+    50→# ── VIN / Body number detection ───────────────────────────────────────────────
+    51→
+    52→_VIN_PATTERN = re.compile(r'\b[A-HJ-NPR-Z0-9]{17}\b', re.IGNORECASE)
+    53→# Also match VINs with spaces or dashes (users often type them separated)
+    54→_VIN_FLEX_PATTERN = re.compile(
+    55→    r'(?:VIN[-:]?\s*|вин[-:]?\s*|вин-код[-:]?\s*)?([A-HJ-NPR-Z0-9](?:[A-HJ-NPR-Z0-9\s\-]{14,22})[A-HJ-NPR-Z0-9])',
+    56→    re.IGNORECASE
+    57→)
+    58→_BODY_NUMBER_PATTERN = re.compile(
+    59→    r'(?:номер\s+кузова|кузовн?ой\s+номер|body\s*number|кузов)\s*[:\s]*([A-Z0-9\-/]{5,20})',
+    60→    re.IGNORECASE
+    61→)
+    62→
+    63→
+    64→def _detect_vin(text: str) -> Optional[str]:
+    65→    """Detect a VIN code (17 chars) in text."""
+    66→    match = _VIN_PATTERN.search(text.upper())
+    67→    if match:
+    68→        vin = match.group(0)
+    69→        # Validate check digit position (9th char)
+    70→        if len(vin) == 17 and vin[8] in '0123456789X':
+    71→            return vin
+    72→    return None
+    73→
+    74→
+    75→def _detect_body_number(text: str) -> Optional[str]:
+    76→    """Detect a body number reference in text."""
+    77→    match = _BODY_NUMBER_PATTERN.search(text)
+    78→    if match:
+    79→        return match.group(1)
+    80→    return None
+    81→
+    82→
+    83→def _is_vin_query(text: str) -> bool:
+    84→    """Check if text is asking about VIN/body number decoding."""
+    85→    text_lower = text.lower()
+    86→    keywords = [
+    87→        "vin", "вин", "номер кузова", "кузовной номер", "расшифруй vin",
+    88→        "расшифруй вин", "пробей vin", "пробей вин", "декодировать vin",
+    89→        "vin код", "вин код", "vin-код", "вин-код",
+    90→        "что за vin", "что за вин", "какая машина vin", "какая машина вин",
+    91→        "какой автомобиль vin", "определи vin", "определи вин",
+    92→        "что за машина vin", "проверь vin", "проверь вин",
+    93→        "история vin", "история автомобиля", "пробить машину",
+    94→    ]
+    95→    return any(kw in text_lower for kw in keywords)
+    96→
+    97→
+    98→# ── Gender detection from Russian first name ────────────────────────────────
+    99→
+   100→MALE_NAME_ENDINGS = ("й", "ь", "н", "л", "р", "с", "т", "в", "к", "м", "г", "б", "д", "п", "з", "ж", "х")
+   101→FEMALE_NAME_ENDINGS = ("а", "я", "ия", "ья", "ина")
+   102→
+   103→COMMON_MALE_NAMES = {
+   104→    "александр", "дмитрий", "максим", "сергей", "андрей", "алексей", "артём",
+   105→    "илья", "кирилл", "михаил", "никита", "матвей", "роман", "егор", "арсений",
+   106→    "иван", "денис", "евгений", "даниил", "тимур", "владимир", "олег", "павел",
+   107→    "руслан", "вадим", "константин", "антон", "борис",
+   108→}
+   109→
+   110→COMMON_FEMALE_NAMES = {
+   111→    "анна", "мария", "ольга", "елена", "наталья", "татьяна", "ирина", "светлана",
+   112→    "екатерина", "юлия", "дарья", "алина", "вера", "полина", "кристина", "софия",
+   113→    "валерия", "марина", "людмила", "надежда", "настя", "анастасия",
+   114→    "виктория", "маргарита", "диана", "евгения", "алёна", "катерина",
+   115→}
+   116→
+   117→
+   118→def _guess_gender(first_name: str) -> str:
+   119→    """Guess gender from Russian first name. Returns 'male', 'female', or 'unknown'."""
+   120→    if not first_name:
+   121→        return "unknown"
+   122→
+   123→    name_lower = first_name.lower().strip()
+   124→
+   125→    if name_lower in COMMON_MALE_NAMES:
+   126→        return "male"
+   127→    if name_lower in COMMON_FEMALE_NAMES:
+   128→        return "female"
+   129→
+   130→    if name_lower.endswith(FEMALE_NAME_ENDINGS):
+   131→        if name_lower.endswith("ь"):
+   132→            pass
+   133→        else:
+   134→            return "female"
+   135→
+   136→    if name_lower.endswith("й") or name_lower.endswith("ь"):
+   137→        return "male"
+   138→
+   139→    return "unknown"
+   140→
+   141→
+   142→def _get_user_persona_context(message: Message) -> str:
+   143→    """Build a context string about the user for personalized communication."""
+   144→    parts = []
+   145→
+   146→    first_name = message.from_user.first_name or ""
+   147→    last_name = message.from_user.last_name or ""
+   148→    username = message.from_user.username or ""
+   149→
+   150→    if first_name:
+   151→        parts.append(f"Имя пользователя: {first_name}")
+   152→    if last_name:
+   153→        parts.append(f"Фамилия: {last_name}")
+   154→    if username:
+   155→        parts.append(f"Username: @{username}")
+   156→
+   157→    # Guess gender
+   158→    gender = _guess_gender(first_name)
+   159→    if gender == "male":
+   160→        parts.append("Пол: скорее всего мужчина")
+   161→    elif gender == "female":
+   162→        parts.append("Пол: скорее всего женщина")
+   163→
+   164→    # Is this the owner?
+   165→    if message.from_user.id == config.OWNER_ID:
+   166→        parts.append("Это владелец бота — общайся тепло и уважительно")
+   167→
+   168→    if parts:
+   169→        return "Информация о пользователе для персонализации общения:\n" + "\n".join(parts)
+   170→    return ""
+   171→
+   172→
+   173→# ── Middleware-like: check user and log ─────────────────────────────────────────
+   174→
+   175→async def _check_user(message: Message) -> bool:
+   176→    """Check if user is allowed to interact. Returns True if allowed."""
+   177→    user = await get_or_create_user(
+   178→        user_id=message.from_user.id,
+   179→        username=message.from_user.username or "",
+   180→        first_name=message.from_user.first_name or "",
+   181→        last_name=message.from_user.last_name or "",
+   182→        language_code=message.from_user.language_code or "ru",
+   183→    )
+   184→
+   185→    if await is_user_blocked(message.from_user.id):
+   186→        return False
+   187→
+   188→    # Rate limiting
+   189→    if not check_rate_limit(message.from_user.id):
+   190→        await message.answer("Ты слишком быстро пишешь! Дай мне секунду переварить ")
+   191→        return False
+   192→
+   193→    return True
+   194→
+   195→
+   196→# ── /start command ─────────────────────────────────────────────────────────────
+   197→
+   198→@chat_router.message(CommandStart())
+   199→async def cmd_start(message: Message):
+   200→    """Handle /start command — greet like a living person, not a service bot."""
+   201→    if not await _check_user(message):
+   202→        return
+   203→
+   204→    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+   205→
+   206→    name = message.from_user.first_name or ""
+   207→    gender = _guess_gender(name)
+   208→
+   209→    import random
+   210→    from datetime import datetime
+   211→    from zoneinfo import ZoneInfo
+   212→    import os
+   213→    hour = datetime.now(ZoneInfo("Europe/Moscow")).hour
+   214→
+   215→    # Add Mini App button to /start
+   216→    miniapp_url = os.getenv("MINIAPP_URL", "https://asiaexp-bot-miniapp.onrender.com")
+   217→    builder = InlineKeyboardBuilder()
+   218→    builder.button(text="🚗 Открыть Асю", web_app=WebAppInfo(url=miniapp_url))
+   219→
+   220→    if name:
+   221→        if gender == "male":
+   222→            greets = [
+   223→                f"Привет, {name}! 😊 Ася тут. Чем займёмся?",
+   224→                f"Хей, {name}! О чём поболтаем?",
+   225→                f"О, {name}! Привет! Просто пиши, я всегда рада поболтать",
+   226→                f"Привет, {name}! 😊 Кофе уже пью, можно общаться",
+   227→            ]
+   228→        elif gender == "female":
+   229→            greets = [
+   230→                f"Привет, {name}! 😊 Мы с тобой обе понимаем толк в хорошем общении!",
+   231→                f"Хей, {name}! Давай поболтаем!",
+   232→                f"Привет, {name}! 😊 Всегда рада компании!",
+   233→            ]
+   234→        else:
+   235→            greets = [
+   236→                f"Привет, {name}! 😊 Рад(а) знакомству!",
+   237→                f"Хей, {name}! О чём поговорим?",
+   238→            ]
+   239→    else:
+   240→        greets = [
+   241→            "Привет! 😊 Просто пиши — я всегда на связи!",
+   242→            "Хей! Давай знакомиться!",
+   243→            "Привет! 😊 Пиши о чём хочешь, я люблю общаться!",
+   244→        ]
+   245→
+   246→    welcome = random.choice(greets)
+   247→    await message.answer(welcome, reply_markup=builder.as_markup())
+   248→
+   249→
+   250→# ── /help command ──────────────────────────────────────────────────────────────
+   251→
+   252→@chat_router.message(Command("help"))
+   253→async def cmd_help(message: Message):
+   254→    """Handle /help command — casual, living-person style."""
+   255→    if not await _check_user(message):
+   256→        return
+   257→
+   258→    help_text = (
+   259→        "Если что, я могу:\n\n"
+   260→        "🔧 Помочь с диагностикой — расскажи, что с машиной, разберёмся вместе\n"
+   261→        "🔍 Подобрать запчасти — подскажу где искать по VIN и артикулу\n"
+   262→        "📊 Расшифровать VIN или номер кузова — просто отправь\n"
+   263→        "📸 Посмотреть фото — отправь, я расскажу что вижу\n"
+   264→        "💬 Просто поболтать — я люблю общаться на любые темы!\n"
+   265→        "🚗 Сохранить твою машину — /mycar Марка Модель Год\n"
+   266→        "📱 Работаю в любом чате — набери @asiaexp_bot и вопрос!\n\n"
+   267→        "Команды:\n"
+   268→        "/app — открыть мини-приложение\n"
+   269→        "/clear — начать с чистого листа\n"
+   270→        "/diagnostic — фокус на диагностике\n"
+   271→        "/parts — ищем запчасти\n"
+   272→        "/normal — обычный режим\n"
+   273→        "/mycar — мои машины\n"
+   274→        "/delcar <номер> — удалить машину\n"
+   275→        "/mileage <номер> <км> — обновить пробег"
+   276→    )
+   277→    await message.answer(help_text)
+   278→
+   279→
+   280→# ── /app command — Open Mini App ────────────────────────────────────────────────
+   281→
+   282→@chat_router.message(Command("app"))
+   283→async def cmd_app(message: Message):
+   284→    """Handle /app command — open the Mini App."""
+   285→    if not await _check_user(message):
+   286→        return
+   287→
+   288→    import os
+   289→    miniapp_url = os.getenv("MINIAPP_URL", "https://asiaexp-bot-miniapp.onrender.com")
+   290→
+   291→    builder = InlineKeyboardBuilder()
+   292→    builder.button(text="🚗 Открыть Асю", web_app=WebAppInfo(url=miniapp_url))
+   293→
+   294→    await message.answer(
+   295→        "Открой мини-приложение Аси — там всё удобнее!\n\n"
+   296→        "🔧 Диагностика\n🔑 VIN-расшифровка\n🔍 Поиск запчастей\n💬 Чат с Асей",
+   297→        reply_markup=builder.as_markup(),
+   298→    )
+   299→
+   300→
+   301→# ── /clear command ─────────────────────────────────────────────────────────────
+   302→
+   303→@chat_router.message(Command("clear"))
+   304→async def cmd_clear(message: Message):
+   305→    """Clear chat history."""
+   306→    if not await _check_user(message):
+   307→        return
+   308→
+   309→    await clear_chat_history(message.from_user.id)
+   310→    await message.answer("Чистый лист! 😊 Начинаем заново")
+   311→
+   312→
+   313→# ── Mode commands ──────────────────────────────────────────────────────────────
+   314→
+   315→@chat_router.message(Command("diagnostic"))
+   316→async def cmd_diagnostic(message: Message):
+   317→    """Switch to diagnostic mode."""
+   318→    if not await _check_user(message):
+   319→        return
+   320→
+   321→    await set_chat_mode(message.from_user.id, "diagnostic")
+   322→    await message.answer(
+   323→        "Ок, режим диагностики 🔧 Расскажи, что с машиной — разберёмся вместе"
+   324→    )
+   325→
+   326→
+   327→@chat_router.message(Command("parts"))
+   328→async def cmd_parts(message: Message):
+   329→    """Switch to parts search mode."""
+   330→    if not await _check_user(message):
+   331→        return
+   332→
+   333→    await set_chat_mode(message.from_user.id, "parts")
+   334→    await message.answer(
+   335→        "Ищем запчасти 🔍 Подскажу где искать — Росско, Autopiter, AvtoALL"
+   336→    )
+   337→
+   338→
+   339→@chat_router.message(Command("normal"))
+   340→async def cmd_normal(message: Message):
+   341→    """Switch to normal chat mode."""
+   342→    if not await _check_user(message):
+   343→        return
+   344→
+   345→    await set_chat_mode(message.from_user.id, "normal")
+   346→    await message.answer("Обычный режим 😊 Пиши о чём хочешь!")
+   347→
+   348→
+   349→# ── /mycar command — User car profiles ────────────────────────────────────────
+   350→
+   351→@chat_router.message(Command("mycar"))
+   352→async def cmd_mycar(message: Message):
+   353→    """Show user's saved cars or add a new one."""
+   354→    if not await _check_user(message):
+   355→        return
+   356→
+   357→    args = message.text.split(maxsplit=1)
+   358→
+   359→    if len(args) < 2:
+   360→        # Show saved cars
+   361→        cars = await get_user_cars(message.from_user.id)
+   362→        if not cars:
+   363→            await message.answer(
+   364→                "У тебя пока нет сохранённых машин. Добавь:\n"
+   365→                "/mycar Toyota Camry 2020\n"
+   366→                "/mycar BMW X5 2019 B58 65000\n"
+   367→                "\nФормат: /mycar Марка Модель Год [Двигатель] [Пробег]"
+   368→            )
+   369→            return
+   370→
+   371→        lines = ["🚗 Твои машины:"]
+   372→        for car in cars:
+   373→            car_info = f"  {car['brand']} {car['model']}"
+   374→            if car['year']:
+   375→                car_info += f" {car['year']}"
+   376→            if car['engine']:
+   377→                car_info += f", {car['engine']}"
+   378→            if car['mileage']:
+   379→                car_info += f", {car['mileage']} км"
+   380→            car_info += f" (#{car['id']})"
+   381→            lines.append(car_info)
+   382→            if car['vin']:
+   383→                lines.append(f"    VIN: {car['vin']}")
+   384→
+   385→        lines.append("\nУдалить: /delcar <номер>")
+   386→        lines.append("Обновить пробег: /mileage <номер> <км>")
+   387→        await message.answer("\n".join(lines))
+   388→        return
+   389→
+   390→    # Parse and add a car
+   391→    car_text = args[1].strip()
+   392→    parts = car_text.split()
+   393→
+   394→    brand = parts[0] if len(parts) > 0 else ""
+   395→    model_name = parts[1] if len(parts) > 1 else ""
+   396→    year = 0
+   397→    engine = ""
+   398→    mileage = 0
+   399→
+   400→    try:
+   401→        year = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+   402→    except (ValueError, IndexError):
+   403→        pass
+   404→
+   405→    # Engine and mileage from remaining parts
+   406→    remaining = parts[3:] if year else parts[2:]
+   407→    for r in remaining:
+   408→        if r.isdigit() and len(r) >= 4:
+   409→            mileage = int(r)
+   410→        elif not engine:
+   411→            engine = r
+   412→        else:
+   413→            engine += f" {r}"
+   414→
+   415→    car_id = await add_user_car(
+   416→        user_id=message.from_user.id,
+   417→        brand=brand,
+   418→        model=model_name,
+   419→        year=year,
+   420→        engine=engine,
+   421→        mileage=mileage,
+   422→    )
+   423→
+   424→    await message.answer(f"Машина добавлена! {brand} {model_name} {year or ''} (#{car_id}) 🚗")
+   425→
+   426→
+   427→# ── /delcar command ────────────────────────────────────────────────────────────
+   428→
+   429→@chat_router.message(Command("delcar"))
+   430→async def cmd_delcar(message: Message):
+   431→    """Delete a car from user's profile."""
+   432→    if not await _check_user(message):
+   433→        return
+   434→
+   435→    args = message.text.split()
+   436→    if len(args) < 2:
+   437→        await message.answer("Использование: /delcar <номер машины>")
+   438→        return
+   439→
+   440→    try:
+   441→        car_id = int(args[1])
+   442→    except ValueError:
+   443→        await message.answer("Нужно указать номер машины (число)")
+   444→        return
+   445→
+   446→    deleted = await delete_user_car(car_id, message.from_user.id)
+   447→    if deleted:
+   448→        await message.answer("Машина удалена из профиля ✅")
+   449→    else:
+   450→        await message.answer("Не найдена такая машина в твоём профиле")
+   451→
+   452→
+   453→# ── /mileage command ──────────────────────────────────────────────────────────
+   454→
+   455→@chat_router.message(Command("mileage"))
+   456→async def cmd_mileage(message: Message):
+   457→    """Update mileage for a saved car."""
+   458→    if not await _check_user(message):
+   459→        return
+   460→
+   461→    args = message.text.split()
+   462→    if len(args) < 3:
+   463→        await message.answer("Использование: /mileage <номер машины> <пробег км>")
+   464→        return
+   465→
+   466→    try:
+   467→        car_id = int(args[1])
+   468→        km = int(args[2])
+   469→    except ValueError:
+   470→        await message.answer("Нужно: номер машины и пробег (числа)")
+   471→        return
+   472→
+   473→    updated = await update_car_mileage(car_id, message.from_user.id, km)
+   474→    if updated:
+   475→        await message.answer(f"Пробег обновлён: {km} км 📝")
+   476→    else:
+   477→        await message.answer("Не найдена такая машина")
+   478→
+   479→
+   480→# ── Photo handler ──────────────────────────────────────────────────────────────
+   481→
+   482→@chat_router.message(F.photo)
+   483→async def handle_photo(message: Message):
+   484→    """Handle photo messages — analyze with vision AI.
+   485→
+   486→    In GROUPS/SUPERGROUPS: use LOCAL-ONLY routing (comments mode).
+   487→    Only use cloud vision for private chats (1-on-1 with user).
+   488→    """
+   489→    if not await _check_user(message):
+   490→        return
+   491→
+   492→    # Check if we're in a group/supergroup — use LOCAL-ONLY for comments
+   493→    is_group = message.chat.type in ("group", "supergroup")
+   494→
+   495→    # In groups: Ася should just comment on local model ONLY, not use cloud vision
+   496→    if is_group:
+   497→        # LOCAL MODEL ONLY for group comments — no cloud API waste!
+   498→        # Use singleton from ai_router — no reloading the model every time!
+   499→        from ai.router import ai_router
+   500→        local_provider = ai_router._local
+   501→        if local_provider and await local_provider.is_available():
+   502→            caption = message.caption or ""
+   503→            simple_prompt = (
+   504→                f"Кто-то прислал фото в группе. "
+   505→                f"{'С подписью: ' + caption[:100] if caption else 'Без подписи.'} "
+   506→                f"Напиши короткий комментарий (до 200 символов) как автоэксперт. "
+   507→                f"Без анализа фото — просто живой комментарий."
+   508→            )
+   509→            try:
+   510→                messages = [
+   511→                    {"role": "system", "content": "Ты Ася — автоэксперт. Короткие комментарии до 200 символов. Без markdown. Без политики."},
+   512→                    {"role": "user", "content": simple_prompt},
+   513→                ]
+   514→                response = await local_provider.chat(
+   515→                    messages=messages,
+   516→                    temperature=0.8,
+   517→                    max_tokens=100,
+   518→                )
+   519→                if response and not response.error and response.text:
+   520→                    reply_text = response.text[:COMMENT_MAX_CHARS]
+   521→                    await message.reply(reply_text)
+   522→            except Exception as e:
+   523→                logger.debug(f"Group photo comment error: {e}")
+   524→        else:
+   525→            logger.debug("Local model not available for group photo comment — skipping")
+   526→        return
+   527→
+   528→    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+   529→
+   530→    # Get the highest resolution photo
+   531→    photo: PhotoSize = message.photo[-1]
+   532→
+   533→    # Get caption or default prompt
+   534→    caption = message.caption or ""
+   535→    if caption:
+   536→        prompt = caption
+   537→    else:
+   538→        prompt = (
+   539→            "Рассмотри это фото МАКСИМАЛЬНО внимательно и подробно:\n\n"
+   540→            "1. Если на фото АВТОМОБИЛЬ — определи: марку, модель, поколение, год, тип кузова, "
+   541→            "цвет, состояние. Укажи ориентировочную стоимость на вторичном рынке.\n\n"
+   542→            "2. Если на фото ЗАПЧАСТЬ — определи: что это за деталь, для какого авто подходит, "
+   543→            "артикул (OEM-номер), если виден. Посоветуй где купить и примерную цену.\n\n"
+   544→            "3. Если на фото ДОКУМЕНТ на авто (ПТС, СТС, диагностическая карта, страховка) — "
+   545→            "считай ВСЕ данные: VIN, марку, модель, год, двигатель, мощность, объём, "
+   546→            "тип кузова, цвет, номер кузова. "
+   547→            "НИКОГДА не показывай ФИО владельца и адрес — это персональные данные! "
+   548→            "Покажи только технические данные.\n\n"
+   549→            "4. Если на фото ЭКРАН СКАНЕРА OBD-II — считай коды ошибок и расшифруй их.\n\n"
+   550→            "5. Если на фото ПОВРЕЖДЕНИЕ/ПОЛОМКА — опиши что видишь, возможные причины, "
+   551→            "что делать и примерную стоимость ремонта.\n\n"
+   552→            "6. Если что-то другое — просто опиши что видишь.\n\n"
+   553→            "Пиши живо и заботливо, как девушка-автоэксперт."
+   554→        )
+   555→
+   556→    # Build extra context
+   557→    extra_context_parts = []
+   558→    user_context = _get_user_persona_context(message)
+   559→    if user_context:
+   560→        extra_context_parts.append(user_context)
+   561→
+   562→    # Add user car context if available
+   563→    try:
+   564→        user_cars = await get_user_cars(message.from_user.id)
+   565→        if user_cars:
+   566→            car_lines = ["Машины пользователя:"]
+   567→            for car in user_cars[:3]:
+   568→                car_line = f"- {car['brand']} {car['model']}"
+   569→                if car['year']:
+   570→                    car_line += f" {car['year']}"
+   571→                if car['vin']:
+   572→                    car_line += f", VIN: {car['vin']}"
+   573→                car_lines.append(car_line)
+   574→            extra_context_parts.append("\n".join(car_lines))
+   575→    except Exception:
+   576→        pass
+   577→
+   578→    # Download the photo and convert to base64
+   579→    try:
+   580→        file_info = await message.bot.get_file(photo.file_id)
+   581→        if not file_info or not file_info.file_path:
+   582→            await message.answer("Не удалось скачать фото 😅 Попробуй ещё раз")
+   583→            return
+   584→
+   585→        file_url = f"https://api.telegram.org/file/bot{config.BOT_TOKEN}/{file_info.file_path}"
+   586→
+   587→        import httpx
+   588→        async with httpx.AsyncClient(timeout=30.0) as client:
+   589→            response = await client.get(file_url)
+   590→            if response.status_code == 200:
+   591→                image_base64 = base64.b64encode(response.content).decode("utf-8")
+   592→
+   593→                # Determine media type
+   594→                media_type = "image/jpeg"
+   595→                if file_info.file_path.endswith(".png"):
+   596→                    media_type = "image/png"
+   597→                elif file_info.file_path.endswith(".webp"):
+   598→                    media_type = "image/webp"
+   599→
+   600→                extra_context = "\n\n".join(extra_context_parts) if extra_context_parts else ""
+   601→
+   602→                response = await ai_router.analyze_image(
+   603→                    user_id=message.from_user.id,
+   604→                    image_base64=image_base64,
+   605→                    prompt=prompt,
+   606→                    extra_context=extra_context,
+   607→                )
+   608→
+   609→                if response.error or not response.text:
+   610→                    await message.answer("Ой, не получилось разглядеть фото 😅 Попробуй ещё раз!")
+   611→                    return
+   612→
+   613→                reply_text = response.text
+   614→                reply_text = _clean_markdown(reply_text)
+   615→
+   616→                # CRITICAL: Replace any plain partner URLs with affiliate goto_link
+   617→                reply_text = _replace_plain_urls_with_affiliate(reply_text)
+   618→
+   619→                # Collect partner links for photo responses
+   620→                photo_partner_links = []
+   621→
+   622→                # Check if AI found a VIN in the photo — suggest partner links for parts
+   623→                detected_vin = _detect_vin(reply_text)
+   624→                if detected_vin and len(detected_vin) == 17:
+   625→                    try:
+   626→                        links = partner_manager.get_all_relevant_links(reply_text, max_programs=5)
+   627→                        if links:
+   628→                            for link in links:
+   629→                                photo_partner_links.append((link['name'], link['url']))
+   630→                    except Exception as e:
+   631→                        logger.debug(f"Partner links from photo error: {e}")
+   632→
+   633→                # Check if AI found part numbers — suggest partner links
+   634→                detected_parts = extract_part_numbers(reply_text)
+   635→                if detected_parts:
+   636→                    try:
+   637→                        links = partner_manager.get_all_relevant_links(reply_text, max_programs=5)
+   638→                        if links:
+   639→                            for link in links:
+   640→                                if (link['name'], link['url']) not in photo_partner_links:
+   641→                                    photo_partner_links.append((link['name'], link['url']))
+   642→                    except Exception as e:
+   643→                        logger.debug(f"Partner links from photo parts error: {e}")
+   644→
+   645→                # Clean raw affiliate URLs from AI text (same as _send_response does)
+   646→                if photo_partner_links:
+   647→                    reply_text = _clean_raw_partner_urls(reply_text, photo_partner_links)
+   648→                    partner_section = _format_partner_links_section(photo_partner_links)
+   649→                    if partner_section:
+   650→                        reply_text = reply_text.rstrip() + "\n\n" + partner_section
+   651→
+   652→                # Split if too long
+   653→                if len(reply_text) <= config.TELEGRAM_TEXT_LIMIT:
+   654→                    await message.answer(reply_text)
+   655→                else:
+   656→                    chunks = _split_message(reply_text, max_length=config.TELEGRAM_TEXT_LIMIT)
+   657→                    for chunk in chunks:
+   658→                        await message.answer(chunk)
+   659→                return
+   660→            else:
+   661→                await message.answer("Не удалось скачать фото 😅 Попробуй ещё раз")
+   662→                return
+   663→
+   664→    except Exception as e:
+   665→        logger.error(f"Photo processing error: {e}")
+   666→        await message.answer("Ой, что-то пошло не так с фото 😅 Напиши текстом, попробую помочь!")
+   667→
+   668→
+   669→# ── Voice message handler ─────────────────────────────────────────────────────
+   670→
+   671→@chat_router.message(F.voice)
+   672→async def handle_voice(message: Message):
+   673→    """Handle voice messages — transcribe and process."""
+   674→    if not await _check_user(message):
+   675→        return
+   676→
+   677→    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+   678→    await message.answer("Слушаю... 🎧")
+   679→
+   680→    voice = message.voice
+   681→    text = await process_voice_message(message.bot, voice.file_id)
+   682→
+   683→    if text and not text.startswith("Не удалось"):
+   684→        await _process_text_message(message, text)
+   685→    else:
+   686→        await message.answer(text)
+   687→
+   688→
+   689→# ── Main text message handler ─────────────────────────────────────────────────
+   690→
+   691→@chat_router.message(F.text)
+   692→async def handle_text(message: Message):
+   693→    """Handle text messages — main interaction point."""
+   694→    if not await _check_user(message):
+   695→        return
+   696→
+   697→    text = message.text.strip()
+   698→    if not text:
+   699→        return
+   700→
+   701→    await _process_text_message(message, text)
+   702→
+   703→
+   704→async def _process_text_message(message: Message, text: str):
+   705→    """Core message processing with AI, search, diagnostics, parts, VIN, and personalization."""
+   706→    import random
+   707→    user_id = message.from_user.id
+   708→    chat_mode = await get_chat_mode(user_id)
+   709→
+   710→    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+   711→
+   712→    # Send a "thinking" status message so the user knows we're working
+   713→    text_lower = text.lower()
+   714→    if any(kw in text_lower for kw in ["запчаст", "деталь", "артикул", "купить", "найти запчас", "подобрать", "vin", "вин"]):
+   715→        thinking_msg = random.choice(ASYA_PHRASES["part_search"])
+   716→    elif any(kw in text_lower for kw in ["стучит", "не работает", "горит", "ошибка", "чек", "перегрев", "не заводит", "троит", "вибрац"]):
+   717→        thinking_msg = random.choice(ASYA_PHRASES["diagnostic_start"])
+   718→    else:
+   719→        thinking_msg = random.choice(ASYA_PHRASES["thinking"])
+   720→    status_msg = await message.answer(thinking_msg)
+   721→
+   722→    # ── Build extra context ────────────────────────────────────────────────
+   723→
+   724→    extra_context_parts = []
+   725→    collected_partner_links = []  # List of (name, url) tuples — for clean formatting after AI response
+   726→
+   727→    # 0. User persona context for personalized communication
+   728→    user_context = _get_user_persona_context(message)
+   729→    if user_context:
+   730→        extra_context_parts.append(user_context)
+   731→
+   732→    # Interbot removed — each bot works independently
+   733→
+   734→    # 0.5. User car profile context — so Asya knows their cars
+   735→    try:
+   736→        user_cars = await get_user_cars(user_id)
+   737→        if user_cars:
+   738→            car_lines = ["Машины пользователя:"]
+   739→            for car in user_cars[:3]:
+   740→                car_line = f"- {car['brand']} {car['model']}"
+   741→                if car['year']:
+   742→                    car_line += f" {car['year']}"
+   743→                if car['engine']:
+   744→                    car_line += f", двигатель: {car['engine']}"
+   745→                if car['mileage']:
+   746→                    car_line += f", пробег: {car['mileage']} км"
+   747→                if car['vin']:
+   748→                    car_line += f", VIN: {car['vin']}"
+   749→                car_lines.append(car_line)
+   750→            extra_context_parts.append("\n".join(car_lines))
+   751→    except Exception as e:
+   752→        logger.debug(f"Error loading user cars: {e}")
+   753→
+   754→    # 1. Detect VIN code or body number
+   755→    vin_code = _detect_vin(text)
+   756→    body_number = _detect_body_number(text) if not vin_code else None
+   757→    is_vin_query = bool(vin_code) or bool(body_number) or _is_vin_query(text)
+   758→
+   759→    if is_vin_query:
+   760→        vin_or_body = vin_code or body_number or text.strip()
+   761→        
+   762→        # Try web search for VIN info (car history, specs, etc.)
+   763→        vin_search_context = ""
+   764→        if vin_code and len(vin_code) == 17:
+   765→            try:
+   766→                search_query = f"VIN {vin_code} расшифровка автомобиль характеристики"
+   767→                results = await web_search(search_query, max_results=3)
+   768→                if results:
+   769→                    vin_search_context = "Результаты поиска по VIN:\n" + format_search_results(results, max_items=3)
+   770→            except Exception as e:
+   771→                logger.debug(f"VIN web search error: {e}")
+   772→        
+   773→        # Add primary partner links (Rossko, Autopiter RU, AvtoALL)
+   774→        primary_links_context = ""
+   775→        try:
+   776→            primary_links_context = partner_manager.format_primary_parts_links()
+   777→        except Exception as e:
+   778→            logger.debug(f"Primary links context error: {e}")
+   779→        
+   780→        all_context = extra_context_parts.copy()
+   781→        if vin_search_context:
+   782→            all_context.append(vin_search_context)
+   783→        if primary_links_context:
+   784→            all_context.append(primary_links_context)
+   785→        
+   786→        response = await ai_router.decode_vin(
+   787→            user_id=user_id,
+   788→            vin_code=vin_or_body,
+   789→            extra_context="\n".join(all_context),
+   790→        )
+   791→        # Collect VIN partner links for clean formatting (cross-category)
+   792→        vin_partner_links = []
+   793→        try:
+   794→            all_links_data = partner_manager.get_all_relevant_links(vin_or_body, max_programs=5)
+   795→            for pl in all_links_data:
+   796→                vin_partner_links.append((pl['name'], pl['url']))
+   797→        except Exception:
+   798→            # Fallback to primary parts links only
+   799→            try:
+   800→                primary_links_data = partner_manager.get_primary_parts_links()
+   801→                for pl in primary_links_data:
+   802→                    vin_partner_links.append((pl['name'], pl['url']))
+   803→            except Exception:
+   804→                pass
+   805→        await _send_response(message, response, status_msg, vin_partner_links)
+   806→        return
+   807→
+   808→    # 2. Detect car brand
+   809→    try:
+   810→        brand = identify_car_brand(text)
+   811→    except Exception as e:
+   812→        logger.debug(f"identify_car_brand error: {e}")
+   813→        brand = None
+   814→    if brand:
+   815→        from bot.asya import get_brand_info
+   816→        info = get_brand_info(brand)
+   817→        if info:
+   818→            extra_context_parts.append(f"Упомянута марка: {brand} ({info['country']}, холдинг: {info['parent']})")
+   819→
+   820→    # 3. Detect OBD-II codes
+   821→    obd_codes = detect_obd2_codes(text)
+   822→    if obd_codes:
+   823→        for code in obd_codes:
+   824→            desc = lookup_obd2_code(code)
+   825→            if desc:
+   826→                extra_context_parts.append(f"Код ошибки {code}: {desc}")
+   827→
+   828→        # Search for detailed info on the code
+   829→        for code in obd_codes[:2]:
+   830→            try:
+   831→                code_info = await search_diagnostic_code(code)
+   832→                if code_info.get("links"):
+   833→                    links_text = "\n".join(
+   834→                        f"- {l['title']}: {l['url']}" for l in code_info["links"][:3]
+   835→                    )
+   836→                    extra_context_parts.append(f"Подробности по ошибке {code}:\n{links_text}")
+   837→            except Exception as e:
+   838→                logger.error(f"Error searching diagnostic code: {e}")
+   839→
+   840→    # 4. Detect part numbers — NO MORE catalog searches, give partner links instead
+   841→    part_numbers = extract_part_numbers(text)
+   842→    is_part_query = bool(part_numbers) or is_part_number(text.strip()) or chat_mode == "parts"
+   843→
+   844→    # Always add primary partner links for parts/VIN queries
+   845→    if is_part_query:
+   846→        try:
+   847→            primary_links = partner_manager.format_primary_parts_links()
+   848→            if primary_links:
+   849→                extra_context_parts.append(primary_links)
+   850→        except Exception as e:
+   851→            logger.debug(f"Primary links error: {e}")
+   852→
+   853→    # 5. Detect car symptoms
+   854→    symptoms = detect_symptoms(text)
+   855→    is_diagnostic = bool(symptoms) or chat_mode == "diagnostic"
+   856→
+   857→    if symptoms:
+   858→        diag_context = build_diagnostic_context(text)
+   859→        if diag_context:
+   860→            extra_context_parts.append(diag_context)
+   861→
+   862→    # 6. Web search for relevant info — expanded triggers for better search coverage
+   863→    needs_search = (
+   864→        is_diagnostic or
+   865→        is_part_query or
+   866→        any(kw in text.lower() for kw in [
+   867→            "найди", "поиск", "ищи", "где купить", "сколько стоит",
+   868→            "новости", "что нового", "обзор", "сравни", "лучший",
+   869→            "рекомендуй", "посоветуй", "купить", "заказать",
+   870→            "когда", "где", "какой", "какая", "какие",
+   871→            "запчаст", "деталь", "артикул", "оригинал", "аналог",
+   872→            "замена", "ремонт", "поломк", "стучит", "не работает",
+   873→            "горит", "ошибка", "код", "чек", "check",
+   874→            "цена", "стоимость", "подбор", "купить",
+   875→            "отзыв", "проблем", "бренд", "производител",
+   876→            "характеристик", "мощност", "расход", "масло",
+   877→        ])
+   878→    )
+   879→
+   880→    if needs_search:
+   881→        try:
+   882→            search_query = text
+   883→            if brand:
+   884→                search_query = f"{brand} {text}"
+   885→            
+   886→            # Rewrite vague queries into specific search terms
+   887→            text_lower = text.lower().strip()
+   888→            _SEARCH_QUERY_REWRITES = {
+   889→                "какие новости": "автомобильные новости сегодня 2026",
+   890→                "что нового": "автоновости сегодня 2026",
+   891→                "новости": "автомобильные новости сегодня 2026",
+   892→                "что случилось": "автомобильные новости сегодня",
+   893→                "что происходит": "автомобильный рынок новости",
+   894→                "какие новости сегодня": "автомобильные новости сегодня 2026",
+   895→                "что нового в авт мире": "автомобильные новинки 2026",
+   896→                "что нового на рынке": "авторынок новости 2026",
+   897→            }
+   898→            for vague, specific in _SEARCH_QUERY_REWRITES.items():
+   899→                if vague in text_lower and len(text_lower) < len(vague) + 15:
+   900→                    search_query = specific
+   901→                    if brand:
+   902→                        search_query = f"{brand} {specific}"
+   903→                    break
+   904→            
+   905→            results = await web_search(search_query, max_results=5)
+   906→            if results:
+   907→                extra_context_parts.append("Результаты поиска:\n" + format_search_results(results, max_items=5))
+   908→        except Exception as e:
+   909→            logger.error(f"Web search error: {e}")
+   910→
+   911→    # 6.5. Spare part query — give partner links instead of searching catalogs
+   912→    is_spare_part_query = (
+   913→        any(kw in text.lower() for kw in [
+   914→            "запчаст", "деталь", "артикул", "купить запчас", "купить детал",
+   915→            "оригинал", "аналог", "замена", "подбор", "номер детал",
+   916→            "oem", "оригинальн", "цена", "стоимость", "скольк",
+   917→            "колодки", "фильтр", "свечи", "ремень", "амортизатор",
+   918→            "подшипник", "сальник", "прокладк", "датчик", "реле",
+   919→            "насос", "стойка", "шаровая", "наконечник", "сцепление",
+   920→            "где купить", "подобрать", "найти запчас",
+   921→        ])
+   922→        or is_part_number(text.strip())
+   923→        or bool(part_numbers)
+   924→        or chat_mode == "parts"
+   925→    )
+   926→
+   927→    # Add primary partner links (Rossko, Autopiter RU, AvtoALL) for ANY spare part query
+   928→    if is_spare_part_query:
+   929→        try:
+   930→            primary_links = partner_manager.format_primary_parts_links()
+   931→            if primary_links and primary_links not in extra_context_parts:
+   932→                extra_context_parts.append(primary_links)
+   933→            # Collect ALL relevant partner links for post-processing (clean formatting)
+   934→            # Use get_all_relevant_links for cross-category coverage
+   935→            try:
+   936→                all_links_data = partner_manager.get_all_relevant_links(text, max_programs=5)
+   937→                for pl in all_links_data:
+   938→                    collected_partner_links.append((pl['name'], pl['url']))
+   939→            except Exception:
+   940→                # Fallback to primary parts links only
+   941→                try:
+   942→                    primary_links_data = partner_manager.get_primary_parts_links()
+   943→                    for pl in primary_links_data:
+   944→                        collected_partner_links.append((pl['name'], pl['url']))
+   945→                except Exception:
+   946→                    pass
+   947→        except Exception as e:
+   948→            logger.debug(f"Primary links for spare parts error: {e}")
+   949→
+   950→    # 7. Partner program context — ALL relevant partner links for all topics
+   951→    # Use get_all_relevant_links for cross-category coverage (not just autoparts).
+   952→    # This ensures tires, insurance, tools, checkauto links are included when relevant.
+   953→    try:
+   954→        partner_context = partner_manager.generate_partner_context(text)
+   955→        if partner_context:
+   956→            extra_context_parts.append(partner_context)
+   957→        # Also collect cross-category partner links for clean formatting
+   958→        if not is_spare_part_query:  # Already collected above for spare part queries
+   959→            try:
+   960→                all_relevant = partner_manager.get_all_relevant_links(text, max_programs=5)
+   961→                for pl in all_relevant:
+   962→                    collected_partner_links.append((pl['name'], pl['url']))
+   963→            except Exception:
+   964→                pass
+   965→    except Exception as e:
+   966→        logger.error(f"Partner context error: {e}")
+   967→
+   968→    # ── Route to AI ────────────────────────────────────────────────────────
+   969→
+   970→    extra_context = "\n\n".join(extra_context_parts) if extra_context_parts else ""
+   971→
+   972→    # Determine route type based on chat context
+   973→    is_group_chat = message.chat.type in ("group", "supergroup")
+   974→    is_own_channel = str(message.chat.id) == str(config.CHANNEL_ID)
+   975→
+   976→    if is_diagnostic:
+   977→        response = await ai_router.diagnose_car(
+   978→            user_id=user_id,
+   979→            symptoms=text,
+   980→            extra_context=extra_context,
+   981→        )
+   982→    elif is_part_query:
+   983→        response = await ai_router.find_spare_part(
+   984→            user_id=user_id,
+   985→            article=part_numbers[0] if part_numbers else text.strip(),
+   986→            part_info=extra_context,
+   987→        )
+   988→    elif is_group_chat and not is_own_channel:
+   989→        # GROUP/SUPERGROUP (not our channel) → LOCAL MODEL PREFERRED, CLOUD FALLBACK
+   990→        from ai.router import ai_router
+   991→        local_provider = ai_router._local
+   992→        if local_provider and await local_provider.is_available():
+   993→            group_messages = [
+   994→                {"role": "system", "content": "Ты Ася — автоэксперт. Пиши короткие комментарии до 300 символов. Живо и естественно. Без markdown. Без политики. Без рекламы канала."},
+   995→                {"role": "user", "content": text[:500]},
+   996→            ]
+   997→            try:
+   998→                local_response = await local_provider.chat(
+   999→                    messages=group_messages,
+  1000→                    temperature=0.8,
+  1001→                    max_tokens=150,
+  1002→                )
+  1003→                if local_response and not local_response.error and local_response.text:
+  1004→                    # Create a compatible response object for _send_response
+  1005→                    from ai.providers.base import AIResponse
+  1006→                    response = AIResponse(
+  1007→                        text=local_response.text[:COMMENT_MAX_CHARS],
+  1008→                        model="local-qwen3-4b",
+  1009→                        provider="local",
+  1010→                    )
+  1011→                else:
+  1012→                    # Local model failed — try cloud as fallback
+  1013→                    logger.debug("Local model failed for group comment — trying cloud fallback")
+  1014→                    try:
+  1015→                        response = await ai_router.chat(
+  1016→                            user_id=user_id,
+  1017→                            message=text,
+  1018→                            extra_context="Отвечай коротко, до 300 символов. Живо и естественно.",
+  1019→                        )
+  1020→                    except Exception:
+  1021→                        logger.debug("Cloud fallback also failed for group comment")
+  1022→                        return
+  1023→            except Exception as e:
+  1024→                logger.debug(f"Local model group comment error: {e}")
+  1025→                # Try cloud as fallback
+  1026→                try:
+  1027→                    response = await ai_router.chat(
+  1028→                        user_id=user_id,
+  1029→                        message=text,
+  1030→                        extra_context="Отвечай коротко, до 300 символов. Живо и естественно.",
+  1031→                    )
+  1032→                except Exception:
+  1033→                    logger.debug("Cloud fallback failed for group comment")
+  1034→                    return
+  1035→        else:
+  1036→            # Local model not available — use cloud model (but keep it short)
+  1037→            logger.debug("Local model not available for group comment — using cloud")
+  1038→            try:
+  1039→                response = await ai_router.chat(
+  1040→                    user_id=user_id,
+  1041→                    message=text,
+  1042→                    extra_context="Отвечай коротко, до 300 символов. Живо и естественно. Без политики.",
+  1043→                )
+  1044→            except Exception as e:
+  1045→                logger.debug(f"Cloud group comment failed: {e}")
+  1046→                return
+  1047→    else:
+  1048→        response = await ai_router.chat(
+  1049→            user_id=user_id,
+  1050→            message=text,
+  1051→            extra_context=extra_context,
+  1052→        )
+  1053→
+  1054→    await _send_response(message, response, status_msg, collected_partner_links)
+  1055→
+  1056→
+  1057→def _smart_truncate(text: str, max_chars: int) -> str:
+  1058→    """Truncate text to max_chars, trying not to cut in the middle of a sentence.
+  1059→    
+  1060→    Looks for the last sentence boundary (. ! ? …) within the limit.
+  1061→    Falls back to last newline, then last space, then hard cut.
+  1062→    Always appends "..." if truncated.
+  1063→    """
+  1064→    if len(text) <= max_chars:
+  1065→        return text
+  1066→
+  1067→    # Reserve 3 chars for "..."
+  1068→    limit = max_chars - 3
+  1069→    if limit <= 0:
+  1070→        return "..."
+  1071→
+  1072→    # Try to find last sentence boundary within limit
+  1073→    sentence_endings = ['. ', '! ', '? ', '… ', '.\n', '!\n', '?\n', '…\n']
+  1074→    best_pos = -1
+  1075→    best_ending_len = 0
+  1076→    for ending in sentence_endings:
+  1077→        pos = text.rfind(ending, 0, limit + 1)
+  1078→        if pos > best_pos:
+  1079→            best_pos = pos
+  1080→            best_ending_len = len(ending)
+  1081→
+  1082→    if best_pos > limit // 2:
+  1083→        # Found a good sentence boundary — cut after the punctuation mark
+  1084→        return text[:best_pos + best_ending_len].rstrip() + "..."
+  1085→
+  1086→    # Try last newline
+  1087→    nl_pos = text.rfind('\n', 0, limit + 1)
+  1088→    if nl_pos > limit // 2:
+  1089→        return text[:nl_pos].rstrip() + "..."
+  1090→
+  1091→    # Try last space
+  1092→    sp_pos = text.rfind(' ', 0, limit + 1)
+  1093→    if sp_pos > limit // 2:
+  1094→        return text[:sp_pos].rstrip() + "..."
+  1095→
+  1096→    # Hard cut
+  1097→    return text[:limit].rstrip() + "..."
+  1098→
+  1099→
+  1100→async def _send_response(message: Message, response, status_msg=None, partner_links=None):
+  1101→    """Send AI response to user, handling errors and length limits.
+  1102→    
+  1103→    If partner_links is provided (list of (name, url) tuples), appends a cleanly
+  1104→    formatted section with named links after the AI response text.
+  1105→    """
+  1106→    # Delete the "thinking" status message
+  1107→    if status_msg:
+  1108→        try:
+  1109→            await status_msg.delete()
+  1110→        except Exception:
+  1111→            pass
+  1112→
+  1113→    if response.error:
+  1114→        logger.error(f"AI error: {response.error_message}")
+  1115→        await message.answer(
+  1116→            "Ой, зависла немного 😅 Дай мне минутку и попробуй ещё раз!"
+  1117→        )
+  1118→        return
+  1119→
+  1120→    reply_text = response.text
+  1121→
+  1122→    # Ensure Asya doesn't use markdown formatting in chat
+  1123→    reply_text = _clean_markdown(reply_text)
+  1124→
+  1125→    # CRITICAL: Replace any plain partner URLs (rossko.ru, autopiter.ru, etc.)
+  1126→    # with affiliate goto_link equivalents from admitad_ads.json
+  1127→    reply_text = _replace_plain_urls_with_affiliate(reply_text)
+  1128→
+  1129→    # Remove raw affiliate URLs that AI may have dumped into the response
+  1130→    if partner_links:
+  1131→        reply_text = _clean_raw_partner_urls(reply_text, partner_links)
+  1132→
+  1133→    # Append cleanly formatted partner links section
+  1134→    if partner_links:
+  1135→        partner_section = _format_partner_links_section(partner_links)
+  1136→        if partner_section:
+  1137→            reply_text = reply_text.rstrip() + "\n\n" + partner_section
+  1138→
+  1139→    # ── Enforce character limits based on chat type ──
+  1140→    # Private chat: max CHAT_MAX_CHARS (1500) — AI asked for 500-1000, this is hard limit
+  1141→    # Group/supergroup: max GROUP_MAX_CHARS (600) — AI asked for 300, this is hard limit
+  1142→    # Comment in other group (not our channel): max COMMENT_MAX_CHARS (300)
+  1143→    if message.chat.type == "private":
+  1144→        if len(reply_text) > CHAT_MAX_CHARS:
+  1145→            logger.info(f"Truncating private chat response: {len(reply_text)} → {CHAT_MAX_CHARS} chars")
+  1146→            reply_text = _smart_truncate(reply_text, CHAT_MAX_CHARS)
+  1147→    else:
+  1148→        # Check if this is a comment in another group (not our channel)
+  1149→        is_own_channel = (
+  1150→            str(message.chat.id) == str(config.CHANNEL_ID)
+  1151→            or message.chat.username == config.CHANNEL_ID.replace("@", "")
+  1152→        )
+  1153→        if not is_own_channel and message.chat.type in ("group", "supergroup"):
+  1154→            if len(reply_text) > COMMENT_MAX_CHARS:
+  1155→                logger.info(f"Truncating comment in other group: {len(reply_text)} → {COMMENT_MAX_CHARS} chars")
+  1156→                reply_text = _smart_truncate(reply_text, COMMENT_MAX_CHARS)
+  1157→        elif len(reply_text) > GROUP_MAX_CHARS:
+  1158→            # Group or supergroup — keep it short!
+  1159→            logger.info(f"Truncating group response: {len(reply_text)} → {GROUP_MAX_CHARS} chars")
+  1160→            reply_text = _smart_truncate(reply_text, GROUP_MAX_CHARS)
+  1161→
+  1162→    # Split long messages (Telegram limit 4096 chars)
+  1163→    # Plain text — no HTML parse mode needed since partner links are plain text
+  1164→    if len(reply_text) <= config.TELEGRAM_TEXT_LIMIT:
+  1165→        await message.answer(reply_text)
+  1166→    else:
+  1167→        chunks = _split_message(reply_text, max_length=config.TELEGRAM_TEXT_LIMIT)
+  1168→        for chunk in chunks:
+  1169→            await message.answer(chunk)
+  1170→
+  1171→
+  1172→# ── Utility functions ──────────────────────────────────────────────────────────
+  1173→
+  1174→# Shop icon mapping for clean link formatting
+  1175→_SHOP_ICONS = {
+  1176→    "rossko": "🔧",
+  1177→    "autopiter": "🔍",
+  1178→    "avtoall": "🛒",
+  1179→    "exist": "📋",
+  1180→    "emex": "🔩",
+  1181→    "autodoc": "🚗",
+  1182→    "zzap": "💰",
+  1183→    "ixora": "⚙️",
+  1184→}
+  1185→_DEFAULT_SHOP_ICON = "🔗"
+  1186→
+  1187→
+  1188→def _format_partner_links_section(partner_links: list) -> str:
+  1189→    """Format partner links as a clean, readable section with plain text URLs.
+  1190→    
+  1191→    Takes a list of (name, url) tuples and returns a nicely formatted
+  1192→    string with 🔧 prefix + name + raw URL.
+  1193→    
+  1194→    Result looks like:
+  1195→    
+  1196→    Где купить:
+  1197→    🔧 Росско — https://ujhjj.com/g/...
+  1198→    🔧 Autopiter — https://rcpsj.com/g/...
+  1199→    🔧 AvtoALL — https://sgkaa.com/g/...
+  1200→    """
+  1201→    if not partner_links:
+  1202→        return ""
+  1203→    
+  1204→    lines = ["Где купить:"]
+  1205→    for name, url in partner_links[:5]:
+  1206→        # Simple format: 🔧 Name — URL (consistent, no HTML, as user requested)
+  1207→        lines.append(f'🔧 {name} — {url}')
+  1208→    
+  1209→    return "\n".join(lines)
+  1210→
+  1211→
+  1212→def _clean_raw_partner_urls(text: str, partner_links: list) -> str:
+  1213→    """Remove raw affiliate URLs that AI may have dumped into the response.
+  1214→    
+  1215→    If the AI already included the full affiliate URLs in its response text,
+  1216→    this function removes them to avoid duplication with the clean formatted
+  1217→    section that will be appended by _format_partner_links_section.
+  1218→    Also removes shop name + URL patterns like "Росско: https://...".
+  1219→    """
+  1220→    if not partner_links:
+  1221→        return text
+  1222→    
+  1223→    for name, url in partner_links:
+  1224→        url_escaped = re.escape(url)
+  1225→        # Remove standalone URL lines
+  1226→        text = re.sub(
+  1227→            rf'^[\s\-—]*{url_escaped}[\s]*$',
+  1228→            '',
+  1229→            text,
+  1230→            flags=re.MULTILINE
+  1231→        )
+  1232→        # Remove "name: URL" or "name — URL" patterns on their own lines
+  1233→        text = re.sub(
+  1234→            rf'^[\s\-—]*{re.escape(name)}\s*[:\-—]\s*{url_escaped}[\s]*$',
+  1235→            '',
+  1236→            text,
+  1237→            flags=re.MULTILINE
+  1238→        )
+  1239→        # Remove any line containing the full raw affiliate URL (even mid-sentence)
+  1240→        # This catches cases where AI writes: "Посмотри на Росско: https://ujhjj.com/g/..."
+  1241→        text = re.sub(
+  1242→            rf'[^\n]*{url_escaped}[^\n]*',
+  1243→            '',
+  1244→            text,
+  1245→            flags=re.MULTILINE
+  1246→        )
+  1247→        # Remove bare URL anywhere in text (affiliate URLs are very long, easy to detect)
+  1248→        if len(url) > 50:  # Only long tracking URLs
+  1249→            # Match the base tracking domain pattern
+  1250→            url_base = re.escape(url.split('?')[0])  # Before query params
+  1251→            text = re.sub(
+  1252→                rf'{url_base}\?[^\s\n"]+',
+  1253→                '',
+  1254→                text
+  1255→            )
+  1256→    
+  1257→    text = re.sub(r'\n{3,}', '\n\n', text)
+  1258→    return text.strip()
+  1259→
+  1260→
+  1261→# Known partner domains that MUST use affiliate links, not plain URLs
+  1262→_PARTNER_DOMAINS_MAP = {
+  1263→    "rossko.ru": "Росско",
+  1264→    "autopiter.ru": "Autopiter",
+  1265→    "autopiter.kz": "Autopiter KZ",
+  1266→    "avtoall.ru": "AvtoALL",
+  1267→    "exist.ru": "Exist",
+  1268→    "emex.ru": "Emex",
+  1269→    "autodoc.ru": "Autodoc",
+  1270→    "zzap.ru": "Zzap",
+  1271→    "aliexpress.ru": "AliExpress",
+  1272→    "avtocod.ru": "Avtocod",
+  1273→    "petrolplus.ru": "PetrolPlus",
+  1274→    "bs-tyres.ru": "BS-Tyres",
+  1275→    "euro-diski.ru": "Euro-diski",
+  1276→    "koleso.ru": "Колесо",
+  1277→    "hyperauto.ru": "Hyperauto",
+  1278→    "mirdvornikov.ru": "МирДворников",
+  1279→    "globaldrive.ru": "Globaldrive",
+  1280→    "lukoil-shop.com": "Лукойл",
+  1281→}
+  1282→
+  1283→
+  1284→def _replace_plain_urls_with_affiliate(text: str) -> str:
+  1285→    """Replace any plain partner domain URLs with affiliate goto_link equivalents.
+  1286→    
+  1287→    When the AI generates responses containing plain URLs like rossko.ru or 
+  1288→    autopiter.ru instead of the affiliate tracking links from admitad_ads.json,
+  1289→    this function detects them and replaces with the proper goto_link.
+  1290→    
+  1291→    This handles cases where:
+  1292→    - AI ignores the system prompt and invents plain URLs
+  1293→    - AI uses domain names without the affiliate wrapper
+  1294→    - Photo handler bypasses the normal link injection pipeline
+  1295→    """
+  1296→    try:
+  1297→        partner_manager.ensure_loaded()
+  1298→    except Exception:
+  1299→        return text
+  1300→    
+  1301→    for domain, display_name in _PARTNER_DOMAINS_MAP.items():
+  1302→        prog = partner_manager.get_by_site(domain)
+  1303→        if not prog or not prog.goto_link:
+  1304→            continue
+  1305→        
+  1306→        affiliate_url = prog.goto_link
+  1307→        
+  1308→        # Pattern 1: Full URLs with paths — https://rossko.ru/search?text=abc
+  1309→        # Replace the entire URL with the affiliate link
+  1310→        pattern = rf'https?://{re.escape(domain)}[^\s<>)\]"\']*'
+  1311→        matches = re.findall(pattern, text)
+  1312→        for plain_url in matches:
+  1313→            # Try to extract search query and build affiliate link with search
+  1314→            search_query = ""
+  1315→            if "search" in plain_url or "querystr" in plain_url or "q=" in plain_url:
+  1316→                try:
+  1317→                    from urllib.parse import urlparse, parse_qs
+  1318→                    parsed = urlparse(plain_url)
+  1319→                    params = parse_qs(parsed.query)
+  1320→                    for key in ("text", "querystr", "q", "query", "SearchText", "keyword", "p"):
+  1321→                        if key in params:
+  1322→                            search_query = params[key][0]
+  1323→                            break
+  1324→                except Exception:
+  1325→                    pass
+  1326→            
+  1327→            if search_query:
+  1328→                replacement = prog.get_search_url(search_query)
+  1329→            else:
+  1330→                replacement = affiliate_url
+  1331→            
+  1332→            text = text.replace(plain_url, replacement)
+  1333→        
+  1334→        # Pattern 2: Bare domain mentions — rossko.ru or www.rossko.ru (not already part of a longer URL)
+  1335→        # Only replace if it's NOT already part of an affiliate URL (which would be much longer)
+  1336→        bare_pattern = rf'(?<![/\w.-])(?:www\.)?{re.escape(domain)}(?![/\w.-])'
+  1337→        bare_matches = re.findall(bare_pattern, text)
+  1338→        for bare_domain in bare_matches:
+  1339→            # Check this isn't already inside an affiliate URL
+  1340→            idx = text.find(bare_domain)
+  1341→            if idx > 0:
+  1342→                # Look back — if there's a tracking domain prefix, skip
+  1343→                before = text[max(0, idx-50):idx]
+  1344→                if any(tracking_domain in before for tracking_domain in ["ad.admitad.com", ".com/g/", "xmknb.com", "ujhjj.com", "rcpsj.com", "sgkaa.com"]):
+  1345→                    continue
+  1346→            text = text.replace(bare_domain, affiliate_url, 1)
+  1347→    
+  1348→    return text
+  1349→
+  1350→
+  1351→def _clean_markdown(text: str) -> str:
+  1352→    """Remove markdown formatting that Asya shouldn't use.
+  1353→    
+  1354→    Markdown links [text](url) are converted to plain text: text — url.
+  1355→    Other markdown is stripped. No HTML — plain text for chat responses.
+  1356→    """
+  1357→    # Convert markdown links [text](url) → text — url (plain text format)
+  1358→    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\1 — \2', text)
+  1359→    
+  1360→    # Remove bold (after escaping, ** won't be in &lt; form)
+  1361→    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+  1362→    # Remove italic
+  1363→    text = re.sub(r'\*(.+?)\*', r'\1', text)
+  1364→    # Remove code blocks
+  1365→    text = re.sub(r'```[\s\S]*?```', lambda m: m.group(0).strip('`').strip(), text)
+  1366→    # Remove inline code
+  1367→    text = re.sub(r'`(.+?)`', r'\1', text)
+  1368→    # Remove headers
+  1369→    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
+  1370→    # Remove bullet points (convert to simple text)
+  1371→    text = re.sub(r'^[-*]\s+', '— ', text, flags=re.MULTILINE)
+  1372→    return text
+  1373→
+  1374→
+  1375→def _split_message(text: str, max_length: int = 4096) -> list:
+  1376→    """Split a long message into chunks at paragraph boundaries."""
+  1377→    if len(text) <= max_length:
+  1378→        return [text]
+  1379→
+  1380→    chunks = []
+  1381→    while text:
+  1382→        if len(text) <= max_length:
+  1383→            chunks.append(text)
+  1384→            break
+  1385→
+  1386→        # Try to split at newline near the limit
+  1387→        split_pos = text.rfind('\n', 0, max_length)
+  1388→        if split_pos < max_length // 2:
+  1389→            # Try splitting at space
+  1390→            split_pos = text.rfind(' ', 0, max_length)
+  1391→        if split_pos < max_length // 2:
+  1392→            # Hard split
+  1393→            split_pos = max_length
+  1394→
+  1395→        chunks.append(text[:split_pos].strip())
+  1396→        text = text[split_pos:].strip()
+  1397→
+  1398→    return chunks
+  1399→

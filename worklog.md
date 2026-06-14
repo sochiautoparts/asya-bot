@@ -46,3 +46,39 @@ Stage Summary:
 - First run: 100 BMW news collected, 98 with photos, sources include BMW Blog (14), BimmerToday DE (12), Carscoops BMW (16), CarExpert BMW AU (22), Reddit BMW (12), and others
 - All content is strictly BMW-themed (filtered by keywords)
 - Workflow runs hourly at :10 UTC
+
+---
+Task ID: asya-bot-fix-chat-speed
+Agent: Main Agent
+Task: Fix Asya bot slow/no response in chat and check for errors
+
+Work Log:
+- Explored full asya-bot codebase: bot/main.py, handlers/chat.py, handlers/inline.py, ai/router.py, ai/providers/pollinations_provider.py, ai/providers/local_provider.py, bot/config.py, bot/web_search.py, .github/workflows/bot.yml
+- Identified root causes of slow/no chat response:
+  1. Pollinations API timeout 90s per attempt × multiple fallback models = 10+ min wait
+  2. No overall timeout on message processing
+  3. Sequential web search pipeline (Google News → SearXNG → DDG → DDG API) can take 30s
+  4. Local model (Qwen3-4B on CPU) slow with 512 max_tokens
+  5. Too many fallback model attempts (3 per level × 3 levels)
+- Applied fixes:
+  1. Reduced Pollinations paid API timeout from 90s to 30s
+  2. Reduced Pollinations free API timeout from 90s to 25s
+  3. Added 45s overall timeout to _process_text_message — user ALWAYS gets a response
+  4. Added 20s timeout to inline mode handler
+  5. Added 8s timeout to web search within chat handler
+  6. Reduced SearXNG per-instance timeout from 6s to 4s
+  7. Reduced web search config timeout from 15s to 10s
+  8. Reduced model fallback attempts from 3 to 1 per level (Level 1 and Level 2)
+  9. Reduced local model max_tokens from 512 to 256 for faster chat responses
+  10. Fixed inline handler bug: missing return statement for 'parts' query type
+  11. Fixed photo handler: response variable shadowing (httpx response vs AI response)
+  12. Added asyncio.TimeoutError handling for inline mode
+- Set GH_PAT_TOKEN secret for sochiautoparts/asya-bot repo
+- Pushed all changes to GitHub — Run #396 deployed with new code
+
+Stage Summary:
+- Bot should now respond within 45 seconds max (vs potentially 10+ minutes before)
+- Worst case: user gets a "try again" message instead of no response
+- Inline mode now has 20s timeout with proper error handling
+- Local model generates faster responses (256 tokens vs 512)
+- All fixes pushed to https://github.com/sochiautoparts/asya-bot
