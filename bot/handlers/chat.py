@@ -791,7 +791,7 @@ async def _process_text_message_inner(message: Message, text: str, user_id: int,
             try:
                 import asyncio
                 search_query = f"VIN {vin_code} расшифровка автомобиль характеристики"
-                results = await asyncio.wait_for(web_search(search_query, max_results=3), timeout=8.0)
+                results = await asyncio.wait_for(web_search(search_query, max_results=3), timeout=5.0)
                 if results:
                     vin_search_context = "Результаты поиска по VIN:\n" + format_search_results(results, max_items=3)
             except asyncio.TimeoutError:
@@ -932,9 +932,10 @@ async def _process_text_message_inner(message: Message, text: str, user_id: int,
                     break
             
             # Run web search with a timeout to avoid blocking the response
+            # 5s max — fast enough for results, doesn't block AI response
             import asyncio
             try:
-                results = await asyncio.wait_for(web_search(search_query, max_results=3), timeout=8.0)
+                results = await asyncio.wait_for(web_search(search_query, max_results=3), timeout=5.0)
                 if results:
                     extra_context_parts.append("Результаты поиска:\n" + format_search_results(results, max_items=3))
             except asyncio.TimeoutError:

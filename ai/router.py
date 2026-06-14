@@ -195,13 +195,20 @@ class AIRouter:
         route_type: str = "chat",
     ) -> AIResponse:
         """
-        Send a chat message through the AI router with 4-level failover.
+        Send a chat message through the AI router with CONCURRENT failover.
 
-        v8.0 ROUTING via route_type:
-        - "chat" (default): Local → Pollinations key → free → Cloudflare → Static
-        - "function": Pollinations key → free → Cloudflare → Local(fallback) → Static
-        - "comment": Local → Pollinations key → free → Cloudflare → Static
+        v9.0 CONCURRENT ROUTING (fast response, no sequential delays):
+        - "chat" (default): Try Local first (if available), then CONCURRENT Pollinations+Cloudflare
+        - "function": Try Pollinations key first, then CONCURRENT free+Cloudflare+Local
+        - "comment": Try Local first, then CONCURRENT Pollinations+Cloudflare
+
+        Key improvement: Instead of waiting for each level to timeout sequentially
+        (which could take 30+15+60 = 105 seconds worst case), we now launch
+        multiple providers CONCURRENTLY and return the FIRST successful response.
+        This means if Pollinations is slow but Cloudflare responds in 3s, the user
+        gets a response in ~3s instead of ~30s.
         """
+        import asyncio as _asyncio
         temperature = temperature or config.CHAT_TEMPERATURE
         max_tokens = max_tokens or config.CHAT_MAX_TOKENS
 
@@ -225,13 +232,10 @@ class AIRouter:
 
         # ── Select model based on route_type ──
         if route_type == "comment":
-            # Fast/cheap models for comments
             model = model or "mistral"
         elif route_type == "function":
-            # Best quality models for function routes
             model = model or "openai-large"
         else:
-            # CHAT (default): use provided model or let provider handle weighted selection
             model = model or ""
 
         # ── LEVEL 0: Local Model (Qwen3-4B) — CHAT & COMMENT routes ──
@@ -240,61 +244,203 @@ class AIRouter:
         use_local_first = route_type in ("chat", "comment") and config.ENABLE_LOCAL_MODEL
 
         if use_local_first:
-            response = await self._try_local(
-                user_id, message, history, sys_prompt, temperature, max_tokens
+            # Quick check if local model is actually available (no timeout waste)
+            local_available = (
+                self._local is not None
+                and self._local._model_loaded
+                and self._local._llm is not None
+                and self._local._consecutive_errors < 5
             )
+            if local_available:
+                response = await self._try_local(
+                    user_id, message, history, sys_prompt, temperature, max_tokens
+                )
 
-            if not response.error:
-                self._level0_count += 1
-                self._total_requests += 1
-                return await self._save_response(user_id, message, response, sys_prompt, use_cache, save_history)
+                if not response.error:
+                    self._level0_count += 1
+                    self._total_requests += 1
+                    return await self._save_response(user_id, message, response, sys_prompt, use_cache, save_history)
 
-            logger.debug(f"Level 0 (local) failed for route={route_type}: {response.error_message}")
+                logger.debug(f"Level 0 (local) failed for route={route_type}: {response.error_message}")
 
-        # ── LEVEL 1: Pollinations with API key ──
-        response = await self._try_pollinations(
-            user_id, message, history, sys_prompt, temperature, max_tokens, model
-        )
+        # ── CONCURRENT FAILOVER: Launch multiple providers at once ──
+        # This is the key fix for the "Asya takes too long to respond" issue.
+        # Instead of trying providers one-by-one (each with 15-60s timeout),
+        # we launch them concurrently and return the FIRST successful response.
 
-        if not response.error:
-            self._level1_count += 1
-            self._total_requests += 1
-            return await self._save_response(user_id, message, response, sys_prompt, use_cache, save_history)
+        async def _safe_try_pollinations():
+            """Try Pollinations with key — return response or error."""
+            try:
+                return await self._try_pollinations(
+                    user_id, message, history, sys_prompt, temperature, max_tokens, model
+                )
+            except Exception as e:
+                logger.error(f"Pollinations key exception: {e}")
+                return AIResponse(text="", model=model, provider="pollinations", error=True, error_message=str(e))
 
-        # ── LEVEL 2: Pollinations FREE API ──
-        logger.warning(f"Level 1 failed (route={route_type}), trying Level 2 (free API): {response.error_message}")
-        response = await self._try_pollinations_free(
-            user_id, message, history, sys_prompt, temperature, max_tokens, model
-        )
+        async def _safe_try_pollinations_free():
+            """Try Pollinations free — return response or error."""
+            try:
+                return await self._try_pollinations_free(
+                    user_id, message, history, sys_prompt, temperature, max_tokens, model
+                )
+            except Exception as e:
+                logger.error(f"Pollinations free exception: {e}")
+                return AIResponse(text="", model=model, provider="pollinations-free", error=True, error_message=str(e))
 
-        if not response.error:
-            self._level2_count += 1
-            self._total_requests += 1
-            return await self._save_response(user_id, message, response, sys_prompt, use_cache, save_history)
+        async def _safe_try_cloudflare():
+            """Try Cloudflare — return response or error."""
+            try:
+                return await self._try_cloudflare(
+                    user_id, message, history, sys_prompt, temperature, max_tokens
+                )
+            except Exception as e:
+                logger.error(f"Cloudflare exception: {e}")
+                return AIResponse(text="", model="cloudflare", provider="cloudflare", error=True, error_message=str(e))
 
-        # ── LEVEL 3: Cloudflare Workers AI ──
-        logger.warning(f"Level 2 failed (route={route_type}), trying Level 3 (Cloudflare): {response.error_message}")
-        response = await self._try_cloudflare(
-            user_id, message, history, sys_prompt, temperature, max_tokens
-        )
+        async def _safe_try_local_fallback():
+            """Try local model as fallback for function routes."""
+            try:
+                return await self._try_local(
+                    user_id, message, history, sys_prompt, temperature, max_tokens
+                )
+            except Exception as e:
+                logger.error(f"Local fallback exception: {e}")
+                return AIResponse(text="", model="local-qwen3-4b", provider="local", error=True, error_message=str(e))
 
-        if not response.error:
-            self._level3_count += 1
-            self._total_requests += 1
-            return await self._save_response(user_id, message, response, sys_prompt, use_cache, save_history)
+        # Build concurrent task list based on route type
+        # Priority ordering: we want the best quality response first.
+        # But we launch them ALL at once and take the first success.
+        concurrent_tasks = []
 
-        # ── LEVEL 0 FALLBACK: Local model for FUNCTION routes ──
-        # If all cloud providers failed, try local model as last resort before static
-        if route_type == "function" and config.ENABLE_LOCAL_MODEL:
-            logger.warning(f"Level 3 failed (route=function), trying Level 0 fallback (local): {response.error_message}")
-            response = await self._try_local(
-                user_id, message, history, sys_prompt, temperature, max_tokens
-            )
+        # Always try Pollinations with key (best quality when available)
+        if self._primary and self._primary._build_key_tier_list():
+            concurrent_tasks.append(("pollinations_key", _safe_try_pollinations()))
 
-            if not response.error:
-                self._level0_count += 1
-                self._total_requests += 1
-                return await self._save_response(user_id, message, response, sys_prompt, use_cache, save_history)
+        # Always try Cloudflare in parallel (fast, independent service)
+        if self._cloudflare and self._cloudflare._accounts:
+            concurrent_tasks.append(("cloudflare", _safe_try_cloudflare()))
+
+        # For function routes, also try local model as concurrent fallback
+        if route_type == "function" and config.ENABLE_LOCAL_MODEL and self._local and self._local._model_loaded:
+            concurrent_tasks.append(("local_fallback", _safe_try_local_fallback()))
+
+        if not concurrent_tasks:
+            # No providers available — try free API as last hope
+            concurrent_tasks.append(("pollinations_free", _safe_try_pollinations_free()))
+
+        # Execute all tasks concurrently, return FIRST successful response
+        # Use asyncio.wait with FIRST_COMPLETED to get the fastest response
+        task_names = [name for name, _ in concurrent_tasks]
+        task_coros = [coro for _, coro in concurrent_tasks]
+        tasks = [_asyncio.create_task(coro) for coro in task_coros]
+
+        try:
+            # Wait for the first task to complete
+            done, pending = await _asyncio.wait(tasks, return_when=_asyncio.FIRST_COMPLETED)
+
+            # Check if any completed task succeeded
+            for task in done:
+                response = task.result()
+                if not response.error and response.text:
+                    # Cancel remaining tasks (we have a winner!)
+                    for p in pending:
+                        p.cancel()
+                    # Also cancel other done tasks we don't need
+                    for t in tasks:
+                        if t is not task and not t.done():
+                            t.cancel()
+
+                    # Track which level succeeded
+                    task_idx = tasks.index(task)
+                    level_name = task_names[task_idx]
+                    if level_name == "pollinations_key":
+                        self._level1_count += 1
+                    elif level_name == "pollinations_free":
+                        self._level2_count += 1
+                    elif level_name == "cloudflare":
+                        self._level3_count += 1
+                    elif level_name == "local_fallback":
+                        self._level0_count += 1
+
+                    self._total_requests += 1
+                    return await self._save_response(user_id, message, response, sys_prompt, use_cache, save_history)
+
+            # First completed task(s) failed — wait for others
+            # If there are still pending tasks, wait for them
+            if pending:
+                done2, pending2 = await _asyncio.wait(pending, return_when=_asyncio.FIRST_COMPLETED)
+                done = done.union(done2)
+                pending = pending2
+
+                for task in done2:
+                    response = task.result()
+                    if not response.error and response.text:
+                        for p in pending2:
+                            p.cancel()
+                        for t in tasks:
+                            if t is not task and not t.done():
+                                t.cancel()
+
+                        task_idx = tasks.index(task)
+                        level_name = task_names[task_idx]
+                        if level_name == "pollinations_key":
+                            self._level1_count += 1
+                        elif level_name == "pollinations_free":
+                            self._level2_count += 1
+                        elif level_name == "cloudflare":
+                            self._level3_count += 1
+                        elif level_name == "local_fallback":
+                            self._level0_count += 1
+
+                        self._total_requests += 1
+                        return await self._save_response(user_id, message, response, sys_prompt, use_cache, save_history)
+
+            # All concurrent tasks failed — try Pollinations free as sequential fallback
+            # (we didn't include it in concurrent tasks if we had paid keys)
+            if not any(n == "pollinations_free" for n in task_names):
+                logger.warning(f"All concurrent providers failed (route={route_type}), trying free API sequentially")
+                response = await self._try_pollinations_free(
+                    user_id, message, history, sys_prompt, temperature, max_tokens, model
+                )
+                if not response.error:
+                    self._level2_count += 1
+                    self._total_requests += 1
+                    return await self._save_response(user_id, message, response, sys_prompt, use_cache, save_history)
+
+            # ALL levels failed — collect error info from all tasks
+            errors = []
+            for task in done:
+                try:
+                    r = task.result()
+                    if r.error:
+                        errors.append(f"{r.provider}: {r.error_message}")
+                except Exception as e:
+                    errors.append(f"exception: {e}")
+
+            # Cancel any remaining tasks
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+
+        except Exception as e:
+            logger.error(f"Concurrent failover error: {e}")
+            # Cancel all tasks on unexpected error
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+
+            # Try sequential fallback as emergency path
+            try:
+                response = await self._try_pollinations_free(
+                    user_id, message, history, sys_prompt, temperature, max_tokens, model
+                )
+                if not response.error:
+                    self._level2_count += 1
+                    self._total_requests += 1
+                    return await self._save_response(user_id, message, response, sys_prompt, use_cache, save_history)
+            except Exception:
+                pass
 
         # ── LAST RESORT: Static fallback ──
         self._static_count += 1
@@ -1008,7 +1154,7 @@ class AIRouter:
         
         # ── LOCAL MODEL ONLY — no cloud fallback for group comments ──
         # User explicitly requires: "комментирование в чатах и группах только через локальную модель"
-        if self._local and self._local._model:
+        if self._local and self._local._model_loaded and self._local._llm is not None:
             try:
                 response = await self._local.chat(
                     messages=messages,

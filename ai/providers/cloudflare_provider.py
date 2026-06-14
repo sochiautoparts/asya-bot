@@ -209,7 +209,9 @@ class CloudflareProvider(BaseAIProvider):
                     "temperature": temperature,
                 }
 
-                async with httpx.AsyncClient(timeout=60.0) as client:
+                # Use 10s timeout — fast response for chat, fail fast if CF is slow.
+                # The concurrent failover in router.py will pick up other providers.
+                async with httpx.AsyncClient(timeout=10.0) as client:
                     start_time = time.time()
                     response = await client.post(url, headers=headers, json=payload)
                     elapsed = time.time() - start_time

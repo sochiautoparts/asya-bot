@@ -411,7 +411,10 @@ class PollinationsProvider(BaseAIProvider):
                 if api_key:
                     headers["Authorization"] = f"Bearer {api_key}"
 
-                async with httpx.AsyncClient(timeout=30.0) as client:
+                # Use 15s timeout for chat requests — fast response is critical for user experience.
+                # The overall chat timeout in _process_text_message is 45s, and we need to
+                # try multiple key tiers and models before that deadline.
+                async with httpx.AsyncClient(timeout=15.0) as client:
                     start_time = time.time()
                     url = f"{self.base_url}/v1/chat/completions"
                     response = await client.post(url, headers=headers, json=payload)
@@ -503,6 +506,12 @@ class PollinationsProvider(BaseAIProvider):
                 logger.error(f"Pollinations timeout: model={model}, tier=KEY{tier_index}")
                 _model_failures[model] = time.time()
                 last_error = f"Timeout from KEY{tier_index}"
+                # Mark the key as potentially depleted on timeout too —
+                # if it times out, trying the same key again is unlikely to help
+                if tier_index == 1 and self._key1_depleted_at == 0:
+                    self._key1_depleted_at = time.time() - KEY_COOLDOWN + 60  # Retry in 60s instead of 600s
+                elif tier_index == 2 and self._key2_depleted_at == 0:
+                    self._key2_depleted_at = time.time() - KEY_COOLDOWN + 60
                 continue  # Try next key tier
 
             except Exception as e:
@@ -720,7 +729,9 @@ class PollinationsProvider(BaseAIProvider):
             headers = {"Content-Type": "application/json"}
             # NO Authorization header — this is the free API
 
-            async with httpx.AsyncClient(timeout=25.0) as client:
+            # Use 12s timeout for free API — it's a fallback, should be fast or fail fast.
+            # User is already waiting after the paid API attempt failed.
+            async with httpx.AsyncClient(timeout=12.0) as client:
                 start_time = time.time()
                 url = f"{self._free_text_url}/openai/chat/completions"
                 response = await client.post(url, headers=headers, json=payload)

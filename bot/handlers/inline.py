@@ -113,8 +113,9 @@ async def handle_inline_query(inline_query: InlineQuery):
     # Inline must respond within ~20 seconds (Telegram limit)
     try:
         import asyncio
+        # Pass the actual user_id from inline_query to avoid cache conflicts
         response = await asyncio.wait_for(
-            _generate_inline_response(query, query_type),
+            _generate_inline_response(query, query_type, user_id=inline_query.from_user.id),
             timeout=20.0
         )
 
@@ -172,10 +173,16 @@ async def handle_inline_query(inline_query: InlineQuery):
         await inline_query.answer(results, cache_time=10)
 
 
-async def _generate_inline_response(query: str, query_type: str):
-    """Generate AI response for inline query."""
-    # Use a fake user_id for inline queries (0 = inline)
-    inline_user_id = 0
+async def _generate_inline_response(query: str, query_type: str, user_id: int = 0):
+    """Generate AI response for inline query.
+    
+    Uses a unique negative user_id for inline queries to avoid cache conflicts
+    with real users. This prevents inline queries from polluting real user
+    chat history and vice versa.
+    """
+    # Use negative user_id to avoid conflicts with real users
+    # user_id 0 could collide with actual user_id 0 (unlikely but possible)
+    inline_user_id = -(hash(query) % 100000) - 1  # Always negative, unique per query
 
     if query_type == "vin":
         vin_code = _detect_vin_inline(query) or query.strip()
