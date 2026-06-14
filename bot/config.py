@@ -51,9 +51,11 @@ class BotConfig:
     NEWS_CACHE_HOURS: int = 24
 
     # Channel posting
-    # Schedule: 10-min cycle → 6 news posts/hour + 1 partner post/hour
-    # Each 10-min cycle posts 1 news item; partner post every 6th cycle (hourly)
-    CHANNEL_POST_INTERVAL_MINUTES: int = int(os.getenv("CHANNEL_POST_INTERVAL_MINUTES", "10"))
+    # Schedule: hourly cycle → 1 partner post + 6 news posts, all at once
+    # Bot runs continuously but only posts once per hour
+    CHANNEL_POST_INTERVAL_MINUTES: int = int(os.getenv("CHANNEL_POST_INTERVAL_MINUTES", "60"))
+    CHANNEL_NEWS_PER_HOUR: int = int(os.getenv("CHANNEL_NEWS_PER_HOUR", "6"))
+    CHANNEL_PARTNER_PER_HOUR: int = 1  # 1 partner post per hour
     CHANNEL_MAX_POSTS_PER_HOUR: int = 7  # 6 news + 1 partner
     CHANNEL_MAX_POSTS_PER_DAY: int = 168  # 7 posts/hour × 24 hours
 

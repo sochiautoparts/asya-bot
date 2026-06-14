@@ -37,7 +37,7 @@ NEWS_JSON_FALLBACK_URLS = [
     BMW_NEWS_JSON_URL,
 ]
 FETCH_TIMEOUT = 30.0
-MAX_NEWS_PER_CYCLE = 10  # Max items to process per cycle (fetch often, post 6/hour)
+MAX_NEWS_PER_CYCLE = 30  # Max items to process per cycle (2 sources, fetch often, post 6/hour)
 
 # ── Fingerprint-based deduplication ────────────────────────────────────────────
 _recent_fingerprints: set = set()
@@ -77,11 +77,14 @@ def _detect_language(title: str) -> str:
 
 
 async def fetch_news_json() -> Optional[List[Dict]]:
-    """Fetch news JSON from the external parser repository.
+    """Fetch news JSON from ALL external parser repositories and merge them.
     
-    Returns a list of news items or None on failure.
+    Returns a MERGED list from all sources (news + nebm), deduplicated by URL.
     Each item has: title, summary, url, source, images[], published, lang
     """
+    all_items = []
+    seen_urls = set()
+    
     for url in NEWS_JSON_FALLBACK_URLS:
         try:
             async with httpx.AsyncClient(
@@ -95,15 +98,20 @@ async def fetch_news_json() -> Optional[List[Dict]]:
                 response = await client.get(url)
                 if response.status_code == 200:
                     data = response.json()
+                    items = []
                     if isinstance(data, list):
-                        logger.info(f"Fetched {len(data)} news items from {url[:60]}...")
-                        return data
+                        items = data
                     elif isinstance(data, dict) and "news" in data:
                         items = data["news"]
-                        logger.info(f"Fetched {len(items)} news items from {url[:60]}...")
-                        return items
-                    else:
-                        logger.warning(f"Unexpected JSON format from {url[:60]}")
+                    
+                    # Deduplicate by URL across sources
+                    for item in items:
+                        item_url = item.get("url", "")
+                        if item_url and item_url not in seen_urls:
+                            seen_urls.add(item_url)
+                            all_items.append(item)
+                    
+                    logger.info(f"Fetched {len(items)} items from {url[:60]}... ({len(all_items)} total merged)")
                 else:
                     logger.warning(f"HTTP {response.status_code} from {url[:60]}")
         except httpx.TimeoutException:
@@ -111,8 +119,12 @@ async def fetch_news_json() -> Optional[List[Dict]]:
         except Exception as e:
             logger.error(f"Error fetching from {url[:60]}: {e}")
 
-    logger.error("All news JSON sources failed")
-    return None
+    if not all_items:
+        logger.error("All news JSON sources failed")
+        return None
+    
+    logger.info(f"Merged {len(all_items)} unique news items from all sources")
+    return all_items
 
 
 def _normalize_news_item(item: Dict) -> Optional[Dict]:

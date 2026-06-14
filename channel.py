@@ -984,9 +984,9 @@ class ChannelManager:
             logger.info(f"Hourly post limit reached ({hourly_count}/{config.CHANNEL_MAX_POSTS_PER_HOUR})")
             return False
 
-        # Check minimum interval — allow 60s between posts within same cycle
-        # This is shorter than the cycle gap (2-5 min) so both posts in a cycle can go through
-        min_interval = 60  # 1 minute minimum between any two posts
+        # Check minimum interval — allow 3s between posts (hourly batch mode)
+        # In hourly batch mode, we publish 7 posts with 3-5s gaps
+        min_interval = 3  # 3 seconds minimum between posts in batch mode
         if time.time() - self._last_post_time < min_interval:
             logger.info(f"Post interval too short ({time.time() - self._last_post_time:.0f}s < {min_interval}s)")
             return False
