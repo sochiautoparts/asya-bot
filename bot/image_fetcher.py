@@ -146,6 +146,17 @@ JUNK_PATH_KEYWORDS = [
     "paywall", "subscribe-wall",  # Paywall overlays
     "lazy_", "lazy-",  # Lazy-load placeholder images
     "data:image",  # Base64 embedded images in URL
+    # ── v8.1: More junk patterns for news images ──
+    "resize=100:",  # Tiny 100px wide thumbnails (Hearst/AOL pattern)
+    "resize=50:",  # Even tinier
+    "crop=",  # Cropped variants — use base URL instead
+    "quality=10",  # Ultra-low quality
+    "format=webp&",  # WebP format request (sometimes gives weird results)
+    "width=50&",  # Explicit tiny width
+    "width=80&",  # Explicit small width
+    "height=50&",  # Explicit tiny height
+    "dpr_1.0",  # Device pixel ratio = 1x (low res)
+    ".svg",  # SVG is not a photo
 ]
 
 # Generic/default image filenames — not real content
@@ -172,14 +183,21 @@ _FEED_URL_RE = re.compile(r'/feed/?$', re.IGNORECASE)
 
 
 def _normalize_url(url: str) -> str:
-    """Normalize image URL: decode HTML entities, fix scheme."""
+    """Normalize image URL: decode HTML entities, fix scheme, remove resize params."""
     if not url:
         return ""
     url = url.strip()
     # Decode HTML entities: &amp; → &, &#038; → &, etc.
+    # CRITICAL: Some news sources have &amp; in JSON which makes URLs invalid
+    url = html_unescape(url)
+    # Multiple passes — some sources double-encode (&amp;amp; → &amp; → &)
     url = html_unescape(url)
     if url.startswith("//"):
         url = "https:" + url
+    # CRITICAL FIX: Remove resize/crop parameters that produce tiny thumbnails
+    # e.g., ?resize=100:* or ?crop=0.5xw:1.00xh — these are always thumbnails
+    # Keep the base URL without resize params for full-size image
+    url = re.sub(r'[?&](?:resize|crop)=[^&]*', '', url)
     return url
 
 
@@ -226,6 +244,20 @@ def _is_junk_url(url: str) -> bool:
         for pattern in TINY_SIZE_PATTERNS:
             if pattern.search(url_lower):
                 return True
+
+        # v8.1: Reject URLs with tiny resize parameters (Hearst, AOL, etc.)
+        # e.g., ?resize=100:* or &resize=50:* — these are always tiny thumbnails
+        resize_match = re.search(r'[?&]resize=(\d+):', url_lower)
+        if resize_match and int(resize_match.group(1)) <= 150:
+            return True
+
+        # v8.1: Reject URLs with small width/height params
+        width_match = re.search(r'[?&]w=(\d+)(?:&|$)', url_lower)
+        if width_match and int(width_match.group(1)) <= 150:
+            return True
+        height_match = re.search(r'[?&]h=(\d+)(?:&|$)', url_lower)
+        if height_match and int(height_match.group(1)) <= 100:
+            return True
 
     except Exception:
         return True  # Can't parse = skip

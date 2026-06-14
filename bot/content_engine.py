@@ -400,15 +400,16 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
         interest += freshness_bonus
         
         # BONUS for having photos — items WITH images get MASSIVE priority
+        # v3.1: Increased bonuses significantly — photos are CRITICAL for engagement
         image_count = len(item.get("image_urls", []))
         if image_count >= 5:
-            interest += 1.0
+            interest += 2.0  # Was 1.0 — rich gallery = best engagement
         elif image_count >= 3:
-            interest += 0.7
+            interest += 1.5  # Was 0.7 — multiple photos = great
         elif image_count >= 1:
-            interest += 0.4
+            interest += 1.0  # Was 0.4 — at least one photo = good
         else:
-            interest -= 0.3  # Text-only = less engaging
+            interest -= 0.5  # Was -0.3 — text-only = significantly less engaging
         
         scored_items.append({
             "item": item,
@@ -423,8 +424,18 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
     # Sort by interest score
     scored_items.sort(key=lambda x: x["interest"], reverse=True)
     
-    # ── AI picks the BEST from top 5 ──
-    top_n = scored_items[:min(5, len(scored_items))]
+    # v3.1: Secondary sort — among items with similar interest, prefer those with photos
+    # This ensures photos always win, even if text-only items have slightly higher base scores
+    def _sort_key(entry):
+        interest = entry["interest"]
+        img_count = len(entry["item"].get("image_urls", []))
+        has_images = 1 if img_count > 0 else 0
+        return (has_images, interest)
+    
+    scored_items.sort(key=_sort_key, reverse=True)
+    
+    # ── AI picks the BEST from top 10 (was 5 — expanded for better selection) ──
+    top_n = scored_items[:min(10, len(scored_items))]
     
     if len(top_n) == 1:
         chosen = top_n[0]
@@ -435,8 +446,10 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
             candidates_summary = []
             for i, entry in enumerate(top_n):
                 item = entry["item"]
+                img_count = len(item.get("image_urls", []))
+                photos_str = f" [+{img_count}📷]" if img_count > 0 else " [no📷]"
                 candidates_summary.append(
-                    f"{i+1}. [{entry['interest']:.2f}] {item.get('title', '')[:100]}"
+                    f"{i+1}. [{entry['interest']:.2f}]{photos_str} {item.get('title', '')[:100]}"
                 )
             
             candidates_text = "\n".join(candidates_summary)
@@ -450,8 +463,11 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
                         messages=[
                             {"role": "system", "content": (
                                 "Ты редактор автоканала в Telegram. Тебе даны кандидаты на публикацию "
-                                "с оценкой интереса. Выбери САМЫЙ интересный для широкой аудитории — "
+                                "с оценкой интереса и количеством фотографий (📷). "
+                                "Выбери САМЫЙ интересный для широкой аудитории — "
                                 "то, что вызовет наибольший отклик и обсуждение. "
+                                "ПРИОРИТЕТ: новости С фото (📷) лучше чем без — "
+                                "фотографии критически важны для вовлечения! "
                                 "НЕ выбирай новости про АвтоВАЗ/LADA/УАЗ — скучно. "
                                 "Ответь ТОЛЬКО цифрой — номер лучшего кандидата."
                             )},
@@ -463,7 +479,7 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
                     )
                     
                     if not response.error and response.text and response.text.strip():
-                        pick_match = re.search(r'[1-5]', response.text.strip())
+                        pick_match = re.search(r'[1-9]|10', response.text.strip())
                         if pick_match:
                             pick_idx = int(pick_match.group()) - 1
                             if 0 <= pick_idx < len(top_n):

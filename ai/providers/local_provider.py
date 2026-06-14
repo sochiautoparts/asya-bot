@@ -76,6 +76,13 @@ class LocalProvider(BaseAIProvider):
         # self._llm() from different asyncio tasks cause GGML_ASSERT(buffer)
         # failures and segmentation faults (exit code 139).
         self._generation_lock = asyncio.Lock()
+        # CRITICAL FIX: Track if a generation is running in the thread pool.
+        # Even after asyncio task cancellation, the thread pool continues running.
+        # Setting this flag prevents new generations from starting while one is
+        # still executing in the background, which would cause segfaults.
+        self._generating = False
+        self._generation_done = asyncio.Event()
+        self._generation_done.set()  # Initially "done" (no generation running)
 
     def _download_model(self) -> bool:
         """Download the GGUF model from HuggingFace if auto-download is enabled.
@@ -439,11 +446,45 @@ class LocalProvider(BaseAIProvider):
 
             start_time = time.time()
 
-            # CRITICAL FIX: Use async lock to serialize llama-cpp-python calls.
+            # CRITICAL FIX: Use async lock + _generating flag to serialize llama-cpp-python calls.
             # Without this, concurrent _generate() calls in the thread pool
             # cause GGML_ASSERT(buffer) failures → segfault (exit 139).
             # Only ONE generation can run at a time.
+            #
+            # The _generating flag is the KEY addition. When a generation is
+            # cancelled at the asyncio level (task cancelled by concurrent router),
+            # the thread pool executor CONTINUES running. The lock is released
+            # when the except clause re-raises, but the thread is still going.
+            # Without the flag, a new request could start a SECOND generation
+            # in the thread pool while the first is still running → segfault.
+            #
+            # With the flag: we check _generating before starting. If True,
+            # we wait for the previous generation to finish before proceeding.
+            # We also increase consecutive_errors to discourage further attempts
+            # while the model is in a potentially unstable state.
+
+            # If a generation is still running in the thread pool (from a cancelled task),
+            # wait for it to finish before starting a new one.
+            if self._generating:
+                logger.warning("Local model: previous generation still running in thread pool, waiting...")
+                try:
+                    await asyncio.wait_for(self._generation_done.wait(), timeout=60.0)
+                except asyncio.TimeoutError:
+                    logger.error("Local model: timed out waiting for previous generation — marking unavailable")
+                    self._consecutive_errors += 1
+                    self._last_error_time = time.time()
+                    return AIResponse(
+                        text="",
+                        model="local-qwen3-4b",
+                        provider=self.name,
+                        error="Local model busy (previous generation still running)",
+                        error_message="Local model busy (previous generation still running)",
+                    )
+
             async with self._generation_lock:
+                self._generating = True
+                self._generation_done.clear()
+
                 # Run inference in thread pool to avoid blocking event loop
                 # Use asyncio.shield() to prevent cancellation during generation.
                 # When asyncio.CancelledError hits during run_in_executor,
@@ -462,12 +503,22 @@ class LocalProvider(BaseAIProvider):
                 except asyncio.CancelledError:
                     # Task was cancelled but the executor is still running.
                     # Wait for it to complete safely instead of abandoning it.
+                    # CRITICAL: Do NOT release the lock until the thread finishes!
                     logger.warning("Local generation was cancelled — waiting for safe completion")
                     try:
-                        result = await asyncio.wait_for(fut, timeout=30.0)
+                        result = await asyncio.wait_for(fut, timeout=60.0)
                     except (asyncio.TimeoutError, Exception) as e:
                         logger.error(f"Local generation failed after cancel: {e}")
+                        # Increment error counter to trigger circuit breaker
+                        self._consecutive_errors += 1
+                        self._last_error_time = time.time()
+                        # Wait a bit longer for thread to truly finish
+                        await asyncio.sleep(2.0)
                         raise
+                finally:
+                    # Mark generation as done AFTER the thread pool finishes
+                    self._generating = False
+                    self._generation_done.set()
 
             elapsed = time.time() - start_time
 

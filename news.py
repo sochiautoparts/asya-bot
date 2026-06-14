@@ -26,6 +26,7 @@ import json
 import time
 import logging
 import re
+from html import unescape as html_unescape
 from typing import List, Dict, Optional
 from datetime import datetime
 
@@ -44,7 +45,7 @@ NEWS_JSON_FALLBACK_URLS = [
     # NEWS_JSON_RU_URL,  # Disabled: ru-news.json doesn't exist yet
 ]
 FETCH_TIMEOUT = 30.0
-MAX_NEWS_PER_CYCLE = 50  # Max items to process per cycle (increased for better throughput)
+MAX_NEWS_PER_CYCLE = 500  # Process almost all items — user wants selection from FULL array
 
 # ── Fingerprint-based deduplication ────────────────────────────────────────────
 _recent_fingerprints: set = set()
@@ -177,25 +178,37 @@ def _normalize_news_item(item: Dict) -> Optional[Dict]:
         if isinstance(val, list):
             for img in val:
                 if isinstance(img, str) and img.startswith("http"):
-                    image_urls.append(img)
+                    # CRITICAL FIX: Decode HTML entities in image URLs
+                    # Some sources have &amp; instead of & which breaks the URL
+                    decoded_img = html_unescape(html_unescape(img))
+                    image_urls.append(decoded_img)
                 elif isinstance(img, dict):
                     # Some formats use {"url": "..."} for images
                     img_url = img.get("url", "")
                     if img_url and img_url.startswith("http"):
-                        image_urls.append(img_url)
+                        decoded_url = html_unescape(html_unescape(img_url))
+                        image_urls.append(decoded_url)
 
     # Single image field
     single_image = item.get("image", "") or item.get("thumbnail", "") or item.get("featured_image", "")
     if single_image and isinstance(single_image, str) and single_image.startswith("http"):
-        image_urls.insert(0, single_image)
+        decoded_single = html_unescape(html_unescape(single_image))
+        image_urls.insert(0, decoded_single)
 
     # Deduplicate image URLs
+    # v2.2: Enhanced dedup — also dedup by base URL (without query params)
+    # because ?resize=640:* and ?resize=100:* and ?crop=0.5xw are the SAME image
     seen = set()
+    seen_base = set()  # Base URLs without query params for dedup
     unique_images = []
     for img_url in image_urls:
         if img_url not in seen:
-            seen.add(img_url)
-            unique_images.append(img_url)
+            # Get base URL without query params for dedup
+            base_url = img_url.split('?')[0]
+            if base_url not in seen_base:
+                seen.add(img_url)
+                seen_base.add(base_url)
+                unique_images.append(img_url)
 
     # Detect language
     lang = item.get("lang", "") or _detect_language(title)
