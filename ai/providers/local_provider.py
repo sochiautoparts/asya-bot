@@ -26,8 +26,10 @@ USAGE STRATEGY:
     - Vision tasks (local model can't do vision)
 """
 
+import asyncio
 import logging
 import os
+import signal
 import time
 from typing import Optional, List, Dict
 
@@ -69,6 +71,11 @@ class LocalProvider(BaseAIProvider):
         self._last_error_time = 0.0
         self._consecutive_errors = 0
         self._available = False
+        # CRITICAL FIX: Mutex lock to prevent concurrent llama-cpp access.
+        # llama-cpp-python is NOT thread-safe — simultaneous calls to
+        # self._llm() from different asyncio tasks cause GGML_ASSERT(buffer)
+        # failures and segmentation faults (exit code 139).
+        self._generation_lock = asyncio.Lock()
 
     def _download_model(self) -> bool:
         """Download the GGUF model from HuggingFace if auto-download is enabled.
@@ -247,9 +254,15 @@ class LocalProvider(BaseAIProvider):
 
             start_time = time.time()
 
+            # n_batch: smaller batch size reduces peak memory usage and
+            # prevents GGML_ASSERT(buffer) failures on GitHub Actions runners.
+            # Default is 512 but 256 is more stable for 7GB RAM runners.
+            n_batch = min(256, self._n_ctx // 4)
+
             self._llm = Llama(
                 model_path=self._model_path,
                 n_ctx=self._n_ctx,
+                n_batch=n_batch,
                 n_threads=self._n_threads,
                 n_gpu_layers=0,  # CPU only — GitHub Actions has no GPU
                 verbose=False,
@@ -418,17 +431,21 @@ class LocalProvider(BaseAIProvider):
 
             start_time = time.time()
 
-            # Run inference in thread pool to avoid blocking event loop
-            import asyncio
-            loop = asyncio.get_event_loop()
+            # CRITICAL FIX: Use async lock to serialize llama-cpp-python calls.
+            # Without this, concurrent _generate() calls in the thread pool
+            # cause GGML_ASSERT(buffer) failures → segfault (exit 139).
+            # Only ONE generation can run at a time.
+            async with self._generation_lock:
+                # Run inference in thread pool to avoid blocking event loop
+                loop = asyncio.get_event_loop()
 
-            result = await loop.run_in_executor(
-                None,
-                self._generate,
-                prompt,
-                max_tokens,
-                temperature,
-            )
+                result = await loop.run_in_executor(
+                    None,
+                    self._generate,
+                    prompt,
+                    max_tokens,
+                    temperature,
+                )
 
             elapsed = time.time() - start_time
 

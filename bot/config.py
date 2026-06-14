@@ -88,7 +88,7 @@ class BotConfig:
     # Local model toggle — Qwen3-4B as PRIMARY for simple chat (saves cloud balance!)
     ENABLE_LOCAL_MODEL: bool = os.getenv("ENABLE_LOCAL_MODEL", "true").lower() in ("true", "1", "yes")
     MODEL_PATH: str = os.getenv("MODEL_PATH", "models/Qwen3-4B-Q4_K_M.gguf") if ENABLE_LOCAL_MODEL else ""
-    MODEL_N_CTX: int = int(os.getenv("MODEL_N_CTX", "4096"))  # Context window — 4096 for stability on GitHub Actions (7GB RAM)
+    MODEL_N_CTX: int = int(os.getenv("MODEL_N_CTX", "8192"))  # Context window — 8192 for stability with Qwen3-4B (was 4096, too small → GGML_ASSERT crashes)
     MODEL_N_THREADS: int = int(os.getenv("MODEL_N_THREADS", "4"))  # CPU threads — GitHub Actions has 2-4 cores
     MODEL_MAX_TOKENS: int = int(os.getenv("MODEL_MAX_TOKENS", "1024"))  # Max output tokens — 1024 for quality+stability balance
     MODEL_HISTORY_LIMIT: int = int(os.getenv("MODEL_HISTORY_LIMIT", "6"))  # Max history turns for local model

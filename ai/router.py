@@ -147,7 +147,7 @@ class AIRouter:
         local_status = self._local.get_status()
         cf_status = "active" if self._cloudflare._accounts else "not_configured"
         logger.info(
-            f"AI Router v10.0 LOCAL-FIRST initialized: "
+            f"AI Router v12.0 LOCAL-FIRST initialized: "
             f"local={local_status}, "
             f"pollinations=active (key+free), cloudflare={cf_status}, "
             f"failover: Local → Pollinations(key) → Pollinations(free) → Cloudflare → Static, "

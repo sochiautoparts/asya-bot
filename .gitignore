@@ -1,7 +1,3 @@
-<<<<<<< HEAD
-skills/
-node_modules/
-=======
 # Python
 __pycache__/
 *.py[cod]
@@ -52,7 +48,9 @@ admitad_ads.json
 # Lock file
 /tmp/asya_bot.lock
 
-
+# Node / skills (from other workspace)
+skills/
+node_modules/
 
 # OS
 .DS_Store
@@ -61,4 +59,9 @@ Thumbs.db
 # Temp files
 tmp/
 temp/
->>>>>>> ca356ad4ea9ced5c676ccea6418cc1fa4681c6a7
+
+# Tool results from AI sessions
+tool-results/
+upload/
+download/
+worklog.md

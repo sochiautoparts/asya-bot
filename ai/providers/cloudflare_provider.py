@@ -19,7 +19,7 @@ import httpx
 import json
 import logging
 import time
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict
 from dataclasses import dataclass
 
 from ai.providers.base import BaseAIProvider, AIResponse
@@ -411,12 +411,24 @@ class CloudflareProvider(BaseAIProvider):
             max_tokens=max_tokens,
         )
 
-    async def generate_image(self, prompt: str, model: str = "flux") -> Optional[bytes]:
+    async def generate_image(
+        self,
+        prompt: str,
+        width: int = 1024,
+        height: int = 1024,
+        model: str = "",
+        **kwargs,
+    ) -> AIResponse:
         """Cloudflare Workers AI does NOT support image generation via this model.
-        Returns None — caller should fall back to another provider.
+        Returns error AIResponse — caller should fall back to another provider.
         """
-        logger.debug("CloudflareProvider: image generation not supported, returning None")
-        return None
+        logger.debug("CloudflareProvider: image generation not supported, returning error response")
+        return AIResponse(
+            text="",
+            model=model or CF_MODEL,
+            provider=self.name,
+            error="Cloudflare does not support image generation",
+        )
 
     async def is_available(self) -> bool:
         """Check if any Cloudflare account is available."""

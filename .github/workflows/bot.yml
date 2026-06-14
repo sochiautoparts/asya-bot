@@ -1,7 +1,7 @@
-name: Asya Bot — LOCAL-FIRST v11 — Ася + Редакция
+name: Asya Bot — LOCAL-FIRST v12 — Ася + Редакция
 
 # ═══════════════════════════════════════════════════════════════
-# Asya Bot v11.0 — LOCAL-FIRST Qwen3-4B + CLOUD FAILOVER
+# Asya Bot v12.0 — LOCAL-FIRST Qwen3-4B + CLOUD FAILOVER
 #
 #   - LOCAL MODEL: Qwen3-4B Q4_K_M (~2.5GB GGUF, CPU inference)
 #   - LOCAL-FIRST for chat/comments (saves cloud balance!)
@@ -12,6 +12,8 @@ name: Asya Bot — LOCAL-FIRST v11 — Ася + Редакция
 #   - libopenblas-dev for fast CPU inference via llama-cpp-python
 #   - Pollinations.ai (44+ models, weighted round-robin) — ALL routes
 #   - DUAL API KEY FAILOVER: KEY1 → KEY2 → static fallback
+#   - FIX: asyncio.Lock on llama-cpp to prevent segfaults
+#   - FIX: n_ctx=8192 (was 4096) for Qwen3-4B stability
 #
 # Schedule (UTC, Moscow = UTC+3):
 #   Every 5 hours: 00:00, 05:00, 10:00, 15:00, 20:00
@@ -124,7 +126,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: models/Qwen3-4B-Q4_K_M.gguf
-          key: qwen3-4b-q4km-asya-v1
+          key: qwen3-4b-q4km-asya-v2
           restore-keys: |
             qwen3-4b-q4km-
 
@@ -212,7 +214,7 @@ jobs:
           # Local model — ENABLED (Qwen3-4B Q4_K_M, ~2.5GB)
           ENABLE_LOCAL_MODEL: ${{ env.ENABLE_LOCAL_MODEL || 'true' }}
           MODEL_PATH: "models/Qwen3-4B-Q4_K_M.gguf"
-          MODEL_N_CTX: "4096"
+          MODEL_N_CTX: "8192"
           MODEL_N_THREADS: "4"
           MODEL_MAX_TOKENS: "1024"
           MODEL_AUTO_DOWNLOAD: "true"
@@ -230,7 +232,7 @@ jobs:
           CHANNEL_NEWS_PER_HOUR: "3"
           CHANNEL_PARTNER_PER_HOUR: "1"
         run: |
-          echo "=== Starting Asya Bot v11.0 — LOCAL-FIRST ==="
+          echo "=== Starting Asya Bot v12.0 — LOCAL-FIRST ==="
           echo "LOCAL MODEL: Qwen3-4B Q4_K_M (PRIMARY for chat/comments, FALLBACK for posts)"
           echo "CLOUD: Pollinations (44+ models, dual-key) + Cloudflare (mistral-small-3.1)"
           echo "STRATEGY: LOCAL-first (chat/comments) / CLOUD-first (functions)"
@@ -288,7 +290,9 @@ jobs:
             git config user.email "asya-bot@users.noreply.github.com"
             git add -f asya_bot.db || true
             git diff --staged --quiet || git commit -m "db: update $(date +%Y-%m-%d_%H:%M)" || true
+            git stash || true
             git pull --rebase origin main || true
+            git stash pop || true
             git push || true
           fi
 
