@@ -514,7 +514,7 @@ async def handle_photo(message: Message):
                 response = await local_provider.chat(
                     messages=messages,
                     temperature=0.8,
-                    max_tokens=256,  # 8192 ctx — more room for quality responses
+                    max_tokens=256,  # 4096 ctx — balanced for quality+stability
                 )
                 if response and not response.error and response.text:
                     reply_text = response.text[:COMMENT_MAX_CHARS]
@@ -1088,7 +1088,7 @@ async def _process_text_message_inner(message: Message, text: str, user_id: int,
                 local_response = await local_provider.chat(
                     messages=group_messages,
                     temperature=0.8,
-                    max_tokens=512,  # 8192 ctx — more room for quality group responses
+                    max_tokens=512,  # 4096 ctx — balanced for quality group responses
                 )
                 if local_response and not local_response.error and local_response.text:
                     from ai.providers.base import AIResponse

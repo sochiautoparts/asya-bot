@@ -583,14 +583,14 @@ class AIRouter:
         Uses ChatML format for Qwen3 with /no_think for fast responses.
         Primary for CHAT and COMMENT routes, fallback for FUNCTION routes.
         
-        CONTEXT WINDOW BUDGET (8192 tokens, ~1.3 chars/token for Russian):
-          - Output: 2048 tokens (MODEL_MAX_TOKENS)
+        CONTEXT WINDOW BUDGET (4096 tokens, ~1.3 chars/token for Russian):
+          - Output: 1024 tokens (MODEL_MAX_TOKENS)
           - Safety margin: 64 tokens
-          - Available for input: 6080 tokens (~7904 chars)
-          - System prompt (local_system_prompt v3): ~2340 chars (~1800 tokens)
-          - History: 6 turns × 200 chars = ~1200 chars (~924 tokens)
-          - User message: up to ~2000 chars (~1538 tokens)
-          - Total: ~5540 chars (~4262 tokens) — fits in 6080 with margin!
+          - Available for input: 3008 tokens (~3910 chars)
+          - System prompt (local_system_prompt v3.1): ~2340 chars (~1800 tokens)
+          - History: 4 turns × 200 chars = ~800 chars (~616 tokens)
+          - User message: up to ~1200 chars (~923 tokens)
+          - Total: ~4340 chars (~3339 tokens) — truncation handles overflow
         """
         if not self._local:
             return AIResponse(
@@ -610,33 +610,33 @@ class AIRouter:
                 error_message="Local model disabled (ENABLE_LOCAL_MODEL=false)",
             )
 
-        # Use EXPANDED system prompt for local model (v3.0 — ~1800 tokens).
-        # With 8192 ctx, we have plenty of room for system prompt + history + user message.
+        # Use EXPANDED system prompt for local model (v3.1 — ~1800 tokens).
+        # With 4096 ctx, we have 3008 tokens for input after reserving output+margin.
         compact_prompt = persona.local_system_prompt
 
         # Build messages for local model using its own ChatML format
         messages = [{"role": "system", "content": compact_prompt}]
 
         # Add limited history for local model (saves context window)
-        # With 8192 ctx and expanded prompt (~1800 tokens), we have ~4280 tokens left.
-        # 6 history turns × ~200 chars × 1.3 chars/token = ~924 tokens
-        # User message up to ~2000 chars = ~1538 tokens
-        # Total: ~2462 tokens — well within 4280 budget.
-        history_limit = min(config.MODEL_HISTORY_LIMIT, 6)
+        # With 4096 ctx and expanded prompt (~1800 tokens), we have ~1208 tokens left.
+        # 4 history turns × ~200 chars × 1.3 chars/token = ~616 tokens
+        # User message up to ~1200 chars = ~923 tokens
+        # Total: ~1539 tokens — within 1208 after local_provider auto-truncation.
+        history_limit = min(config.MODEL_HISTORY_LIMIT, 4)
         limited_history = history[-history_limit:] if history else []
         for msg in limited_history:
             role = msg.get("role", "user")
             content = msg.get("content", "")
             # Truncate long history messages to save context tokens
             if role in ("user", "assistant") and content:
-                messages.append({"role": role, "content": content[:300]})
+                messages.append({"role": role, "content": content[:200]})
 
         # Truncate user message to prevent context overflow.
-        # With 8192 ctx, allow up to ~2000 chars for user message.
+        # With 4096 ctx, allow up to ~1200 chars for user message.
         # The local_provider.chat() has its own safety truncation as well.
-        truncated_message = message[:2000] if len(message) > 2000 else message
-        if len(message) > 2000:
-            logger.debug(f"Truncated user message for local model: {len(message)} → 2000 chars")
+        truncated_message = message[:1200] if len(message) > 1200 else message
+        if len(message) > 1200:
+            logger.debug(f"Truncated user message for local model: {len(message)} → 1200 chars")
         messages.append({"role": "user", "content": truncated_message})
 
         return await self._local.chat(
@@ -867,7 +867,7 @@ class AIRouter:
     ) -> AIResponse:
         """
         Generate a post for the @sochiautoparts channel.
-        3-level failover: Pollinations key → free → Cloudflare.
+        4-level failover: Pollinations key → free → Cloudflare → Local model.
         """
         system_prompt = persona.system_prompt + persona.channel_prompt_suffix
 
@@ -967,6 +967,42 @@ class AIRouter:
                 temperature=0.8,
                 max_tokens=post_max_tokens,
             )
+
+        # ── LEVEL 4: Local model fallback — when ALL cloud providers fail ──
+        # Local model can generate decent channel posts when cloud is unavailable.
+        # Uses compact prompt adapted for 4096 ctx window.
+        if response.error and config.ENABLE_LOCAL_MODEL and self._local and self._local._model_loaded:
+            logger.warning(f"Channel post ALL CLOUD FAILED, trying local model as Level 4 fallback")
+            try:
+                local_messages = [
+                    {
+                        "role": "system",
+                        "content": (
+                            "Ты Ася — главред автоканала @sochiautoparts. "
+                            "Пиши живой автоновостной пост на русском. "
+                            "Без markdown. Без буллетов. С эмоцией и мнением. "
+                            "Кратко и живо, как автожурналист. "
+                            f"{'Пост с ФОТО — до 950 символов.' if has_media else 'Текстовый пост — до 3000 символов.'} "
+                            "В конце: Автор @asiaexp_bot\\n@sochiautoparts\\n#sochiautoparts + хештеги."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": user_content[:2000],  # Truncate for 4096 ctx
+                    },
+                ]
+                local_response = await self._local.chat(
+                    messages=local_messages,
+                    temperature=0.8,
+                    max_tokens=min(post_max_tokens, 800),  # Cap at 800 for local model stability
+                )
+                if not local_response.error and local_response.text:
+                    logger.info(f"Channel post generated by LOCAL model fallback (Level 4)")
+                    response = local_response
+                else:
+                    logger.warning(f"Local model channel post failed: {local_response.error_message}")
+            except Exception as e:
+                logger.error(f"Local model channel post exception: {e}")
 
         response = self._finalize_channel_post(response, has_media)
         return response

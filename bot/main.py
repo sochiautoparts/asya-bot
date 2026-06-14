@@ -298,9 +298,11 @@ class BackgroundTasks:
                                 break
                             await asyncio.sleep(1)
                     else:
-                        logger.info(f"Channel poster: news post {i+1} skipped (no fresh content or dedup)")
-                        # If no more fresh content, stop trying
-                        break
+                        logger.info(f"Channel poster: news post {i+1} not posted (dedup, AI failure, or no fresh content)")
+                        # Don't break immediately — try next news item
+                        # Only break if we've had 2 consecutive failures (likely systemic AI issue)
+                        # Continue trying in case it was just one item that failed
+                        continue
                 except Exception as e:
                     logger.error(f"Channel poster news error (post {i+1}): {e}", exc_info=True)
                     break

@@ -561,17 +561,17 @@ class LocalProvider(BaseAIProvider):
         )
 
         # CRITICAL: Truncate source text to prevent context overflow.
-        # With 8192 ctx, we can afford ~3500 chars for user content
-        # (system prompt ~200 chars, max_tokens=1500 ~1950 chars output, safety margin).
-        user_content = f"Тема: {topic[:300]}"
+        # With 4096 ctx, we can afford ~2000 chars for user content
+        # (system prompt ~200 chars, max_tokens=800 ~1040 chars output, safety margin).
+        user_content = f"Тема: {topic[:200]}"
         if source_text:
-            user_content += f"\n\nИсходный текст:\n{source_text[:2800]}"
+            user_content += f"\n\nИсходный текст:\n{source_text[:1500]}"
         if extra_instructions:
-            user_content += f"\n\nИнструкции: {extra_instructions[:400]}"
+            user_content += f"\n\nИнструкции: {extra_instructions[:300]}"
 
-        # Total user content must not exceed ~3500 chars for local model
-        if len(user_content) > 3500:
-            user_content = user_content[:3500]
+        # Total user content must not exceed ~2000 chars for local model
+        if len(user_content) > 2000:
+            user_content = user_content[:2000]
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -581,7 +581,7 @@ class LocalProvider(BaseAIProvider):
         return await self.chat(
             messages=messages,
             temperature=0.8,
-            max_tokens=1500,  # Higher for 8192 ctx — better quality channel posts
+            max_tokens=800,  # Balanced for 4096 ctx — stable on GitHub Actions
         )
 
     async def is_available(self) -> bool:
