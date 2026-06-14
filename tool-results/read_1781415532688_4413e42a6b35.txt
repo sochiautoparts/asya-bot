@@ -1,0 +1,2002 @@
+     1→[
+     2→  {
+     3→    "title": "В России усилят защиту подростков от деструктивного контента в интернете",
+     4→    "url": "https://tass.ru/obschestvo/27750315",
+     5→    "summary": "Согласно документу, планируется внедрение восстановительных технологий для разрешения конфликтов, возникающих в цифровой среде",
+     6→    "published": "Sun, 14 Jun 2026 03:14:14 +0300",
+     7→    "source": "ТАСС Авто",
+     8→    "lang": "ru",
+     9→    "images": [],
+    10→    "fetched_at": "2026-06-14T00:19:17.575210+00:00"
+    11→  },
+    12→  {
+    13→    "title": "Сборные Бразилии и Марокко сыграли вничью в матче чемпионата мира по футболу",
+    14→    "url": "https://tass.ru/sport/27750301",
+    15→    "summary": "Встреча завершилась со счетом 1:1",
+    16→    "published": "Sun, 14 Jun 2026 03:06:41 +0300",
+    17→    "source": "ТАСС Авто",
+    18→    "lang": "ru",
+    19→    "images": [],
+    20→    "fetched_at": "2026-06-14T00:19:18.224572+00:00"
+    21→  },
+    22→  {
+    23→    "title": "В ОП считают, что китайские автомобили стали лучше немецких и японских",
+    24→    "url": "https://tass.ru/ekonomika/27750293",
+    25→    "summary": "Заместитель секретаря Общественной палаты Александр Галушка отметил, что это связано с приоритетным технологическим развитием КНР своей экономики",
+    26→    "published": "Sun, 14 Jun 2026 02:41:45 +0300",
+    27→    "source": "ТАСС Авто",
+    28→    "lang": "ru",
+    29→    "images": [],
+    30→    "fetched_at": "2026-06-14T00:19:18.873533+00:00"
+    31→  },
+    32→  {
+    33→    "title": "Заболеваемость ВИЧ в России с 2016 года снизилась почти в два раза",
+    34→    "url": "https://tass.ru/obschestvo/27750279",
+    35→    "summary": "Охват пациентов антиретровирусной терапией вырос в 2,3 раза и составил в 2025 году 91,8%, следует из данных Минздрава",
+    36→    "published": "Sun, 14 Jun 2026 02:32:17 +0300",
+    37→    "source": "ТАСС Авто",
+    38→    "lang": "ru",
+    39→    "images": [],
+    40→    "fetched_at": "2026-06-14T00:19:19.522649+00:00"
+    41→  },
+    42→  {
+    43→    "title": "В Пензенской области ввели план \"Ковер\"",
+    44→    "url": "https://tass.ru/ekonomika/27750273",
+    45→    "summary": "В регионе действуют ограничения на прием и выпуск самолетов",
+    46→    "published": "Sun, 14 Jun 2026 02:30:02 +0300",
+    47→    "source": "ТАСС Авто",
+    48→    "lang": "ru",
+    49→    "images": [],
+    50→    "fetched_at": "2026-06-14T00:19:20.177636+00:00"
+    51→  },
+    52→  {
+    53→    "title": "Новое положение о применении средств воздействия на погоду заработает с сентября",
+    54→    "url": "https://tass.ru/obschestvo/27750267",
+    55→    "summary": "Документ будет действовать до 1 сентября 2032 года",
+    56→    "published": "Sun, 14 Jun 2026 02:17:18 +0300",
+    57→    "source": "ТАСС Авто",
+    58→    "lang": "ru",
+    59→    "images": [],
+    60→    "fetched_at": "2026-06-14T00:19:20.828170+00:00"
+    61→  },
+    62→  {
+    63→    "title": "В России займутся повышением безопасности движения доставщиков",
+    64→    "url": "https://tass.ru/obschestvo/27750261",
+    65→    "summary": "Проведением соответствующей работы займутся Минтранс, МВД, Ространснадзор, а также исполнительные органы субъектов",
+    66→    "published": "Sun, 14 Jun 2026 02:13:39 +0300",
+    67→    "source": "ТАСС Авто",
+    68→    "lang": "ru",
+    69→    "images": [],
+    70→    "fetched_at": "2026-06-14T00:19:21.477813+00:00"
+    71→  },
+    72→  {
+    73→    "title": "Марочко: наступая у Дробышева ДНР, силы РФ формируют огневой мешок для ВСУ",
+    74→    "url": "https://tass.ru/armiya-i-opk/27750251",
+    75→    "summary": "Юго-западнее Красного Лимана российские военнослужащие зачищают лесистую местность, добавил эксперт",
+    76→    "published": "Sun, 14 Jun 2026 02:01:02 +0300",
+    77→    "source": "ТАСС Авто",
+    78→    "lang": "ru",
+    79→    "images": [
+    80→      "https://cdn-media.tass.ru/fit/400x300_b2b00b17/tass/m2/uploads/i/20260614/9142733.jpg"
+    81→    ],
+    82→    "fetched_at": "2026-06-14T00:19:22.126358+00:00"
+    83→  },
+    84→  {
+    85→    "title": "NDR: пассажирский паром потерял ход в Северном море из-за отказа двигателя",
+    86→    "url": "https://tass.ru/proisshestviya/27750249",
+    87→    "summary": "По информации телерадиокомпании, на борту было 69 человек",
+    88→    "published": "Sun, 14 Jun 2026 01:58:21 +0300",
+    89→    "source": "ТАСС Авто",
+    90→    "lang": "ru",
+    91→    "images": [],
+    92→    "fetched_at": "2026-06-14T00:19:22.777733+00:00"
+    93→  },
+    94→  {
+    95→    "title": "В аэропорту Калуги ввели временные ограничения",
+    96→    "url": "https://tass.ru/ekonomika/27750241",
+    97→    "summary": "Аэропорт не принимает и не отправляет самолеты",
+    98→    "published": "Sun, 14 Jun 2026 01:42:15 +0300",
+    99→    "source": "ТАСС Авто",
+   100→    "lang": "ru",
+   101→    "images": [],
+   102→    "fetched_at": "2026-06-14T00:19:23.425642+00:00"
+   103→  },
+   104→  {
+   105→    "title": "ЛДПР предложила увеличить до двух МРОТ ежегодную выплату почетным донорам РФ",
+   106→    "url": "https://tass.ru/obschestvo/27750237",
+   107→    "summary": "Лидер партии Леонид Слуцкий заявил, что донорство - один из самых высоких примеров гражданской ответственности, милосердия и настоящего служения людям",
+   108→    "published": "Sun, 14 Jun 2026 01:25:41 +0300",
+   109→    "source": "ТАСС Авто",
+   110→    "lang": "ru",
+   111→    "images": [
+   112→      "https://cdn-media.tass.ru/fit/400x300_b2b00b17/tass/m2/uploads/i/20260614/9142729.jpg"
+   113→    ],
+   114→    "fetched_at": "2026-06-14T00:19:24.074747+00:00"
+   115→  },
+   116→  {
+   117→    "title": "На Чукотке за год средняя зарплата увеличилась более чем на 30 тыс. рублей",
+   118→    "url": "https://tass.ru/ekonomika/27750229",
+   119→    "summary": "Сумма составила 246 444 рубля",
+   120→    "published": "Sun, 14 Jun 2026 01:12:48 +0300",
+   121→    "source": "ТАСС Авто",
+   122→    "lang": "ru",
+   123→    "images": [
+   124→      "https://cdn-media.tass.ru/fit/400x300_b2b00b17/tass/m2/uploads/i/20260614/9142725.jpg"
+   125→    ],
+   126→    "fetched_at": "2026-06-14T00:19:24.724567+00:00"
+   127→  },
+   128→  {
+   129→    "title": "Buried in negative equity? These EV deals can help get you out of that gas guzzler",
+   130→    "url": "https://electrek.co/2026/06/13/buried-in-negative-equity-these-ev-deals-can-help-get-you-out-of-that-gas-guzzler/",
+   131→    "summary": "The biggest obstacle to buying an EV isn’t always range anxiety, it’s the negative equity on their current car loan. If that’s you, don’t worry – these EVs have enough cash on the hood to help dig you out from under that gas guzzler.",
+   132→    "published": "Sun, 14 Jun 2026 00:08:59 +0000",
+   133→    "source": "Electrek",
+   134→    "lang": "en",
+   135→    "images": [
+   136→      "https://electrek.co/wp-content/uploads/sites/3/2026/06/kurt_russel.png?w=1600",
+   137→      "https://i0.wp.com/electrek.co/wp-content/uploads/sites/3/2026/06/kurt_russel.png?resize=1200%2C628&quality=82&strip=all&ssl=1",
+   138→      "https://electrek.co/wp-content/uploads/sites/3/2026/06/kurt_russel.png?w=150",
+   139→      "https://electrek.co/wp-content/uploads/sites/3/2024/08/Ford-UAW-Discount-2025.jpeg?quality=82&strip=all&w=1024",
+   140→      "https://electrek.co/wp-content/uploads/sites/3/2025/02/Honda-Prologue-NHL-1.jpeg?quality=82&strip=all&w=1024"
+   141→    ],
+   142→    "fetched_at": "2026-06-14T00:19:25.311526+00:00"
+   143→  },
+   144→  {
+   145→    "title": "The Vector W8 Was America's Only True Independent 20th-Century Supercar",
+   146→    "url": "https://www.jalopnik.com/2189692/america-vector-w8-jerry-wiegert-supercar-twin-turbo/",
+   147→    "summary": "Despite its Ferrari-rivaling performance in the '90s, the wildly ambitious Vector W8 ultimately became a cautionary tale of mechanical failures and bankruptcy.",
+   148→    "published": "Sun, 14 Jun 2026 00:05:00 +0000",
+   149→    "source": "Jalopnik",
+   150→    "lang": "en",
+   151→    "images": [
+   152→      "https://www.jalopnik.com/img/gallery/the-vector-w8-was-americas-only-true-independent-20th-century-supercar/l-intro-1780938634.jpg",
+   153→      "https://www.jalopnik.com/img/gallery/the-vector-w8-was-americas-only-true-independent-20th-century-supercar/intro-1780938634.jpg",
+   154→      "https://www.jalopnik.com/img/gallery/the-vector-w8-was-americas-only-true-independent-20th-century-supercar/the-rise-and-collapse-of-the-vector-w8-1780938636.jpg"
+   155→    ],
+   156→    "fetched_at": "2026-06-14T00:19:25.916880+00:00"
+   157→  },
+   158→  {
+   159→    "title": "2021 Toyota RAV4 Vs Highlander: Which SUV Depreciated Faster?",
+   160→    "url": "https://www.jalopnik.com/2189310/2021-toyota-rav4-vs-toyota-highlander-suv-depreciation/",
+   161→    "summary": "The Toyota Highlander is the RAV4's bigger, more spacious stablemate, but which of the two popular, reliable SUVs has held its value better?",
+   162→    "published": "Sat, 13 Jun 2026 23:25:00 +0000",
+   163→    "source": "Jalopnik",
+   164→    "lang": "en",
+   165→    "images": [
+   166→      "https://www.jalopnik.com/img/gallery/2021-toyota-rav4-vs-highlander-which-suv-depreciated-faster/l-intro-1779388925.jpg",
+   167→      "https://www.jalopnik.com/img/gallery/2021-toyota-rav4-vs-highlander-which-suv-depreciated-faster/intro-1779388925.jpg",
+   168→      "https://www.jalopnik.com/img/gallery/2021-toyota-rav4-vs-highlander-which-suv-depreciated-faster/larger-suvs-like-the-toyota-highlander-tend-to-lose-their-value-faster-1779388926.jpg",
+   169→      "https://www.jalopnik.com/img/gallery/2021-toyota-rav4-vs-highlander-which-suv-depreciated-faster/the-hybrid-toyota-rav4-and-highlander-depreciate-a-bit-slower-1779388927.jpg"
+   170→    ],
+   171→    "fetched_at": "2026-06-14T00:19:26.474743+00:00"
+   172→  },
+   173→  {
+   174→    "title": "Why Don't More Automakers Use Magnesium Engine Blocks?",
+   175→    "url": "https://www.jalopnik.com/2189633/why-automakers-avoid-magnesium-blocks/",
+   176→    "summary": "Magnesium is lighter than aluminum, but why is it rare under the hood? Discover the engineering, corrosion, and cost challenges associated with magnesium.",
+   177→    "published": "Sat, 13 Jun 2026 22:25:00 +0000",
+   178→    "source": "Jalopnik",
+   179→    "lang": "en",
+   180→    "images": [
+   181→      "https://www.jalopnik.com/img/gallery/why-dont-more-automakers-use-magnesium-engine-blocks/l-intro-1780935896.jpg",
+   182→      "https://www.jalopnik.com/img/gallery/why-dont-more-automakers-use-magnesium-engine-blocks/intro-1780935896.jpg",
+   183→      "https://www.jalopnik.com/img/gallery/why-dont-more-automakers-use-magnesium-engine-blocks/magnesium-burns-through-motors-and-wallets-alike-1780935898.jpg"
+   184→    ],
+   185→    "fetched_at": "2026-06-14T00:19:27.012256+00:00"
+   186→  },
+   187→  {
+   188→    "title": "Porsche’s Facelifted Panamera May Be Killing Its Last Physical Switches",
+   189→    "url": "https://www.carscoops.com/2026/06/porsche-panamera-facelift-interior/",
+   190→    "summary": "New spy shots suggest Porsche's luxury sedan is about to get even more digital",
+   191→    "published": "Sat, 13 Jun 2026 23:22:00 +0000",
+   192→    "source": "CarScoops",
+   193→    "lang": "en",
+   194→    "images": [
+   195→      "https://www.carscoops.com/wp-content/uploads/2026/06/IMG_2214-copy-1024x576.jpg",
+   196→      "https://www.carscoops.com/wp-content/uploads/2026/06/IMG_2214-copy-scaled.jpg"
+   197→    ],
+   198→    "fetched_at": "2026-06-14T00:19:27.795086+00:00"
+   199→  },
+   200→  {
+   201→    "title": "Justin Allgaier earns NASCAR O'Reilly win at Pocono over Brent Crews",
+   202→    "url": "https://www.motorsport.com/nascar-os/news/justin-allgaier-wins-nascar-oreilly-pocono-brent-crews/10830120/?utm_source=RSS&utm_medium=referral&utm_campaign=RSS-ALL&utm_term=News&utm_content=www",
+   203→    "summary": "Justin Allgaier claimed his fifth victory of the 2026 NASCAR O'Reilly Auto Parts Series season at Pocono Raceway, further cementing himself atop the championship standings as the two drivers closest to him crashed on the opening lap.This is the 33rd win of Allgaier's career, and he now has a massive 250-point lead in the championship.\"First of all, huge thank you to William Byron,\" said ...Keep reading",
+   204→    "published": "Sat, 13 Jun 2026 23:08:40 +0000",
+   205→    "source": "Motorsport.com",
+   206→    "lang": "en",
+   207→    "images": [
+   208→      "https://cdn-3.motorsport.com/images/amp/0JXw1vEY/s6/justin-allgaier-no-7-jr-motors-3.jpg",
+   209→      "https://cdn-4.motorsport.com/images/amp/0JXw1vEY/s6/justin-allgaier-no-7-jr-motors-3.jpg",
+   210→      "https://cdn-9.motorsport.com/static/img/usa/0/10000/10000/10600/10610/s2_3.jpg",
+   211→      "https://cdn-4.motorsport.com/images/amp/0JXw1vEY/s1000/justin-allgaier-no-7-jr-motors-3.webp",
+   212→      "https://cdn.motorsport.com/images/mgl/6x7Zmv8Y/s1000/leland-honeyman-no-92-dgm-raci.jpg"
+   213→    ],
+   214→    "fetched_at": "2026-06-14T00:19:28.589198+00:00"
+   215→  },
+   216→  {
+   217→    "title": "Smoke coming from oil receptacle",
+   218→    "url": "https://www.reddit.com/r/MechanicAdvice/comments/1u55h08/smoke_coming_from_oil_receptacle/",
+   219→    "summary": "This is 2016 Chevy Silverado 1500. Yesterday while driving I got a notification on the dashboard “low oil level”. I replaced the oil, as always, about 2,800 miles ago. There is no indication of major leaks (no spots in the driveway) I have a slow leak at the seal but it’s negligible and too expensive to fix. The dipstick this morning was almost dry, so I started adding oil to it when I saw faint smoke coming from the oil receptacle! I had ran the engine for about 30 seconds before popping the ho",
+   220→    "published": "2026-06-13T23:34:43+00:00",
+   221→    "source": "Reddit MechanicAdvice",
+   222→    "lang": "en",
+   223→    "images": [
+   224→      "https://external-preview.redd.it/cTQ1ZDk5Mnp4NDdoMV6FQAz0iAv1VBDiXRCJmiXW0nrP_yS5m9hWqOlRDcBl.png?width=640&crop=smart&auto=webp&s=e3f54c07e3d6d33d0c57e70f37551b56d41f25c8"
+   225→    ],
+   226→    "fetched_at": "2026-06-14T00:19:29.183121+00:00"
+   227→  },
+   228→  {
+   229→    "title": "Hood was stuck shut now it’s stuck open",
+   230→    "url": "https://www.reddit.com/r/MechanicAdvice/comments/1u54eu4/hood_was_stuck_shut_now_its_stuck_open/",
+   231→    "summary": "So my hood release cable on the inside broke off. I had to take fender cover off and pull the cable manually. The hood opened but now it won’t close. I took off the latches cleaned them reassembled them and I pulled the cable just to make sure I could re open the hood and it will not unlatch. Any reply I will eternally grateful for. Thank you guys. (I am new to all of these but trying desperately to learn. Car is a 2004 Mercedes c240)   &#32; submitted by &#32;  /u/Motor-Ad7164   [link] &#32; [c",
+   232→    "published": "2026-06-13T22:45:22+00:00",
+   233→    "source": "Reddit MechanicAdvice",
+   234→    "lang": "en",
+   235→    "images": [],
+   236→    "fetched_at": "2026-06-14T00:19:29.756160+00:00"
+   237→  },
+   238→  {
+   239→    "title": "During its investor day on May 21, Stellantis showed reporters 20 new cars it will launch by 2030, including a new Hellcat and a new Dodge sports car. #Stellantis Read more at the link in our bio. 📹: Liam Rappleye, Detroit Free Press - instagram.com",
+   240→    "url": "https://news.google.com/rss/articles/CBMiVkFVX3lxTE8tS1F1d2lnU1RWQ3g3TmgxNGFLR2ZuVmpQaDRBb21TUm9jbXMxY3VVQzhjWExsd05hNUZ5YXg5aWxLLXpTQkJlWFlUNGE0RV9GVjFJc3B3?oc=5",
+   241→    "summary": "During its investor day on May 21, Stellantis showed reporters 20 new cars it will launch by 2030, including a new Hellcat and a new Dodge sports car. #Stellantis Read more at the link in our bio. 📹: Liam Rappleye, Detroit Free Press&nbsp;&nbsp;instagram.com",
+   242→    "published": "Sat, 13 Jun 2026 16:39:53 GMT",
+   243→    "source": "GoogleNews_automotive industry ",
+   244→    "lang": "en",
+   245→    "images": [
+   246→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   247→    ],
+   248→    "fetched_at": "2026-06-14T00:19:30.589209+00:00"
+   249→  },
+   250→  {
+   251→    "title": "Here are the 44 most exciting new electric cars coming your way - Top Gear",
+   252→    "url": "https://news.google.com/rss/articles/CBMiowFBVV95cUxQNFA2RUd6N2VxdlFJVGtZVlRLSlZOeUFEU0RJcTFIRm9fWWhOWGswQmRSUzA1MEtONlV6Z3AyVnlGeXc5RnBXUHNMZGJ5aDFCUGlaWjhfNlVQY2FFOWtIZlBZcW1mdVJyOUdmUmFCdkw0UWo1RkpWeHBIcVBxRDRaM0dNWkFKMklkWndkMlVkQ0h0U2Q1XzZmdVJsM2kyeE5TS0pj?oc=5",
+   253→    "summary": "Here are the 44 most exciting new electric cars coming your way&nbsp;&nbsp;Top Gear",
+   254→    "published": "Mon, 18 May 2026 07:00:00 GMT",
+   255→    "source": "GoogleNews_new car models 2026 ",
+   256→    "lang": "en",
+   257→    "images": [
+   258→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   259→    ],
+   260→    "fetched_at": "2026-06-14T00:19:31.366962+00:00"
+   261→  },
+   262→  {
+   263→    "title": "Fuel Cell Thermal Management Systems Market Demand to Accelerate by 2035 Amid Heavy-Duty Transport Expansion - IndexBox",
+   264→    "url": "https://news.google.com/rss/articles/CBMi1AFBVV95cUxNYV9DMzA4Ri1QMmlGdVBLLUVyYTg1bGJrNkktLWNUVFB0ZDBPQndlUVYya0NuMEZWNE84SHlKcVdkSkVONUJnZlRfMUJTTnc5bFNKN1IzVlphTHRidnBnTnhVRnZ4YkdDTm1LV2FPb1Q2dnBsYkxNVlEwUjhzbGNZc19kbmhDOTRlYUpESjBJVDhkSlF5SFhEc1NzMmQ3S3l2V05iUjIwX1JaSC10OWZuVG80elFTN3QwaTlvQXM5dmdlVVRRR1ducFlYRzJfd2U5Ty1JSQ?oc=5",
+   265→    "summary": "Fuel Cell Thermal Management Systems Market Demand to Accelerate by 2035 Amid Heavy-Duty Transport Expansion&nbsp;&nbsp;IndexBox",
+   266→    "published": "Sat, 13 Jun 2026 23:26:19 GMT",
+   267→    "source": "GoogleNews_hydrogen fuel cell v",
+   268→    "lang": "en",
+   269→    "images": [
+   270→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   271→    ],
+   272→    "fetched_at": "2026-06-14T00:19:32.141592+00:00"
+   273→  },
+   274→  {
+   275→    "title": "SoCal drivers finding long lines for hydrogen fuel amid supply chain issue - ABC7 Los Angeles",
+   276→    "url": "https://news.google.com/rss/articles/CBMipAFBVV95cUxQTXpLbVM2d19nQVlHX0NFcm01cG8tbE1BR1A0NEJ0MldKa3VIS3E0Rk1ZSFBnX1gyOGZibXB3bWoxaGxMamZpYUdZeTljOF9hd0lDSV9qc1hPM2EtclJzRGpFc1F0NlB1ekd3TFBuV21MWGpkbXZWUS1qQmRLRkpkTW5ELXJXbkJaOVdIWVJMQUdCSVF3eV9jWkNicm93NUo2U1drVtIBqgFBVV95cUxONHR4U29JWlVqQTFvTjQ2bG51bm9EdkVicVJONWFyNXVwSWprdVJJS0NQU1NWM01hZ2o1a2pGZ3U3eTRZb29nd1VyTjBCSmJJakdSR182SEpVeHYxN05ZZkZ1ZUxaVjZ3eTZ6QnhOeUM3LXZweUZfek9neUhTR2xlU2xBV1JIVTBYaWVtSWwzYTlEcGNQWjVuWGs3eFN1X0U2Skk3MWdMTEdqUQ?oc=5",
+   277→    "summary": "SoCal drivers finding long lines for hydrogen fuel amid supply chain issue&nbsp;&nbsp;ABC7 Los Angeles",
+   278→    "published": "Sat, 11 Apr 2026 07:00:00 GMT",
+   279→    "source": "GoogleNews_hydrogen fuel cell v",
+   280→    "lang": "en",
+   281→    "images": [
+   282→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   283→    ],
+   284→    "fetched_at": "2026-06-14T00:19:32.920746+00:00"
+   285→  },
+   286→  {
+   287→    "title": "To stop Chinese dual-use battery dominance, the United States and South Korea need to team up - Atlantic Council",
+   288→    "url": "https://news.google.com/rss/articles/CBMi9gFBVV95cUxPZWtJLUFMR0ZDZ0xJWXZrTGliMG84MzJDbEZYbF9EZUhockRKUE81bktfSEIyS29tU0k4RnVRb05BaExJS2swUnRoVGpJV3hWdG1FdEhBTVpRVENIZ203aXNXTFZwd2RSZEREWHlIbFlibGpxY29SZ0pjLXZRUkxtdTQ2SVRkMEtNcXJaa3ZsUnREOTQwMlNiV29xTU1NX09sckNSQUNtMG1GbkYzY2RxS3M5MUlSdlgyWnp0dFBtczkwYWZVa1VCWlNlMS1TR1RFeTNIRi1qU0tkQjZlTlFLanJrVlNVMmZKeXU2dTczS1pSX1lEa2c?oc=5",
+   289→    "summary": "To stop Chinese dual-use battery dominance, the United States and South Korea need to team up&nbsp;&nbsp;Atlantic Council",
+   290→    "published": "Thu, 11 Jun 2026 17:36:00 GMT",
+   291→    "source": "GoogleNews_EV battery technolog",
+   292→    "lang": "en",
+   293→    "images": [
+   294→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   295→    ],
+   296→    "fetched_at": "2026-06-14T00:19:33.730070+00:00"
+   297→  },
+   298→  {
+   299→    "title": "China's Electric Vehicle Boom Drives Record 67% New Car Sales - Asia Business Outlook",
+   300→    "url": "https://news.google.com/rss/articles/CBMiuAFBVV95cUxNYUdnLVI0LXhodUNsY0c5c1ZXOGloMWVybHB0VWhSQ0ZYYUtpU2twMlBReGZ3REczTS1FSDc0aVNNR0hodndpQVdHZVhUR0JiOUpUNlBMbTRpSE1mdC1LOFU0bnlFM2NKRjJKbzgyeGRtck1JTExCdmJ1YXdETWlKZ3JrWVdhVG44SFNaOWd1SGlicGhrSG1RYWR5V243T3JKcWNiMDFmanczVW92SHNNU2dtQk1HTVot?oc=5",
+   301→    "summary": "China's Electric Vehicle Boom Drives Record 67% New Car Sales&nbsp;&nbsp;Asia Business Outlook",
+   302→    "published": "Fri, 12 Jun 2026 12:57:13 GMT",
+   303→    "source": "GoogleNews_Chinese cars global ",
+   304→    "lang": "en",
+   305→    "images": [
+   306→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   307→    ],
+   308→    "fetched_at": "2026-06-14T00:19:34.515965+00:00"
+   309→  },
+   310→  {
+   311→    "title": "These Are the Quietest Cars, SUVs and Trucks - U.S. News & World Report",
+   312→    "url": "https://news.google.com/rss/articles/CBMibEFVX3lxTE9xN2pMZFpNY2Z1SUhMOWlrOHFRZm5WcTdKdVFsSy1aTzJuNHJpbE1SVk82QzNIeEw4Z2ROOVpUdXFodlZMOEtNTlNIaVRSaklmVmVlV0M3eXBiZHJTT1oyZGV4NmluaFlKV2NPNw?oc=5",
+   313→    "summary": "These Are the Quietest Cars, SUVs and Trucks&nbsp;&nbsp;U.S. News & World Report",
+   314→    "published": "Tue, 09 Jun 2026 07:00:00 GMT",
+   315→    "source": "GoogleNews_Auto Nachrichten",
+   316→    "lang": "en",
+   317→    "images": [
+   318→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   319→    ],
+   320→    "fetched_at": "2026-06-14T00:19:35.269999+00:00"
+   321→  },
+   322→  {
+   323→    "title": "Hyundai Beats Toyota And Honda Again On Best Family Cars List - Autoblog",
+   324→    "url": "https://news.google.com/rss/articles/CBMimwFBVV95cUxQSzhxNWlFNF83Qk1PXzVya0NIMkw1bTZHYkxEUFpQUnhwN2g4YXpUQklyVU9fdnp2b25GUVlxZFBxSC1kWHF6R1llOHZRWHJVWVduLTFxcjFJeEJUZVNISldrck1nWmluZXhJYVpFRjhnUy1xaWI3WVhySm55MF9TYzFiYVVIekhoTjdYeUJxV2Y1U252eGRDZ3pvaw?oc=5",
+   325→    "summary": "Hyundai Beats Toyota And Honda Again On Best Family Cars List&nbsp;&nbsp;Autoblog",
+   326→    "published": "Sat, 13 Jun 2026 21:35:00 GMT",
+   327→    "source": "GoogleNews_Toyota Honda news",
+   328→    "lang": "en",
+   329→    "images": [
+   330→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   331→    ],
+   332→    "fetched_at": "2026-06-14T00:19:36.015216+00:00"
+   333→  },
+   334→  {
+   335→    "title": "Kosmera just revealed Star Matrix, its AI race engineer hypercar, in a brand new color and the response was extraordinary - supercarblondie.com",
+   336→    "url": "https://news.google.com/rss/articles/CBMihgFBVV95cUxQY01taVZaYzFkdm5yclBwY0d6NjdoWkFHTHJueGtidWpBRy11NkhrT2p2WDQ0MmluWV8wdUlqd1dEZklXOFRvaVVBLWpmQ0JQTmZmTks2TWxnOU5lVnVZampwRk9LQ2dnZHdXeXhLWDlfTEJBel9qaFJoWGdycU1tc0o1b0RTQQ?oc=5",
+   337→    "summary": "Kosmera just revealed Star Matrix, its AI race engineer hypercar, in a brand new color and the response was extraordinary&nbsp;&nbsp;supercarblondie.com",
+   338→    "published": "Mon, 16 Mar 2026 07:00:00 GMT",
+   339→    "source": "GoogleNews_supercar hypercar ne",
+   340→    "lang": "en",
+   341→    "images": [
+   342→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   343→    ],
+   344→    "fetched_at": "2026-06-14T00:19:36.772089+00:00"
+   345→  },
+   346→  {
+   347→    "title": "Guest Columnist: How AI Is Changing Car Dealerships - CarProUSA.com.",
+   348→    "url": "https://news.google.com/rss/articles/CBMihAFBVV95cUxOVWRtbXlvMGh2Rnc0MDBCb2dBUVd6UFZWVGF0azJNeG1vM18tTUgyR2MxalExM2daeEhnNkJ2OUh4R0dVbzBvRWJTM3dQWUgweXFYR1plOW9GRzZNb3RqNmd2OEdKVjBVNHp2cW5nSmpJaTBjcWdTTVhPamZnaXA0WDFkSHTSAZQBQVVfeXFMT0ZYUVhKRXllM3I1RUp4NVhIN2d0aWEwdUtibTM5amMtZ3Q4VzNiUllpb216QkxTa3RJdWhnVEp4eHVaVmpzX3c0RG9UMmZzcUZGV0dqV1dhSlV6WTBCQ2duc2dlczNiRzgzWWZyU2tUTmRvazVHQTdnSmstLUVHWU1ySHZwT1FuT05NVDAyMGFFaTJtdg?oc=5",
+   349→    "summary": "Guest Columnist: How AI Is Changing Car Dealerships&nbsp;&nbsp;CarProUSA.com.",
+   350→    "published": "Thu, 11 Jun 2026 02:22:03 GMT",
+   351→    "source": "GoogleNews_automotive AI techno",
+   352→    "lang": "en",
+   353→    "images": [
+   354→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   355→    ],
+   356→    "fetched_at": "2026-06-14T00:19:37.527883+00:00"
+   357→  },
+   358→  {
+   359→    "title": "Auto industry warns AI chip demand could disrupt manufacturing - CBT News",
+   360→    "url": "https://news.google.com/rss/articles/CBMibkFVX3lxTE5RNHdCTHNMN1RCY05Cd09aWHFMdnA2bUhNMVlPU2VpNjFOSEMzUlYtQ2lzOFc5V0FWcE15UjRiN0NrYVhuek12MGpXc0VzMmx1eHNHam53WGdZaW41SERXVlJodjhtRTdQQW9iZ053?oc=5",
+   361→    "summary": "Auto industry warns AI chip demand could disrupt manufacturing&nbsp;&nbsp;CBT News",
+   362→    "published": "Thu, 04 Jun 2026 10:06:16 GMT",
+   363→    "source": "GoogleNews_automotive AI techno",
+   364→    "lang": "en",
+   365→    "images": [
+   366→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   367→    ],
+   368→    "fetched_at": "2026-06-14T00:19:38.309249+00:00"
+   369→  },
+   370→  {
+   371→    "title": "Economic and Market Report: Global and EU auto industry – Full year 2025 - ACEA - European Automobile Manufacturers' Association",
+   372→    "url": "https://news.google.com/rss/articles/CBMipwFBVV95cUxNNlBsOHRuanhrdndNVWowUTRudVJ1dHFXVjFTSUlGZDkzUTFJZm01ZGJOMWJlSHlkT2w3ajl5dnUxTm51eDhzTUhBdDczcU1YXzI4Yl9PSGZHR1ppbmJXQW9KbnV1VWRUbGxGZGloaDFYaGo1Zy1PYnJLc0swdGhSSGhHZUE2c1JZc0FjdDA5QnNabC1BQ2h1MUEzQWkwR2VQbXFoamFLcw?oc=5",
+   373→    "summary": "Economic and Market Report: Global and EU auto industry – Full year 2025&nbsp;&nbsp;ACEA - European Automobile Manufacturers' Association",
+   374→    "published": "Thu, 02 Apr 2026 07:00:00 GMT",
+   375→    "source": "GoogleNews_car manufacturing pr",
+   376→    "lang": "en",
+   377→    "images": [
+   378→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   379→    ],
+   380→    "fetched_at": "2026-06-14T00:19:39.059167+00:00"
+   381→  },
+   382→  {
+   383→    "title": "How tiny Slovakia became a car making heavyweight - BBC",
+   384→    "url": "https://news.google.com/rss/articles/CBMiWkFVX3lxTE1nZ3doakVjSld0TzVPMVRQSmJJWk9UWGJhVjBIR0liQVNKZkZ5R2ZWNEluanRDZUI4TmsyU044WWx0X0phamVTbjJEY2s0VlJhQzBudnIxRTY4dw?oc=5",
+   385→    "summary": "How tiny Slovakia became a car making heavyweight&nbsp;&nbsp;BBC",
+   386→    "published": "Wed, 21 Jan 2026 08:00:00 GMT",
+   387→    "source": "GoogleNews_car manufacturing pr",
+   388→    "lang": "en",
+   389→    "images": [
+   390→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   391→    ],
+   392→    "fetched_at": "2026-06-14T00:19:39.814523+00:00"
+   393→  },
+   394→  {
+   395→    "title": "'Better than expected' – Verstappen and Hadjar surprised by Red Bull's pace in Qualifying for Barcelona-Catalunya GP - Formula 1",
+   396→    "url": "https://news.google.com/rss/articles/CBMiiAJBVV95cUxOZzRXVzVwVmRnbU9EWG1KcWtuTjlCNXQtZEtoYmtmNkppNERJRnp6MUEwLWw3NGRDS0xES0R4LW9VZTdZNHpwakdCb0hNbldlQnRGZ2xKSF8wSEQ0WmdJQ1FDTkdxanBCZndpZWYxbEUtYThNLXZ2NWZ5cGc2TmhWcU1FQnBsZmhjQnRKQ19PRzBFWkxNTGVrLW1uYUVaOEU3VHc3a2F6LVJnbjRjc0E4QkFfZTFUYm00V1pCRlNlTkd3R0NPZzhEQkdUeTdmeWI0MDdQYkNIZ1E1a3F1Q181V0xyakx5Wmt4Yl9vV0UxbFZBZzVsQkF3WXRIVkhhVzFhM0VfWU9mdC0?oc=5",
+   397→    "summary": "'Better than expected' – Verstappen and Hadjar surprised by Red Bull's pace in Qualifying for Barcelona-Catalunya GP&nbsp;&nbsp;Formula 1",
+   398→    "published": "Sat, 13 Jun 2026 17:48:00 GMT",
+   399→    "source": "GoogleNews_ Formula 1 news 2026",
+   400→    "lang": "en",
+   401→    "images": [
+   402→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   403→    ],
+   404→    "fetched_at": "2026-06-14T00:19:40.557836+00:00"
+   405→  },
+   406→  {
+   407→    "title": "F1 2026 qualifying head-to-head: Barcelona GP - Motorsport.com",
+   408→    "url": "https://news.google.com/rss/articles/CBMikwFBVV95cUxPRVI5TGdhUXpUMF9lX1VuNHdmakx2QWJZTEtWT1VqdUo4cHJ3RUVwcUdGMXdaQjhiMkhPVnNPLUxESGZnMmY4bVlnSDJlUEloZzlYdFlWbUpURkVzMXFzNzRKT3J3a0pTdFhUYS1PS1NJeHhPb1ZlbUcxRlVnTzQxOVlXWFIxR3FvQTVyUHBBRUg1RWc?oc=5",
+   409→    "summary": "F1 2026 qualifying head-to-head: Barcelona GP&nbsp;&nbsp;Motorsport.com",
+   410→    "published": "Sat, 13 Jun 2026 17:35:39 GMT",
+   411→    "source": "GoogleNews_ Formula 1 news 2026",
+   412→    "lang": "en",
+   413→    "images": [
+   414→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   415→    ],
+   416→    "fetched_at": "2026-06-14T00:19:41.317995+00:00"
+   417→  },
+   418→  {
+   419→    "title": "Британского активиста Робинсона задержали в аэропорту Хитроу",
+   420→    "url": "https://tass.ru/obschestvo/27750215",
+   421→    "summary": "Он выложил фото документов, уведомляющих о его задержании и изъятии двух телефонов",
+   422→    "published": "Sun, 14 Jun 2026 01:08:12 +0300",
+   423→    "source": "ТАСС Авто",
+   424→    "lang": "ru",
+   425→    "images": [],
+   426→    "fetched_at": "2026-06-13T22:15:39.471045+00:00"
+   427→  },
+   428→  {
+   429→    "title": "Марочко: в ВСУ сильно жалуются на подход Сырского к формированию подразделений",
+   430→    "url": "https://tass.ru/armiya-i-opk/27750207",
+   431→    "summary": "Военный эксперт заявил, что неся потери в зоне спецоперации, командование ВСУ усиливает подразделения боевиками из запрещенных в РФ украинских нацбатальонов",
+   432→    "published": "Sun, 14 Jun 2026 01:08:12 +0300",
+   433→    "source": "ТАСС Авто",
+   434→    "lang": "ru",
+   435→    "images": [],
+   436→    "fetched_at": "2026-06-13T22:15:40.064631+00:00"
+   437→  },
+   438→  {
+   439→    "title": "В ОП призвали оповещать родителей о тратах с детских банковских карт",
+   440→    "url": "https://tass.ru/obschestvo/27750225",
+   441→    "summary": "Председатель комиссии Общественной палаты по демографии, защите семьи, детей и традиционных семейных ценностей Сергей Рыбальченко считает, что это позволит препятствовать мошенническим махинациям",
+   442→    "published": "Sun, 14 Jun 2026 01:07:02 +0300",
+   443→    "source": "ТАСС Авто",
+   444→    "lang": "ru",
+   445→    "images": [],
+   446→    "fetched_at": "2026-06-13T22:15:40.658069+00:00"
+   447→  },
+   448→  {
+   449→    "title": "В ГД напомнили, что ближайший праздничный нерабочий день ждет россиян в ноябре",
+   450→    "url": "https://tass.ru/obschestvo/27750195",
+   451→    "summary": "Глава комитета Госдумы по труду, соцполитике и делам ветеранов Ярослав Нилов отметил, что до этого момента все рабочие недели будут полными",
+   452→    "published": "Sun, 14 Jun 2026 00:53:00 +0300",
+   453→    "source": "ТАСС Авто",
+   454→    "lang": "ru",
+   455→    "images": [],
+   456→    "fetched_at": "2026-06-13T22:15:41.253774+00:00"
+   457→  },
+   458→  {
+   459→    "title": "В Тульской области объявили опасность атаки БПЛА",
+   460→    "url": "https://tass.ru/proisshestviya/27750203",
+   461→    "summary": "Жителей призвали сохранять спокойствие",
+   462→    "published": "Sun, 14 Jun 2026 00:52:32 +0300",
+   463→    "source": "ТАСС Авто",
+   464→    "lang": "ru",
+   465→    "images": [],
+   466→    "fetched_at": "2026-06-13T22:15:41.850627+00:00"
+   467→  },
+   468→  {
+   469→    "title": "В Воронеже и Нововоронеже объявили угрозу удара БПЛА",
+   470→    "url": "https://tass.ru/proisshestviya/27750199",
+   471→    "summary": "Работают системы оповещения",
+   472→    "published": "Sun, 14 Jun 2026 00:52:21 +0300",
+   473→    "source": "ТАСС Авто",
+   474→    "lang": "ru",
+   475→    "images": [],
+   476→    "fetched_at": "2026-06-13T22:15:42.443310+00:00"
+   477→  },
+   478→  {
+   479→    "title": "FT назвала вспышку Эболы генеральной репетицией глобальной пандемии",
+   480→    "url": "https://tass.ru/obschestvo/27750157",
+   481→    "summary": "Если и существовал момент, когда миру необходим успех в сфере глобального здравоохранения, он настал сейчас, заявил директор соответствующей программы в организации Совет по международным отношениям Томас Боллики",
+   482→    "published": "Sun, 14 Jun 2026 00:37:13 +0300",
+   483→    "source": "ТАСС Авто",
+   484→    "lang": "ru",
+   485→    "images": [],
+   486→    "fetched_at": "2026-06-13T22:15:43.036390+00:00"
+   487→  },
+   488→  {
+   489→    "title": "Титов заявил, что вопрос с \"Силой Сибири - 2\" решат в ближайшее время",
+   490→    "url": "https://tass.ru/ekonomika/27750175",
+   491→    "summary": "Председатель российской части Российско-китайского комитета дружбы, мира и развития отметил, что основным моментом является логистика, а не цена проекта",
+   492→    "published": "Sun, 14 Jun 2026 00:30:49 +0300",
+   493→    "source": "ТАСС Авто",
+   494→    "lang": "ru",
+   495→    "images": [
+   496→      "https://cdn-media.tass.ru/fit/400x300_b2b00b17/tass/m2/uploads/i/20260614/9142721.jpg"
+   497→    ],
+   498→    "fetched_at": "2026-06-13T22:15:43.629586+00:00"
+   499→  },
+   500→  {
+   501→    "title": "Олимпийского чемпиона по хоккею Андронова внесли в базу \"Миротворца\"",
+   502→    "url": "https://tass.ru/sport/27750167",
+   503→    "summary": "Также в список вошли чемпионы мира Виталий Прошкин и Константин Корнеев",
+   504→    "published": "Sun, 14 Jun 2026 00:29:34 +0300",
+   505→    "source": "ТАСС Авто",
+   506→    "lang": "ru",
+   507→    "images": [
+   508→      "https://cdn-media.tass.ru/fit/400x300_b2b00b17/tass/m2/uploads/i/20260614/9142713.jpg"
+   509→    ],
+   510→    "fetched_at": "2026-06-13T22:15:44.222364+00:00"
+   511→  },
+   512→  {
+   513→    "title": "Херсонская область обесточена из-за аварии",
+   514→    "url": "https://tass.ru/proisshestviya/27750141",
+   515→    "summary": "Специалисты работают над восстановлением электроснабжения",
+   516→    "published": "Sun, 14 Jun 2026 00:17:09 +0300",
+   517→    "source": "ТАСС Авто",
+   518→    "lang": "ru",
+   519→    "images": [
+   520→      "https://cdn-media.tass.ru/fit/400x300_b2b00b17/tass/m2/uploads/i/20260614/9142705.jpg"
+   521→    ],
+   522→    "fetched_at": "2026-06-13T22:15:44.818086+00:00"
+   523→  },
+   524→  {
+   525→    "title": "Над Мелитополем Запорожской области фиксируют высокую дроновую активность ВСУ",
+   526→    "url": "https://tass.ru/proisshestviya/27750135",
+   527→    "summary": "Жителей призвали сохранять спокойствие",
+   528→    "published": "Sun, 14 Jun 2026 00:16:00 +0300",
+   529→    "source": "ТАСС Авто",
+   530→    "lang": "ru",
+   531→    "images": [],
+   532→    "fetched_at": "2026-06-13T22:15:45.410649+00:00"
+   533→  },
+   534→  {
+   535→    "title": "В Пензенской области объявили беспилотную опасность",
+   536→    "url": "https://tass.ru/proisshestviya/27750129",
+   537→    "summary": "В регионе временно ограничили мобильный интернет",
+   538→    "published": "Sun, 14 Jun 2026 00:14:45 +0300",
+   539→    "source": "ТАСС Авто",
+   540→    "lang": "ru",
+   541→    "images": [],
+   542→    "fetched_at": "2026-06-13T22:15:46.003474+00:00"
+   543→  },
+   544→  {
+   545→    "title": "Сборная Катара впервые не проиграла в матче чемпионата мира по футболу",
+   546→    "url": "https://tass.ru/sport/27750127",
+   547→    "summary": "Катарцы сыграли вничью с командой Швейцарии",
+   548→    "published": "Sun, 14 Jun 2026 00:12:03 +0300",
+   549→    "source": "ТАСС Авто",
+   550→    "lang": "ru",
+   551→    "images": [],
+   552→    "fetched_at": "2026-06-13T22:15:46.596045+00:00"
+   553→  },
+   554→  {
+   555→    "title": "NYT: в некоторых штатах США набирают силу сепаратистские настроения",
+   556→    "url": "https://tass.ru/mezhdunarodnaya-panorama/27750099",
+   557→    "summary": "В Вашингтоне и Орегоне готовят референдум о создании независимой Каскадии и выходе из состава страны в 2028 году",
+   558→    "published": "Sun, 14 Jun 2026 00:07:47 +0300",
+   559→    "source": "ТАСС Авто",
+   560→    "lang": "ru",
+   561→    "images": [],
+   562→    "fetched_at": "2026-06-13T22:15:47.192813+00:00"
+   563→  },
+   564→  {
+   565→    "title": "Cadillac says smaller EV batteries for Australia are driven by European regulations",
+   566→    "url": "https://www.carexpert.com.au/car-news/cadillac-says-smaller-ev-batteries-for-australia-are-driven-by-european-regulations",
+   567→    "summary": "New Cadillac EVs for export markets feature smaller batteries that take longer to fast-charge.",
+   568→    "published": "Sat, 13 Jun 2026 22:00:00 GMT",
+   569→    "source": "CarExpert",
+   570→    "lang": "en",
+   571→    "images": [
+   572→      "https://images.carexpert.com.au/cms/v1/media/2026-cadillac-vistiq-europe.jpg",
+   573→      "https://images.carexpert.com.au/cms/v1/media/cadillac-optiq-2026-europe-3.jpg",
+   574→      "https://images.carexpert.com.au/cms/v1/media/2026-cadillac-vistiq-4.jpg",
+   575→      "https://images.carexpert.com.au/cms/v1/media/2026-cadillac-optiq-sport-review-sydney-21.jpg",
+   576→      "https://images.carexpert.com.au/crop/1200/630/cms/v1/media/cadillac-optiq-2026-europe.jpg"
+   577→    ],
+   578→    "fetched_at": "2026-06-13T22:15:47.744209+00:00"
+   579→  },
+   580→  {
+   581→    "title": "New Chrome Temple Club gives members access to supercars without owning one",
+   582→    "url": "https://www.carexpert.com.au/car-news/new-chrome-temple-club-gives-members-access-to-supercars-without-owning-one",
+   583→    "summary": "A new club offering access to supercars without requiring members to own one has launched in Sydney.",
+   584→    "published": "Sat, 13 Jun 2026 22:00:00 GMT",
+   585→    "source": "CarExpert",
+   586→    "lang": "en",
+   587→    "images": [
+   588→      "https://images.carexpert.com.au/cms/v1/media/2026chrometempleclub0865.jpg",
+   589→      "https://images.carexpert.com.au/cms/v1/media/2026chrometempleclub0118d.jpg",
+   590→      "https://images.carexpert.com.au/cms/v1/media/2026chrometempleclub0329.jpg",
+   591→      "https://images.carexpert.com.au/crop/1200/630/cms/v1/media/2026chrometempleclub0787-edit.jpg",
+   592→      "https://images.carexpert.com.au/resize/200/-/cms/v1/media/damion-1.jpg"
+   593→    ],
+   594→    "fetched_at": "2026-06-13T22:15:48.281154+00:00"
+   595→  },
+   596→  {
+   597→    "title": "2026 CarExpert Choice winner: Best Van",
+   598→    "url": "https://www.carexpert.com.au/car-news/2026-carexpert-choice-winner-best-van",
+   599→    "summary": "No other van on the Australian market can match the Ford Transit Custom's depth of talent and breadth of variety.",
+   600→    "published": "Sat, 13 Jun 2026 22:00:00 GMT",
+   601→    "source": "CarExpert",
+   602→    "lang": "en",
+   603→    "images": [
+   604→      "https://images.carexpert.com.au/cms/v1/media/2026-01-ford-transitcustom-trail-19.jpg",
+   605→      "https://images.carexpert.com.au/crop/1200/630/cms/v1/media/2026-carexpert-choice-awards-ford-transit-custom.jpg",
+   606→      "https://images.carexpert.com.au/resize/200/-/cms/v1/media/ce-authors-cmfahhuz700006i4375v8a4ez.png",
+   607→      "https://images.carexpert.com.au/resize/960/-/cms/v1/media/2026-carexpert-choice-awards-ford-transit-custom.jpg",
+   608→      "https://images.carexpert.com.au/resize/960/-/cms/v1/media/2026-01-ford-transitcustom-trail-19.jpg"
+   609→    ],
+   610→    "fetched_at": "2026-06-13T22:15:48.820227+00:00"
+   611→  },
+   612→  {
+   613→    "title": "Why the Chery Tiggo 4 is a CarExpert Choice winner – again",
+   614→    "url": "https://www.carexpert.com.au/car-news/why-the-chery-tiggo-4-is-a-carexpert-choice-winner-again",
+   615→    "summary": "There’s more to Chery’s smallest and most affordable model than just a low price and standard equipment galore.",
+   616→    "published": "Sat, 13 Jun 2026 21:30:00 GMT",
+   617→    "source": "CarExpert",
+   618→    "lang": "en",
+   619→    "images": [
+   620→      "https://images.carexpert.com.au/cms/v1/media/2026-chery-tiggo4-hybrid-ultimate-lt-1.jpg",
+   621→      "https://images.carexpert.com.au/cms/v1/media/2026-chery-tiggo4-hybrid-ultimate-lt-7.jpg",
+   622→      "https://images.carexpert.com.au/cms/v1/media/2026-chery-tiggo4-hybrid-ultimate-lt-15.jpg",
+   623→      "https://images.carexpert.com.au/cms/v1/media/2026-chery-tiggo4-hybrid-ultimate-lt-4.jpg",
+   624→      "https://images.carexpert.com.au/cms/v1/media/2026-chery-tiggo4-hybrid-ultimate-lt-31.jpg"
+   625→    ],
+   626→    "fetched_at": "2026-06-13T22:15:49.362191+00:00"
+   627→  },
+   628→  {
+   629→    "title": "Our Troubles Are Over: The Average Price Of A New Car Was Closer To $49,000 Than $50,000 In May",
+   630→    "url": "https://www.jalopnik.com/2193114/average-new-car-price-dropped-in-may/",
+   631→    "summary": "If we can get the average transaction price down to a paltry $48,999 for June, maybe we can all get to a place in which owning a home isn't a pipe dream.",
+   632→    "published": "Sat, 13 Jun 2026 21:05:00 +0000",
+   633→    "source": "Jalopnik",
+   634→    "lang": "en",
+   635→    "images": [
+   636→      "https://www.jalopnik.com/img/gallery/our-troubles-are-over-the-average-price-of-a-new-car-was-closer-to-49000-than-50000-in-may/l-intro-1781279335.jpg",
+   637→      "https://www.jalopnik.com/img/gallery/our-troubles-are-over-the-average-price-of-a-new-car-was-closer-to-49000-than-50000-in-may/intro-1781279335.jpg"
+   638→    ],
+   639→    "fetched_at": "2026-06-13T22:15:50.048998+00:00"
+   640→  },
+   641→  {
+   642→    "title": "These 1950s Semi Trucks Had More Personality Than Today's Big Rigs",
+   643→    "url": "https://www.jalopnik.com/2192238/1950s-semi-trucks-make-modern-big-rigs-look-bland/",
+   644→    "summary": "Trucks these days come in two basic designs, no matter which company makes them. But in the '50s, they had vibrant looks that made them stand out.",
+   645→    "published": "Sat, 13 Jun 2026 20:45:00 +0000",
+   646→    "source": "Jalopnik",
+   647→    "lang": "en",
+   648→    "images": [
+   649→      "https://www.jalopnik.com/img/gallery/these-1950s-semi-trucks-had-more-personality-than-todays-big-rigs/l-intro-1781191461.jpg",
+   650→      "https://www.jalopnik.com/img/gallery/these-1950s-semi-trucks-had-more-personality-than-todays-big-rigs/intro-1781191461.jpg",
+   651→      "https://www.jalopnik.com/img/gallery/these-1950s-semi-trucks-had-more-personality-than-todays-big-rigs/mack-b61-1953-to-1966-1781191462.jpg",
+   652→      "https://www.jalopnik.com/img/gallery/these-1950s-semi-trucks-had-more-personality-than-todays-big-rigs/peterbilt-281351-needlenose-1954-to-1976-1781191462.jpg",
+   653→      "https://www.jalopnik.com/img/gallery/these-1950s-semi-trucks-had-more-personality-than-todays-big-rigs/freightliner-wf800-wf64-bubblenose-1949-to-1954-1781191463.jpg"
+   654→    ],
+   655→    "fetched_at": "2026-06-13T22:15:50.575929+00:00"
+   656→  },
+   657→  {
+   658→    "title": "Which Famous Car Badge Has Lost The Plot The Most?",
+   659→    "url": "https://www.carscoops.com/2026/06/most-watered-down-car-badges/",
+   660→    "summary": "Some badges and model names that used to really mean something are basically meaningless today",
+   661→    "published": "Sat, 13 Jun 2026 21:41:00 +0000",
+   662→    "source": "CarScoops",
+   663→    "lang": "en",
+   664→    "images": [
+   665→      "https://www.carscoops.com/wp-content/uploads/2026/06/332536_6000x4010-copy-1024x576.jpg",
+   666→      "https://www.carscoops.com/wp-content/uploads/2026/06/332536_6000x4010-copy-scaled.jpg"
+   667→    ],
+   668→    "fetched_at": "2026-06-13T22:15:51.137280+00:00"
+   669→  },
+   670→  {
+   671→    "title": "Corey Day and Jesse Love eliminated in clumsy Lap 1, Turn 1 NASCAR O'Reilly crash",
+   672→    "url": "https://www.motorsport.com/nascar-os/news/corey-day-and-jesse-love-eliminated-in-lap-1-nascar-oreilly-crash-at-pocono/10830123/?utm_source=RSS&utm_medium=referral&utm_campaign=RSS-ALL&utm_term=News&utm_content=www",
+   673→    "summary": "Saturday's NASCAR O'Reilly Auto Parts Series race got off to a dramatic start. Exiting Turn 1, Corey Day was running 13th when he got sideways.He spun down the track, crossing paths with Jesse Love, who slammed into the side of him. Day's car continued to spin down into the inside wall, destroying his No. 17 Hendrick Motorsports Chevrolet.Love's No. 2 Richard Childress Racing Chevrolet ...Keep reading",
+   674→    "published": "Sat, 13 Jun 2026 21:59:01 +0000",
+   675→    "source": "Motorsport.com",
+   676→    "lang": "en",
+   677→    "images": [
+   678→      "https://cdn-7.motorsport.com/images/amp/0ZqAKb46/s6/day-crash.jpg",
+   679→      "https://cdn-4.motorsport.com/images/amp/0ZqAKb46/s6/day-crash.jpg",
+   680→      "https://cdn-2.motorsport.com/static/img/usa/0/10000/10000/10600/10610/s2_3.jpg",
+   681→      "https://cdn-4.motorsport.com/images/amp/0ZqAKb46/s1000/day-crash.webp",
+   682→      "https://cdn.motorsport.com/images/amp/24QeKDXY/s2/denny-hamlin-pole-no-11-joe-gi.jpg"
+   683→    ],
+   684→    "fetched_at": "2026-06-13T22:15:51.829986+00:00"
+   685→  },
+   686→  {
+   687→    "title": "Is this normal for a new battery?",
+   688→    "url": "https://www.reddit.com/r/MechanicAdvice/comments/1u531w6/is_this_normal_for_a_new_battery/",
+   689→    "summary": "I just bought a new battery from advance and before even installing it I noticed some liquid seeping from the top caps (pictured) it seems to be pretty clear and I didn’t notice any strong smell, the battery also works fine, should I return it for another or is it ok?  &#32; submitted by &#32;  /u/Difficult-Lie-9218   [link] &#32; [comments]",
+   690→    "published": "2026-06-13T21:44:04+00:00",
+   691→    "source": "Reddit MechanicAdvice",
+   692→    "lang": "en",
+   693→    "images": [
+   694→      "https://preview.redd.it/3ie794j9e47h1.jpeg?width=640&crop=smart&auto=webp&s=56629d1c39ff75342430ee73dcacbcab8a634b4c"
+   695→    ],
+   696→    "fetched_at": "2026-06-13T22:15:52.359353+00:00"
+   697→  },
+   698→  {
+   699→    "title": "Blown head gasket?",
+   700→    "url": "https://www.reddit.com/r/MechanicAdvice/comments/1u51ml6/blown_head_gasket/",
+   701→    "summary": "&#32; submitted by &#32;  /u/Zedra123   [link] &#32; [comments]",
+   702→    "published": "2026-06-13T20:42:29+00:00",
+   703→    "source": "Reddit MechanicAdvice",
+   704→    "lang": "en",
+   705→    "images": [
+   706→      "https://preview.redd.it/psy0zgv9347h1.jpg?width=140&height=140&crop=1:1,smart&auto=webp&s=748169162ff0d086bbba8c88ae7791fd73e5949f"
+   707→    ],
+   708→    "fetched_at": "2026-06-13T22:15:52.875925+00:00"
+   709→  },
+   710→  {
+   711→    "title": "do these rotors need to be replaced?",
+   712→    "url": "https://www.reddit.com/r/MechanicAdvice/comments/1u51gso/do_these_rotors_need_to_be_replaced/",
+   713→    "summary": "&#32; submitted by &#32;  /u/Overall-Campaign-463   [link] &#32; [comments]",
+   714→    "published": "2026-06-13T20:35:59+00:00",
+   715→    "source": "Reddit MechanicAdvice",
+   716→    "lang": "en",
+   717→    "images": [
+   718→      "https://preview.redd.it/39x1khj4247h1.jpeg?width=640&crop=smart&auto=webp&s=31b77bc385bdd2971f697601ec2d282c9a7c667b"
+   719→    ],
+   720→    "fetched_at": "2026-06-13T22:15:53.394756+00:00"
+   721→  },
+   722→  {
+   723→    "title": "Can't get manifold off",
+   724→    "url": "https://www.reddit.com/r/MechanicAdvice/comments/1u52oim/cant_get_manifold_off/",
+   725→    "summary": "Need help, D4F engine, have removed the 8 bolts at the front, disconnected all sensors, removed torx at the top. Back of the manifold is wiggling but the front is still completely stuck - from everything I've seen and read it should be coming straight off. What am I missing? &#x200b; For reference job is suspected rocker gasket failure.  &#32; submitted by &#32;  /u/Spiritual_Case_2531   [link] &#32; [comments]",
+   726→    "published": "2026-06-13T21:27:48+00:00",
+   727→    "source": "Reddit MechanicAdvice",
+   728→    "lang": "en",
+   729→    "images": [
+   730→      "https://preview.redd.it/vi42i8vcb47h1.jpeg?width=640&crop=smart&auto=webp&s=fef25f3ff0b6abeefca281cfb3ff72192d424f71"
+   731→    ],
+   732→    "fetched_at": "2026-06-13T22:15:53.909574+00:00"
+   733→  },
+   734→  {
+   735→    "title": "New brake pads on old rotor",
+   736→    "url": "https://www.reddit.com/r/MechanicAdvice/comments/1u52nmi/new_brake_pads_on_old_rotor/",
+   737→    "summary": "I'm in the process of replacing my caliper and pads. I need a new rotor as well, but I had to order it and it won't be here until Thursday. Will my new pads wear in the grooves of the old rotor if I drive 50-60 miles over the next few days? I've read about bedding the new pads in and wonder what I'll need to do to the pads after I put the new rotor on.   &#32; submitted by &#32;  /u/Nikmac3131   [link] &#32; [comments]",
+   738→    "published": "2026-06-13T21:26:42+00:00",
+   739→    "source": "Reddit MechanicAdvice",
+   740→    "lang": "en",
+   741→    "images": [],
+   742→    "fetched_at": "2026-06-13T22:15:54.430835+00:00"
+   743→  },
+   744→  {
+   745→    "title": "Scirocco Starting Issue",
+   746→    "url": "https://www.reddit.com/r/MechanicAdvice/comments/1u52j07/scirocco_starting_issue/",
+   747→    "summary": "Hey all, hoping someone’s seen this before. For the past week my Scirocco (2011,2.0L TDI) has been really struggling to start. It cranks, fires for 1 second, then cuts out and tries again. Sometimes it eventually starts and the revs bounce and cuts out, sometimes it takes multiple attempts but then other times it’ll start normally after 12hrs. Once it’s running, it drives completely fine. On the rare occasion, it’ll start then cut out instantly. It will say “Engine Workshop”, then start on the n",
+   748→    "published": "2026-06-13T21:21:00+00:00",
+   749→    "source": "Reddit MechanicAdvice",
+   750→    "lang": "en",
+   751→    "images": [],
+   752→    "fetched_at": "2026-06-13T22:15:54.966024+00:00"
+   753→  },
+   754→  {
+   755→    "title": "1997 Chevy Silverado k1500 4x4 4L60E TCC valve not fitting",
+   756→    "url": "https://www.reddit.com/r/MechanicAdvice/comments/1u51zsi/1997_chevy_silverado_k1500_4x4_4l60e_tcc_valve/",
+   757→    "summary": "&#32; submitted by &#32;  /u/MintWave05   [link] &#32; [comments]",
+   758→    "published": "2026-06-13T20:58:03+00:00",
+   759→    "source": "Reddit MechanicAdvice",
+   760→    "lang": "en",
+   761→    "images": [],
+   762→    "fetched_at": "2026-06-13T22:15:55.483149+00:00"
+   763→  },
+   764→  {
+   765→    "title": "В перевернувшейся машине пострадали три саратовца - Взгляд-инфо",
+   766→    "url": "https://news.google.com/rss/articles/CBMimgFBVV95cUxOcEJHRm1GQ0kxeFl5XzRxXzZqcDZzQkNVNHpMaGRaU0lXdlNONW1KdHQ0UUJ2bldldXhOZE1PTVM4YzhRLWo3LUQ3Rm0xTHF5N2tVcWU0c0ZzSFdoeTZhX1NEWFVkVkdNZWxHVDhvSGJqUmk3ZlhfNEFoNm1zdHdyV2NTYlBlZi1VQndqb01XWTRqZ0p0WWU5cGxn?oc=5",
+   767→    "summary": "В перевернувшейся машине пострадали три саратовца&nbsp;&nbsp;Взгляд-инфо",
+   768→    "published": "Sat, 13 Jun 2026 08:30:00 GMT",
+   769→    "source": "GoogleNews_автомобили новости",
+   770→    "lang": "ru",
+   771→    "images": [
+   772→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   773→    ],
+   774→    "fetched_at": "2026-06-13T22:15:56.198532+00:00"
+   775→  },
+   776→  {
+   777→    "title": "BMW на выставке Computex 2026 показала автомобиль, кузов которого может менять цвета - BFM.ru",
+   778→    "url": "https://news.google.com/rss/articles/CBMiREFVX3lxTE1DS1hwWkRyX1RvQ0ZYRGtXT2pLRm5vc1ptWXVjMk1ENVhKbDVINmV1eTYwNWVXUlUxUlp3dVQ2aUJqNEZa0gFKQVVfeXFMUG14bmxIT1RXci1ZUjMwYmtKWU54cjBVTVZpOHBDV2JidlJ4cHIydEpCdUkxTHlHeTN3dzBaQmFJcE9VQ0V5cUxaTVE?oc=5",
+   779→    "summary": "BMW на выставке Computex 2026 показала автомобиль, кузов которого может менять цвета&nbsp;&nbsp;BFM.ru",
+   780→    "published": "Sat, 13 Jun 2026 14:22:25 GMT",
+   781→    "source": "GoogleNews_автомобили новости",
+   782→    "lang": "ru",
+   783→    "images": [
+   784→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   785→    ],
+   786→    "fetched_at": "2026-06-13T22:15:56.895313+00:00"
+   787→  },
+   788→  {
+   789→    "title": "ЕС впервые ввез из КНР больше автомобилей, чем поставил ей - DW",
+   790→    "url": "https://news.google.com/rss/articles/CBMinwFBVV95cUxNUjNQa2xOZk1xbmcybjdlSmhwWGVqaldtMHNaZlc3LWt0MVJsR3d0WVp6TGNwNF9jYVAxSkVHU21RUFNLOGhPSkpqWmxfbXpPZ2VKSmNBNE5XdTg3WV91QTJ4QzNxM0Flbk01WkNpcHlvNEM2UW0tanZTckNzZEMyaTI0LXJMN1pxRXdTd2dnVHRFR1BTQ3RfZ2ZGd180SjjSAZ8BQVVfeXFMTzliNHdCVFNEQVFGdmNwODU3TVdmMDNHZ1ZISzM2TWdtN2tuYU1MSzlxUGw4Y1dkM0hFdEEyZFdHcUNHTFdYQzQ3ajVZcFdWX0pib3FGbUtXaTV5bUhncjllUVhPSWEwYV9rdnlRV2NUQkVnejBFdVp2ZTY0SUh6ck50SXpYQjVFTE9lR1IxUVJMTkJsVlp6ZklkVTROZVZn?oc=5",
+   791→    "summary": "ЕС впервые ввез из КНР больше автомобилей, чем поставил ей&nbsp;&nbsp;DW",
+   792→    "published": "Fri, 20 Mar 2026 07:00:00 GMT",
+   793→    "source": "GoogleNews_китайские автомобили",
+   794→    "lang": "ru",
+   795→    "images": [
+   796→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   797→    ],
+   798→    "fetched_at": "2026-06-13T22:15:57.579013+00:00"
+   799→  },
+   800→  {
+   801→    "title": "Тест-драйв кроссовера eπ008. Когда электрокар почти не требу... - Китайские автомобили",
+   802→    "url": "https://news.google.com/rss/articles/CBMie0FVX3lxTE52bzVkQ2NHZUNibWJlZG14eW5ZM21WUkNMS253N1ZpZ3ZwWnhoZ05RRFlyY2xjVDlqbzRPa1JzbTA3M0paSmNFYmVnUmlCVldsb0dvOTRRU05oLVdaWnpINnlLMkkzRWYxXzdTbi1hTGVPVEdEXzBTVjlzY9IBe0FVX3lxTE52bzVkQ2NHZUNibWJlZG14eW5ZM21WUkNMS253N1ZpZ3ZwWnhoZ05RRFlyY2xjVDlqbzRPa1JzbTA3M0paSmNFYmVnUmlCVldsb0dvOTRRU05oLVdaWnpINnlLMkkzRWYxXzdTbi1hTGVPVEdEXzBTVjlzYw?oc=5",
+   803→    "summary": "Тест-драйв кроссовера eπ008. Когда электрокар почти не требу...&nbsp;&nbsp;Китайские автомобили",
+   804→    "published": "Sat, 13 Jun 2026 21:14:57 GMT",
+   805→    "source": "GoogleNews_электромобили зарядн",
+   806→    "lang": "ru",
+   807→    "images": [
+   808→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   809→    ],
+   810→    "fetched_at": "2026-06-13T22:15:58.269115+00:00"
+   811→  },
+   812→  {
+   813→    "title": "Штрафы ГИБДД в 2026 году: за скорость и все другие - Главбух",
+   814→    "url": "https://news.google.com/rss/articles/CBMiiwFBVV95cUxNelNVOUVCbU03eF9ZQVo1UldwSjllY0diVnRJNUZCU05zTy1Cc1pWWl9fZFhkeXhyR21ndUtNNHV2alJKODBHMk5HU2Q2bFZIVUNmeFRGT3FIRXlqTzhlSGNHc1BJR0VmbUlEeDJyWEx6cUNkUUpMdW1fMVYxTFlsNmk0bHB1V1YzLW5r?oc=5",
+   815→    "summary": "Штрафы ГИБДД в 2026 году: за скорость и все другие&nbsp;&nbsp;Главбух",
+   816→    "published": "Mon, 22 Dec 2025 07:22:36 GMT",
+   817→    "source": "GoogleNews_ПДД изменения штрафы",
+   818→    "lang": "ru",
+   819→    "images": [
+   820→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   821→    ],
+   822→    "fetched_at": "2026-06-13T22:15:58.993323+00:00"
+   823→  },
+   824→  {
+   825→    "title": "Как работает госпрограмма на покупку автомобиля в 2026 - Банки.ру",
+   826→    "url": "https://news.google.com/rss/articles/CBMiW0FVX3lxTFBLUWE4OVVpUzEzVFFDMXNnRl9menFKZk5TSzhEYmJ5OXVrbzhUTWdubzItOGRYb1JDRzBUVF95M2s1WXd4ZGVveERRWThXRkNQTzBjTktpd3ZlcDg?oc=5",
+   827→    "summary": "Как работает госпрограмма на покупку автомобиля в 2026&nbsp;&nbsp;Банки.ру",
+   828→    "published": "Wed, 25 Mar 2026 14:03:01 GMT",
+   829→    "source": "GoogleNews_автокредит страхован",
+   830→    "lang": "ru",
+   831→    "images": [
+   832→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   833→    ],
+   834→    "fetched_at": "2026-06-13T22:15:59.671634+00:00"
+   835→  },
+   836→  {
+   837→    "title": "Пять крупнейших по выручке автодилеров России - Forbes.ru",
+   838→    "url": "https://news.google.com/rss/articles/CBMinAFBVV95cUxOVUVtOElwMjBWZnUtSlRMYkJDeGlqVEFMamJhaDlMZ2M0WmR0eERiQkhiTmxSVDduYlQ1dmwtTnQ3OWJUaDVxZUZBY2Y3RGlIQ1JTVzFBbVUtelZTMXREZmhVRnZZanlEMkdNR09ScUVBMXhLQ291N2pyZ1dDY1FpSmsxRUlwZXByOS1JX3lwamIzamhsdXhZMml2YWE?oc=5",
+   839→    "summary": "Пять крупнейших по выручке автодилеров России&nbsp;&nbsp;Forbes.ru",
+   840→    "published": "Thu, 24 Sep 2020 07:00:00 GMT",
+   841→    "source": "GoogleNews_автосалон Москва",
+   842→    "lang": "ru",
+   843→    "images": [
+   844→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   845→    ],
+   846→    "fetched_at": "2026-06-13T22:16:00.347903+00:00"
+   847→  },
+   848→  {
+   849→    "title": "China car exports jump 73% in May as high fuel prices raise interest in EVs - PBS",
+   850→    "url": "https://news.google.com/rss/articles/CBMirgFBVV95cUxQTkdKZ2NZZ3BSSkNMMFVOVFNqbzFNRjJhYmUtbTRxNURXdV8ycHJER044QjBrQXJjNTQxTndWLVdZVlhydFNleU5xUmN5SEJjOUNtb3dhUDdfVkFROTVoUkRPalJudEhiQlE0YkdDMGxobThjMFNyaDE5LWMyd2ZmS0NWdm83TEFwT1VqUWpiTXF4M0FqU24xbUhYZzZ5U2k4SFc0X2ZXZGxiaEZVMlHSAbMBQVVfeXFMUFJxLUtCLVZTS1dNOU1hY1NwVFR0bGFOc1lRQjNoREtsU3pQMTNaamlJWlV0c0NNZ0p1MGZxMjUyR1NiRG55bXNFckxsbFVZODRkdHU1LS1qVHpqdkR5Y3F6VzhIOTB4UnZxSEpLQ0FMTW1rRmx1b045RDRiOHRXSEtEMmhXTmFZVnBhYWY5MWN1aEpXanFVdGg0am14LTNIbDhDWkZjYXRUMl9BeEs5Q055Q1k?oc=5",
+   851→    "summary": "China car exports jump 73% in May as high fuel prices raise interest in EVs&nbsp;&nbsp;PBS",
+   852→    "published": "Wed, 10 Jun 2026 21:39:47 GMT",
+   853→    "source": "GoogleNews_automotive industry ",
+   854→    "lang": "en",
+   855→    "images": [
+   856→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   857→    ],
+   858→    "fetched_at": "2026-06-13T22:16:01.049908+00:00"
+   859→  },
+   860→  {
+   861→    "title": "Federal transportation bill should not punish EV drivers - Hawaii Tribune-Herald",
+   862→    "url": "https://news.google.com/rss/articles/CBMiswFBVV95cUxOYk9tUUwyZ0NqalFmel9qUTQ1YlZnVHJJNUF4ZmplUVByMUNrRFFvZmtVU1dBckZma2VZcjVyelpZTkJQSG9hUk1pVVVESDZRMEp3LW9hM1NFYV9MVkh5eXZ3VjVQckxjT3VGYUVRNFF1WFd1RWk1TDJkTnNyTWZ4X2tVNDU5anBpcjR4RVRJcVY5eHRzOVdxWmFtVzhESXMtUGh1RFlDcm1yVmR4RHEzaGVZSQ?oc=5",
+   863→    "summary": "Federal transportation bill should not punish EV drivers&nbsp;&nbsp;Hawaii Tribune-Herald",
+   864→    "published": "Sat, 13 Jun 2026 10:05:00 GMT",
+   865→    "source": "GoogleNews_electric vehicles 20",
+   866→    "lang": "en",
+   867→    "images": [
+   868→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   869→    ],
+   870→    "fetched_at": "2026-06-13T22:16:01.755298+00:00"
+   871→  },
+   872→  {
+   873→    "title": "Want An EV That Actually Holds Its Value? iSeeCars Says To Start With These - SlashGear",
+   874→    "url": "https://news.google.com/rss/articles/CBMihgFBVV95cUxNYlZqODZVWEVyQ2t5MVBNUEx5UzRjTTN3a19VNUdaZVEtRXRydmpwVDdXc1BuSDVRWTd3MVNjek92NXVRSGs4N0JsSm4zZWw5cmFUV1cxVm9razhfc0psd3NNRkNzZ2NCb2NDaEZtUEZ1QTN1dVlzRFpFSUMyajBzVEtnS1Z4Zw?oc=5",
+   875→    "summary": "Want An EV That Actually Holds Its Value? iSeeCars Says To Start With These&nbsp;&nbsp;SlashGear",
+   876→    "published": "Sat, 13 Jun 2026 21:45:00 GMT",
+   877→    "source": "GoogleNews_electric vehicles 20",
+   878→    "lang": "en",
+   879→    "images": [
+   880→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   881→    ],
+   882→    "fetched_at": "2026-06-13T22:16:02.436970+00:00"
+   883→  },
+   884→  {
+   885→    "title": "7 Classic Car Shows for Automobile Enthusiasts in the Hudson Valley - Hudson Valley Magazine",
+   886→    "url": "https://news.google.com/rss/articles/CBMiU0FVX3lxTE1pdnpBS2VsNnhCbGRidk9ZNDExVE95Nktwa1A0QUxKZzBfYTk4M1p4NEZ4V29uZkZONGpFbmpVQXE3WEQtZ2h4NnZjQ3lKREFOZWVV0gHAA0FVX3lxTE91MTN0R0o5Q3B1LTg5Q2RhMmF1ekdiemlwUlBUcTFVYUlBLURaREtNOWxKMThmcEhLUkRqMnk4NTFMYnhVQ1VWWGljZFY2QUd4NjMzck00UG90ZHhQeFJIM2dNRzdLUEZWd2xTYWw4bVRjd0xSVUpsZ201c2lMTUhtQmVCbFBEZzJyRnJ1WENIdWppNmQyRmtXaHcyZWNZVlBrTGRucGpOT2NIOTN2NmYyVERiWGw5aVBtSVltbTlrWU5iZy1TUUl1Y1lqUXVtZlJUVHBjMnpIOTVuNl9xaU85b2hKeUkxVElCNnpOdVJTUlJGLVRfU0xiVXh5ZldxNk5PYW9kM2tPajJOWGw3eERJbWRqcEtVeE9mRmU5ZW5NSU9JVWZWWGtya1pWOEtQVkNIT3haX3pKNnc4QUR3b3ctalUtTlpxOVNHdFE3V28tdk5rTUExaWxYZnI4NDVicVVZdkk2anlwVU9NMjl4WFVOVlNpaTRabkozUkRHX3lVVTdhN3FQVlU0dWdSTFJWSlREX3J4bGJmcmZHUWxTZ3JUc3dkd0Fsazlqb21HQUNtdUhrMWxZR3k5TFExdnJRcWE?oc=5",
+   887→    "summary": "7 Classic Car Shows for Automobile Enthusiasts in the Hudson Valley&nbsp;&nbsp;Hudson Valley Magazine",
+   888→    "published": "Tue, 26 May 2026 07:00:00 GMT",
+   889→    "source": "GoogleNews_auto shows 2026",
+   890→    "lang": "en",
+   891→    "images": [
+   892→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   893→    ],
+   894→    "fetched_at": "2026-06-13T22:16:03.118356+00:00"
+   895→  },
+   896→  {
+   897→    "title": "AEA Study: Auto Shows Are the No. 1 Influence on Vehicle Purchase Decisions | THE SHOP - theshopmag.com",
+   898→    "url": "https://news.google.com/rss/articles/CBMigwFBVV95cUxOeE1qWlByUndEQmhkd19tREk0Y0JhTVhlQ3BDMXNycUxJQlNzZkRFSHVpOWtvdU1QekprakNrN0VmQXpUeEMtWnc3Qnp4MEhRSE8tT3ktTjFHekI4dXBBTTdqRklxbVYybWwtYTR0MGc2elNxUXdFQnhTV2tfQTRiT01MZ9IBiwFBVV95cUxOTDc5cURNYjZmNGctRXNXZWxFX1NObVNUYnZDTmZoLUZRamFkWUN4bzVhNGMzWU1RUkpYVmJZWUM2NW8wNzhkRnltcEZSVV85Wm16aFpjMDc4UHlQS2xTeFZGS05VM2JyUnlQNF91LTZCOUJINHFUWmF2Z0tMdXNVNTVMS0ZYNlZTWkxr?oc=5",
+   899→    "summary": "AEA Study: Auto Shows Are the No. 1 Influence on Vehicle Purchase Decisions | THE SHOP&nbsp;&nbsp;theshopmag.com",
+   900→    "published": "Thu, 04 Jun 2026 17:04:12 GMT",
+   901→    "source": "GoogleNews_auto shows 2026",
+   902→    "lang": "en",
+   903→    "images": [
+   904→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   905→    ],
+   906→    "fetched_at": "2026-06-13T22:16:03.795316+00:00"
+   907→  },
+   908→  {
+   909→    "title": "NOMM Returns With 28th Annual All Mopar Car Show - MoparInsiders",
+   910→    "url": "https://news.google.com/rss/articles/CBMigAFBVV95cUxOZzlvLTJRalVwX2IybFRnUXVGbE5NS2VKZEFaOXNIOHFyVUQ1SVhHVjZSYV85VERoNFM0T0JrVTY1ZWNYZDl0VDZiaHVtWFVLMGttLTBCSkF2c0RJMkNZVlJpODFrNGFXYkdSbzJSQnBCNGl4NTJpZEJ5ZGphQll3TQ?oc=5",
+   911→    "summary": "NOMM Returns With 28th Annual All Mopar Car Show&nbsp;&nbsp;MoparInsiders",
+   912→    "published": "Wed, 03 Jun 2026 07:00:00 GMT",
+   913→    "source": "GoogleNews_auto shows 2026",
+   914→    "lang": "en",
+   915→    "images": [
+   916→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   917→    ],
+   918→    "fetched_at": "2026-06-13T22:16:04.478048+00:00"
+   919→  },
+   920→  {
+   921→    "title": "Solid-state EV batteries hit another major milestone in China - Electrek",
+   922→    "url": "https://news.google.com/rss/articles/CBMilAFBVV95cUxQcHRqaGNNTm1sdXhlZnlLRHNYbHVWSTd5WlJ4S0ZmcGFhRzEwVVZWZE9YUUxoR3QyTDNkWDN3b1pkd21RdXBYRk5ydWtzc2ROd0lTSmVyMmlkUlB6MEM3QmdpbTNhdC01bm4yakdfdFl5R01ORWw5dGsxVlJVNGlKcC04cVcyUER0RzdSRzZHQlVJTG40?oc=5",
+   923→    "summary": "Solid-state EV batteries hit another major milestone in China&nbsp;&nbsp;Electrek",
+   924→    "published": "Thu, 21 May 2026 07:00:00 GMT",
+   925→    "source": "GoogleNews_EV battery technolog",
+   926→    "lang": "en",
+   927→    "images": [
+   928→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   929→    ],
+   930→    "fetched_at": "2026-06-13T22:16:05.180790+00:00"
+   931→  },
+   932→  {
+   933→    "title": "10 Best Electric Vehicle (EV) Battery Stocks for 2026 and How to Invest - The Motley Fool",
+   934→    "url": "https://news.google.com/rss/articles/CBMizAFBVV95cUxNdnhiTlF1eVRsT21uOUwyQ01DMVdNZVpLRXF1djItQWY5dlZ3NkF6ai1IeFZ0REd5el9EWHVjNWU2TEp3SFFYeHU2U1B2N1ZOXzlvTlNTMzh6dlJRN3ZBaXpYeTdYRWZjVTZYWEpKc2hSclByTXk4THpQQ0x6bmZSdU5VZHl5QjNwbkk0Wkx0MmFIMFR0QjRDWUtGMVcyVzRUYlUwdlc4RFVGamtGUG5uRVB3Z2ZuQnpFdkVuTC1qNnNBN3RaMjFTUEEwbWg?oc=5",
+   935→    "summary": "10 Best Electric Vehicle (EV) Battery Stocks for 2026 and How to Invest&nbsp;&nbsp;The Motley Fool",
+   936→    "published": "Fri, 12 Jun 2026 00:00:00 GMT",
+   937→    "source": "GoogleNews_EV battery technolog",
+   938→    "lang": "en",
+   939→    "images": [
+   940→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   941→    ],
+   942→    "fetched_at": "2026-06-13T22:16:05.870927+00:00"
+   943→  },
+   944→  {
+   945→    "title": "Stellantis Advances Solid-State Battery Testing With Dodge Charger Prototype (STLA) - Yahoo Autos",
+   946→    "url": "https://news.google.com/rss/articles/CBMiqgFBVV95cUxNSnlQallMWkZ3MXJxd01QNTlwSEhUSnFLeEhqOTVZVXdGdVgtVXNreTRNWlpUeC14bzNVS0Vjc0xOMTRkdHJzQWVmQ19CZThYT255RGNWNFE1TFRrZkR6UGlPUGFYRUFlN0ZqUm8zUFB6RVhwd0dZV3hXLTZ5MTVOdGRaYnFmV0FCenFxNGZqN3Jnb0ZnUWlqSU1qaVVZa2RBNGRpSTZuUmZjdw?oc=5",
+   947→    "summary": "Stellantis Advances Solid-State Battery Testing With Dodge Charger Prototype (STLA)&nbsp;&nbsp;Yahoo Autos",
+   948→    "published": "Thu, 11 Jun 2026 12:37:57 GMT",
+   949→    "source": "GoogleNews_EV battery technolog",
+   950→    "lang": "en",
+   951→    "images": [
+   952→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   953→    ],
+   954→    "fetched_at": "2026-06-13T22:16:06.553636+00:00"
+   955→  },
+   956→  {
+   957→    "title": "European automakers face supply chain risk as Iran conflict threatens chips, batteries - Automotive News",
+   958→    "url": "https://news.google.com/rss/articles/CBMilAFBVV95cUxPQ2U4S3lPOFRrOWd6dm1oX2k1S3U2OFRMRDlzM1V6WkhTVEoyRllWN3RXXzVscE9wby1LQ0cyYlVxM0hoV2g0bHp0WXAwTFRLSnUwRDVBTHZWZ1JhblhaYlY0cU5aUFNUa3RJMWtUUjl4QjV0NjVKay1QM3F1XzdTV0xsYTNqQWtzeHJPRVphS05WbHA0?oc=5",
+   959→    "summary": "European automakers face supply chain risk as Iran conflict threatens chips, batteries&nbsp;&nbsp;Automotive News",
+   960→    "published": "Fri, 20 Mar 2026 07:00:00 GMT",
+   961→    "source": "GoogleNews_supply chain automot",
+   962→    "lang": "en",
+   963→    "images": [
+   964→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   965→    ],
+   966→    "fetched_at": "2026-06-13T22:16:07.232870+00:00"
+   967→  },
+   968→  {
+   969→    "title": "Manheim Used Vehicle Value Index: May 2026 Trends - Cox Automotive Inc.",
+   970→    "url": "https://news.google.com/rss/articles/CBMijgFBVV95cUxNeHlmQzJSM2dNeEFGYk1uSkRkdTYxVXpsSUJnMnhGcU5uek9uNHozRWdRVmtTMmNUVXM0cHM3Ykx5V0dNbWJrdnRTVklnZ1dCVGJsMHJBeWxQbmRSaGhEQ1RQeXVmZm1ud2pITXFVc0VaRjdNVGVUOFlDdU5LaWE4dWFRODB4em82dksxcEhB?oc=5",
+   971→    "summary": "Manheim Used Vehicle Value Index: May 2026 Trends&nbsp;&nbsp;Cox Automotive Inc.",
+   972→    "published": "Fri, 05 Jun 2026 13:01:08 GMT",
+   973→    "source": "GoogleNews_used car market pric",
+   974→    "lang": "en",
+   975→    "images": [
+   976→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   977→    ],
+   978→    "fetched_at": "2026-06-13T22:16:07.920305+00:00"
+   979→  },
+   980→  {
+   981→    "title": "Used car prices hit highest levels since 2023 and could push higher as inventory shrinks - Yahoo Finance",
+   982→    "url": "https://news.google.com/rss/articles/CBMi5wFBVV95cUxNU1hTZjMzdFRFVkUzOUtYbS1CYzRJa3BRRFdaUjFsdzNQOUZqOFhmNU5td05IMXF1MHJCMWlpOE9qd3Q4VGtuajlqOGdpZ1VFZ2ZUal9Fc09vQ2ljY2NId0lydm4xeTZ0QTNRNXBUY1dGa2VYWk40ME8xUUMwZUtCanFPUnQ2VWNwNEdPQnpvRzRDcTNkbHF3VER0Yml6TEdaanlOZkdiVW5CeWlCcWxzbEpRRHZ4VS1UYTFpaWFUTVY3c3B3SlA0SUgxc2MtNG83emxGaVV2eDhOMG1jSTZnb0UzdTlkNUE?oc=5",
+   983→    "summary": "Used car prices hit highest levels since 2023 and could push higher as inventory shrinks&nbsp;&nbsp;Yahoo Finance",
+   984→    "published": "Sat, 11 Apr 2026 07:00:00 GMT",
+   985→    "source": "GoogleNews_used car market pric",
+   986→    "lang": "en",
+   987→    "images": [
+   988→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+   989→    ],
+   990→    "fetched_at": "2026-06-13T22:16:08.600132+00:00"
+   991→  },
+   992→  {
+   993→    "title": "Automotive News Europe honors the 2026 Rising Stars - Automotive News",
+   994→    "url": "https://news.google.com/rss/articles/CBMinAFBVV95cUxQdk9ReEM4WmZGbnZyenZ3aDZRWDg4S0MwQWN2RFJIRzRWQmNVYmM0Q1k5XzVoa3YydGp4UTNRS2FkUFdFQ21tM0NCd19vdDJGbzMyTjd4WlZEREl3cnJ2Z2ZSN1ZtVmhrVkFrT01KREJ5LW5Iek9OTFBDYk9NZEViRWwxRUJSY1NhTzZuOXYyZ0J6WXpHMzlhYUUtVVY?oc=5",
+   995→    "summary": "Automotive News Europe honors the 2026 Rising Stars&nbsp;&nbsp;Automotive News",
+   996→    "published": "Tue, 09 Jun 2026 05:00:00 GMT",
+   997→    "source": "GoogleNews_Auto Nachrichten",
+   998→    "lang": "en",
+   999→    "images": [
+  1000→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1001→    ],
+  1002→    "fetched_at": "2026-06-13T22:16:09.290631+00:00"
+  1003→  },
+  1004→  {
+  1005→    "title": "Cheapest Car Insurance in Pennsylvania for 2026 - U.S. News & World Report",
+  1006→    "url": "https://news.google.com/rss/articles/CBMiekFVX3lxTE93akk1RXY2OXJIWEFCMnBmX0s1OU9uTWxVQUNsSWJKX0RVYzg4RDVTSE01aXFoNTEyNmxpWG1kZ2tHXy12RWpPRDYwYzhMTDFETGROLVZ6VmRvbWc1Ty1SZldSbU9sSWgtTlV3TEMxcVBocTcyLXZnc0ZB?oc=5",
+  1007→    "summary": "Cheapest Car Insurance in Pennsylvania for 2026&nbsp;&nbsp;U.S. News & World Report",
+  1008→    "published": "Thu, 04 Jun 2026 07:00:00 GMT",
+  1009→    "source": "GoogleNews_Auto Nachrichten",
+  1010→    "lang": "en",
+  1011→    "images": [
+  1012→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1013→    ],
+  1014→    "fetched_at": "2026-06-13T22:16:09.975304+00:00"
+  1015→  },
+  1016→  {
+  1017→    "title": "Часть Запорожской области осталась без света из-за атаки украинских БПЛА",
+  1018→    "url": "https://tass.ru/proisshestviya/27750005",
+  1019→    "summary": "Повреждены несколько энергетических объектов",
+  1020→    "published": "Sat, 13 Jun 2026 23:19:48 +0300",
+  1021→    "source": "ТАСС Авто",
+  1022→    "lang": "ru",
+  1023→    "images": [],
+  1024→    "fetched_at": "2026-06-13T20:24:37.075021+00:00"
+  1025→  },
+  1026→  {
+  1027→    "title": "В Риме прошли манифестации неофашистов и антифашистов",
+  1028→    "url": "https://tass.ru/obschestvo/27749999",
+  1029→    "summary": "Одни выступили в поддержку законопроекта, направленного на борьбу с незаконной и чрезмерной миграцией, а демонстрация других сопровождалась лозунгами \"нет расизму и насилию\"",
+  1030→    "published": "Sat, 13 Jun 2026 23:17:38 +0300",
+  1031→    "source": "ТАСС Авто",
+  1032→    "lang": "ru",
+  1033→    "images": [],
+  1034→    "fetched_at": "2026-06-13T20:24:37.668593+00:00"
+  1035→  },
+  1036→  {
+  1037→    "title": "Восток Москвы принял основной удар ливня с грозой - власти",
+  1038→    "url": "https://tass.ru/obschestvo/27749995",
+  1039→    "summary": "В отдельных районах за несколько часов выпало почти 160% от месячной нормы осадков",
+  1040→    "published": "Sat, 13 Jun 2026 23:15:13 +0300",
+  1041→    "source": "ТАСС Авто",
+  1042→    "lang": "ru",
+  1043→    "images": [],
+  1044→    "fetched_at": "2026-06-13T20:24:38.262674+00:00"
+  1045→  },
+  1046→  {
+  1047→    "title": "Антиглобалисты отказались от протестов против саммита G7 во Франции",
+  1048→    "url": "https://tass.ru/mezhdunarodnaya-panorama/27749967",
+  1049→    "summary": "Он пройдет с 15 по 17 июня во французской коммуне Эвиан-ле-Бен",
+  1050→    "published": "Sat, 13 Jun 2026 22:57:53 +0300",
+  1051→    "source": "ТАСС Авто",
+  1052→    "lang": "ru",
+  1053→    "images": [],
+  1054→    "fetched_at": "2026-06-13T20:24:38.861243+00:00"
+  1055→  },
+  1056→  {
+  1057→    "title": "В Дагестане нашли незаконную майнинг-ферму со 111 устройствами",
+  1058→    "url": "https://tass.ru/proisshestviya/27749985",
+  1059→    "summary": "Общая мощность оборудования составила порядка 389 кВт, что сопоставимо с энергопотреблением жилого квартала",
+  1060→    "published": "Sat, 13 Jun 2026 22:56:39 +0300",
+  1061→    "source": "ТАСС Авто",
+  1062→    "lang": "ru",
+  1063→    "images": [],
+  1064→    "fetched_at": "2026-06-13T20:24:39.455553+00:00"
+  1065→  },
+  1066→  {
+  1067→    "title": "Умер участник Олимпиады 1956 года легкоатлет Евгений Чен",
+  1068→    "url": "https://tass.ru/sport/27749989",
+  1069→    "summary": "Ему было 92 года",
+  1070→    "published": "Sat, 13 Jun 2026 22:55:43 +0300",
+  1071→    "source": "ТАСС Авто",
+  1072→    "lang": "ru",
+  1073→    "images": [
+  1074→      "https://cdn-media.tass.ru/fit/400x300_b2b00b17/tass/m2/uploads/i/20260613/9142617.jpg"
+  1075→    ],
+  1076→    "fetched_at": "2026-06-13T20:24:40.051885+00:00"
+  1077→  },
+  1078→  {
+  1079→    "title": "В РФ нашли способ улучшить СВЧ-фильтры для спутниковой связи и радиолокации",
+  1080→    "url": "https://tass.ru/nauka/27749965",
+  1081→    "summary": "Полученные выводы полезны для разработки перестраиваемых фильтров, фазовращателей, вентилей, активных фазированных антенных решеток",
+  1082→    "published": "Sat, 13 Jun 2026 22:54:43 +0300",
+  1083→    "source": "ТАСС Авто",
+  1084→    "lang": "ru",
+  1085→    "images": [],
+  1086→    "fetched_at": "2026-06-13T20:24:40.646310+00:00"
+  1087→  },
+  1088→  {
+  1089→    "title": "В Ингушетии задержали пособника участников нападения на \"Крокус сити холл\"",
+  1090→    "url": "https://tass.ru/proisshestviya/27749975",
+  1091→    "summary": "Хасан Альтемиров помогал оформлять подложные паспорта",
+  1092→    "published": "Sat, 13 Jun 2026 22:54:40 +0300",
+  1093→    "source": "ТАСС Авто",
+  1094→    "lang": "ru",
+  1095→    "images": [],
+  1096→    "fetched_at": "2026-06-13T20:24:41.239030+00:00"
+  1097→  },
+  1098→  {
+  1099→    "title": "Поезда Савеловского направления и МЦД-1 отклоняются от графика из-за непогоды",
+  1100→    "url": "https://tass.ru/obschestvo/27749947",
+  1101→    "summary": "В пресс-службе Московской железной дороги добавили, что принимают все необходимые меры для стабилизации графика движения",
+  1102→    "published": "Sat, 13 Jun 2026 22:52:04 +0300",
+  1103→    "source": "ТАСС Авто",
+  1104→    "lang": "ru",
+  1105→    "images": [],
+  1106→    "fetched_at": "2026-06-13T20:24:41.831372+00:00"
+  1107→  },
+  1108→  {
+  1109→    "title": "В Харькове произошел взрыв",
+  1110→    "url": "https://tass.ru/proisshestviya/27749957",
+  1111→    "summary": "В Харьковской области объявлена воздушная тревога",
+  1112→    "published": "Sat, 13 Jun 2026 22:48:08 +0300",
+  1113→    "source": "ТАСС Авто",
+  1114→    "lang": "ru",
+  1115→    "images": [],
+  1116→    "fetched_at": "2026-06-13T20:24:42.425131+00:00"
+  1117→  },
+  1118→  {
+  1119→    "title": "Маргарита Симоньян анонсировала создание фильма по книге Тиграна Кеосаяна",
+  1120→    "url": "https://tass.ru/kultura/27749935",
+  1121→    "summary": "Книга будет опубликована к сентябрю 2026 года, сообщила главный редактор телеканала RT",
+  1122→    "published": "Sat, 13 Jun 2026 22:47:29 +0300",
+  1123→    "source": "ТАСС Авто",
+  1124→    "lang": "ru",
+  1125→    "images": [
+  1126→      "https://cdn-media.tass.ru/fit/400x300_b2b00b17/tass/m2/uploads/i/20260613/9142605.jpg"
+  1127→    ],
+  1128→    "fetched_at": "2026-06-13T20:24:43.020363+00:00"
+  1129→  },
+  1130→  {
+  1131→    "title": "Число погибших при столкновении двух автомобилей под Одинцово увеличилось до трех",
+  1132→    "url": "https://tass.ru/proisshestviya/27749941",
+  1133→    "summary": "Один из них умер в карете скорой помощи",
+  1134→    "published": "Sat, 13 Jun 2026 22:42:07 +0300",
+  1135→    "source": "ТАСС Авто",
+  1136→    "lang": "ru",
+  1137→    "images": [],
+  1138→    "fetched_at": "2026-06-13T20:24:43.612941+00:00"
+  1139→  },
+  1140→  {
+  1141→    "title": "Axios: США и Иран подпишут меморандум 14 июня в виртуальном формате",
+  1142→    "url": "https://tass.ru/mezhdunarodnaya-panorama/27749927",
+  1143→    "summary": "Документ предусматривает открытие Ормузского пролива и запуск переговоров о ядерной программе Тегерана",
+  1144→    "published": "Sat, 13 Jun 2026 22:41:46 +0300",
+  1145→    "source": "ТАСС Авто",
+  1146→    "lang": "ru",
+  1147→    "images": [],
+  1148→    "fetched_at": "2026-06-13T20:24:44.205264+00:00"
+  1149→  },
+  1150→  {
+  1151→    "title": "BFMTV: представители США и Ирана могут встретиться в Швейцарии на следующей неделе",
+  1152→    "url": "https://tass.ru/mezhdunarodnaya-panorama/27749905",
+  1153→    "summary": "Повестка предстоящих переговоров не уточняется",
+  1154→    "published": "Sat, 13 Jun 2026 22:38:06 +0300",
+  1155→    "source": "ТАСС Авто",
+  1156→    "lang": "ru",
+  1157→    "images": [],
+  1158→    "fetched_at": "2026-06-13T20:24:44.799990+00:00"
+  1159→  },
+  1160→  {
+  1161→    "title": "Fox: в Южной Каролине в торговом центре произошла стрельба",
+  1162→    "url": "https://tass.ru/proisshestviya/27749919",
+  1163→    "summary": "По сведениям телеканала, как минимум два человека были доставлены в больницу",
+  1164→    "published": "Sat, 13 Jun 2026 22:37:37 +0300",
+  1165→    "source": "ТАСС Авто",
+  1166→    "lang": "ru",
+  1167→    "images": [],
+  1168→    "fetched_at": "2026-06-13T20:24:45.394568+00:00"
+  1169→  },
+  1170→  {
+  1171→    "title": "Тайна Дуная: спустя 54 года нашелся свидетель угона Opel Manta",
+  1172→    "url": "https://auto.mail.ru/article/125019-tajna-dunaya-spustya-54-goda-nashelsya-svidetel-ugona-opel-manta/",
+  1173→    "summary": "Затонувшее авто подняли в мае 2026–го — у полиции появился след, ведущий к прошлому",
+  1174→    "published": "Sat, 13 Jun 2026 22:30:34 +0300",
+  1175→    "source": "Авто Mail.ru",
+  1176→    "lang": "ru",
+  1177→    "images": [
+  1178→      "https://resizer.mail.ru/p/e7544023-e258-541d-97a2-1ab0656d241b/AQABXKCAEURH_rnUvjEzk0K-FdgwsUAI8QXXAbHhT3BJ-_VYJ3YsfnLwnTO2CKhge6C2kDABcp41pt02L-iA4V6LmZk.jpg",
+  1179→      "https://resizer.mail.ru/p/4b37b4cb-2924-5861-aa94-54fadbdf5dee/AQABXxUK5YUDiAuBAazz7XEAMiEzGtgwbZXLyC4Ek4ozlfRokzvBN4P1pYIRWG2JWTnyLa-qfRbY6c1UJxcPu30bqeA.jpg",
+  1180→      "https://top-fwz1.mail.ru/counter?id=85837;js=na;r=https%3A%2F%2Fauto.mail.ru%2F",
+  1181→      "https://top-fwz1.mail.ru/counter?id=2664992;js=na;r=https%3A%2F%2Fauto.mail.ru%2F"
+  1182→    ],
+  1183→    "fetched_at": "2026-06-13T20:24:46.739316+00:00"
+  1184→  },
+  1185→  {
+  1186→    "title": "Финская твердотельная батарея оказалась подделкой",
+  1187→    "url": "https://auto.mail.ru/article/125023-finskaya-tverdotelnaya-batareya-okazalas-poddelkoj/",
+  1188→    "summary": "Стартап Donut Lab собрал 25 млн долларов на поддельную твердотельную батарею",
+  1189→    "published": "Sat, 13 Jun 2026 22:00:33 +0300",
+  1190→    "source": "Авто Mail.ru",
+  1191→    "lang": "ru",
+  1192→    "images": [
+  1193→      "https://resizer.mail.ru/p/dd465a65-42dc-5adf-bf23-eb7d18d9d057/AQABvorfbck4YuaMh1DMQ05O19m9SFNC4rniaNwYQmYUuVzKrzJ9X6SRs-0SqxxHRWTkpa_apepO94ysGt8TCXGED2M.jpg",
+  1194→      "https://resizer.mail.ru/p/dd465a65-42dc-5adf-bf23-eb7d18d9d057/AQAB_LuA0WAZaYrzA4ABm0dRIjDiGslsGwt2Um0Qu3EVFGxQOBewIzC09tCHtJyAVyMLnByXDlq1_fuV5TdmP9AlpaM.jpg",
+  1195→      "https://top-fwz1.mail.ru/counter?id=85837;js=na;r=https%3A%2F%2Fauto.mail.ru%2F",
+  1196→      "https://top-fwz1.mail.ru/counter?id=2664992;js=na;r=https%3A%2F%2Fauto.mail.ru%2F"
+  1197→    ],
+  1198→    "fetched_at": "2026-06-13T20:24:47.660079+00:00"
+  1199→  },
+  1200→  {
+  1201→    "title": "How Honda's Innovative Motorcycle E-Clutch System Works (And Which Bikes Have It)",
+  1202→    "url": "https://www.jalopnik.com/2189740/how-hondas-innovative-e-clutch-system-works/",
+  1203→    "summary": "Honda's E-Clutch lets riders shift without using a clutch lever, but the trick lies in how electric motors take over part of the clutch mechanism.",
+  1204→    "published": "Sat, 13 Jun 2026 20:05:00 +0000",
+  1205→    "source": "Jalopnik",
+  1206→    "lang": "en",
+  1207→    "images": [
+  1208→      "https://www.jalopnik.com/img/gallery/how-hondas-innovative-motorcycle-e-clutch-system-works-and-which-bikes-have-it/l-intro-1780940145.jpg",
+  1209→      "https://www.jalopnik.com/img/gallery/how-hondas-innovative-motorcycle-e-clutch-system-works-and-which-bikes-have-it/intro-1780940145.jpg"
+  1210→    ],
+  1211→    "fetched_at": "2026-06-13T20:24:48.327266+00:00"
+  1212→  },
+  1213→  {
+  1214→    "title": "Two Corvettes And A Camaro Stolen During Route 66 Anniversary Tour",
+  1215→    "url": "https://www.jalopnik.com/2193424/cars-stolen-route-66-tour/",
+  1216→    "summary": "The thieves struck just as the tour was kicking off.",
+  1217→    "published": "Sat, 13 Jun 2026 19:05:00 +0000",
+  1218→    "source": "Jalopnik",
+  1219→    "lang": "en",
+  1220→    "images": [
+  1221→      "https://www.jalopnik.com/img/gallery/two-corvettes-and-a-camaro-stolen-during-route-66-anniversary-tour/l-intro-1781292536.jpg",
+  1222→      "https://www.jalopnik.com/img/gallery/two-corvettes-and-a-camaro-stolen-during-route-66-anniversary-tour/intro-1781292536.jpg",
+  1223→      "https://www.jalopnik.com/img/gallery/two-corvettes-and-a-camaro-stolen-during-route-66-anniversary-tour/no-one-was-caught-but-this-wasnt-an-impulse-crime-it-was-planned-1781292538.jpg"
+  1224→    ],
+  1225→    "fetched_at": "2026-06-13T20:24:48.863966+00:00"
+  1226→  },
+  1227→  {
+  1228→    "title": "Ferrari Luce full details on the 1,000bhp EV and why it “will take time to digest”",
+  1229→    "url": "https://www.autoexpress.co.uk/ferrari/364268/ferrari-luce-full-details-1000bhp-ev-and-why-it-will-take-time-digest",
+  1230→    "summary": "Ferrari’s first-ever electric car looks unlike anything made before in Maranello, because it was styled by the former Apple design boss",
+  1231→    "published": "Fri, 06 Sep 2024 12:32:27 GMT",
+  1232→    "source": "AutoExpress",
+  1233→    "lang": "en",
+  1234→    "images": [
+  1235→      "https://media.autoexpress.co.uk/image/private/s--hV2vxdpi--/t_rss_image_w_845/v1779745076/autoexpress/2026/05/Ferrari%20Luce%20official.jpg",
+  1236→      "https://media.autoexpress.co.uk/image/private/s--X-WVjvBW--/f_auto,t_content-image-full-desktop@1/v1781379918/autoexpress/2026/06/Ferrari Luce at Le Mans 2026-3.jpg",
+  1237→      "https://media.autoexpress.co.uk/image/private/s--hV2vxdpi--/f_auto,t_primary-image-mobile@1/v1779745076/autoexpress/2026/05/Ferrari%20Luce%20official.jpg",
+  1238→      "https://media.autoexpress.co.uk/image/private/s--nhv287gI--/f_auto,t_related-embed-mobile@1/v1778863166/autoexpress/2026/05/Ferrari_HC25_1_afmk3v.jpg",
+  1239→      "https://media.autoexpress.co.uk/image/private/s--xJKQkOb4--/f_auto,t_content-image-full-mobile@1/v1781379931/autoexpress/2026/06/Ferrari%20Luce%20at%20Le%20Mans%202026-5.jpg"
+  1240→    ],
+  1241→    "fetched_at": "2026-06-13T20:24:49.517553+00:00"
+  1242→  },
+  1243→  {
+  1244→    "title": "Ferrari Luce electric car official - pictures",
+  1245→    "url": "https://www.autoexpress.co.uk/ferrari/369653/ferrari-luce-electric-car-official-pictures",
+  1246→    "summary": "Official pictures of the Ferrari Luce electric car",
+  1247→    "published": "Mon, 25 May 2026 20:13:30 GMT",
+  1248→    "source": "AutoExpress",
+  1249→    "lang": "en",
+  1250→    "images": [
+  1251→      "https://media.autoexpress.co.uk/image/private/s--hV2vxdpi--/t_rss_image_w_845/v1779745076/autoexpress/2026/05/Ferrari%20Luce%20official.jpg",
+  1252→      "https://media.autoexpress.co.uk/image/private/s--X-WVjvBW--/f_auto,t_content-image-full-desktop@1/v1779745076/autoexpress/2026/05/Ferrari Luce official.jpg",
+  1253→      "https://media.autoexpress.co.uk/image/private/s--egRWodlf--/f_auto,t_content-image-full-mobile@1/v1781379918/autoexpress/2026/06/Ferrari%20Luce%20at%20Le%20Mans%202026-3.jpg",
+  1254→      "https://media.autoexpress.co.uk/image/private/s--fjyv5Rmz--/f_auto,t_content-image-full-mobile@1/v1781367041/evo/2026/06%20June/Ferrari%20Luce%20Le%20Mans-4.jpg",
+  1255→      "https://media.autoexpress.co.uk/image/private/s--4QrnQt7N--/f_auto,t_content-image-full-mobile@1/v1781366859/evo/2026/06%20June/Ferrari%20Luce%20Le%20Mans-2.jpg"
+  1256→    ],
+  1257→    "fetched_at": "2026-06-13T20:24:50.097935+00:00"
+  1258→  },
+  1259→  {
+  1260→    "title": "$24K For A 63-HP Mazda Kei Car Sounds Steep, Until You See The Gullwing Doors",
+  1261→    "url": "https://www.carscoops.com/2026/06/24k-sounds-steep-for-63-hp-but-the-az-1s-micro-lambo-design-disagrees/",
+  1262→    "summary": "A Miata is faster and cheaper, but it definitely won’t draw attention like an Autozam AZ1",
+  1263→    "published": "Sat, 13 Jun 2026 20:00:00 +0000",
+  1264→    "source": "CarScoops",
+  1265→    "lang": "en",
+  1266→    "images": [
+  1267→      "https://www.carscoops.com/wp-content/uploads/2026/06/9AbRQgvA-u_xgV8h-copy-1024x576.jpg",
+  1268→      "https://www.carscoops.com/wp-content/uploads/2026/06/9AbRQgvA-u_xgV8h-copy.jpg"
+  1269→    ],
+  1270→    "fetched_at": "2026-06-13T20:24:50.661322+00:00"
+  1271→  },
+  1272→  {
+  1273→    "title": "NASCAR Cup Pocono starting lineup: Denny Hamlin earns pole as Wallace, Hocevar spin",
+  1274→    "url": "https://www.motorsport.com/nascar-cup/news/nascar-cup-pocono-starting-lineup-denny-hamlin-earns-pole-as-wallace-hocevar-spin/10830098/?utm_source=RSS&utm_medium=referral&utm_campaign=RSS-ALL&utm_term=News&utm_content=www",
+  1275→    "summary": "There's just no stopping the No. 11 Joe Gibbs Racing Toyota of Denny Hamlin right now, who snagged pole position for this weekend's NASCAR Cup race at Pocono Raceway.  He was the only driver to break into the 51-second bracket with a fast lap of 51.948s.This is Hamlin's 51st career pole and his sixth at Pocono. He will be joined on the front row by Kyle Larson in the No. 5 Hendrick ...Keep reading",
+  1276→    "published": "Sat, 13 Jun 2026 19:27:59 +0000",
+  1277→    "source": "Motorsport.com",
+  1278→    "lang": "en",
+  1279→    "images": [
+  1280→      "https://cdn-3.motorsport.com/images/amp/24QeKDXY/s6/denny-hamlin-pole-no-11-joe-gi.jpg",
+  1281→      "https://cdn-5.motorsport.com/images/amp/24QeKDXY/s6/denny-hamlin-pole-no-11-joe-gi.jpg",
+  1282→      "https://cdn-8.motorsport.com/static/img/usa/0/10000/10000/10600/10610/s2_3.jpg",
+  1283→      "https://cdn-5.motorsport.com/images/amp/24QeKDXY/s1000/denny-hamlin-pole-no-11-joe-gi.webp",
+  1284→      "https://cdn-8.motorsport.com/static/img/usa/0/10000/10000/10600/10610/s2_3.webp"
+  1285→    ],
+  1286→    "fetched_at": "2026-06-13T20:24:51.369605+00:00"
+  1287→  },
+  1288→  {
+  1289→    "title": "Drivers proud of NASCAR safety initiatives after Christopher Bell crash",
+  1290→    "url": "https://www.motorsport.com/nascar-cup/news/drivers-proud-nascar-safety-initiatives-after-christopher-bell-crash/10830096/?utm_source=RSS&utm_medium=referral&utm_campaign=RSS-ALL&utm_term=News&utm_content=www",
+  1291→    "summary": "Chase Briscoe took a look at what was left of the crashed Christopher Bell car on Monday at the Joe Gibbs Racing facility and was ‘blown away’ by it.The impact was the worst since this car’s debut in 2022 and at least a decade. And while it left Bell with a fractured left wrist, one he will attempt to race through, it had the appearance of something that could have been much ...Keep reading",
+  1292→    "published": "Sat, 13 Jun 2026 19:26:14 +0000",
+  1293→    "source": "Motorsport.com",
+  1294→    "lang": "en",
+  1295→    "images": [
+  1296→      "https://cdn-1.motorsport.com/images/amp/6grBZObY/s6/bell-crash-3.jpg",
+  1297→      "https://cdn-2.motorsport.com/images/amp/6grBZObY/s6/bell-crash-3.jpg",
+  1298→      "https://cdn-9.motorsport.com/images/usa/x6zyWvwY/s2/matt-weaver.jpg",
+  1299→      "https://cdn-2.motorsport.com/images/amp/6grBZObY/s1000/bell-crash-3.webp",
+  1300→      "https://cdn.motorsport.com/images/amp/2y7AbXK6/s2/christopher-bell-no-20-joe-gib.jpg"
+  1301→    ],
+  1302→    "fetched_at": "2026-06-13T20:24:51.929327+00:00"
+  1303→  },
+  1304→  {
+  1305→    "title": "The trick behind Lewis Hamilton's best qualifying result for Ferrari",
+  1306→    "url": "https://www.motorsport.com/f1/news/the-trick-behind-lewis-hamiltons-best-qualifying-result-for-ferrari/10830071/?utm_source=RSS&utm_medium=referral&utm_campaign=RSS-ALL&utm_term=News&utm_content=www",
+  1307→    "summary": "Lewis Hamilton overcame a tricky start to his Barcelona Grand Prix weekend by leaving the track before qualifying, where he took second for Sunday’s Formula 1 contest.The Ferrari driver split the Mercedes cars and was just 0.064s behind polesitter George Russell, in what was his best qualifying result since joining the Scuderia at the beginning of 2025.It came despite largely playing ...Keep reading",
+  1308→    "published": "Sat, 13 Jun 2026 18:32:26 +0000",
+  1309→    "source": "Motorsport.com",
+  1310→    "lang": "en",
+  1311→    "images": [
+  1312→      "https://cdn-5.motorsport.com/images/amp/6Vy7q8GY/s6/lewis-hamilton-ferrari.jpg",
+  1313→      "https://cdn-2.motorsport.com/images/amp/6Vy7q8GY/s6/lewis-hamilton-ferrari.jpg",
+  1314→      "https://cdn-1.motorsport.com/images/amp/24QeKDXY/s200/denny-hamlin-pole-no-11-joe-gi.webp",
+  1315→      "https://cdn-8.motorsport.com/images/amp/6grBZObY/s200/bell-crash-3.webp",
+  1316→      "https://cdn-8.motorsport.com/images/amp/2jED9Vb0/s200/george-russell-mercedes.webp"
+  1317→    ],
+  1318→    "fetched_at": "2026-06-13T20:24:52.528096+00:00"
+  1319→  },
+  1320→  {
+  1321→    "title": "Piastri 'pretty mind-blown' by overturned penalty",
+  1322→    "url": "https://www.bbc.com/sport/formula1/articles/cewq5y22z9wo?at_medium=RSS&at_campaign=rss",
+  1323→    "summary": "McLaren's Oscar Piastri says he is \"pretty mind-blown\" about the decision to overturn Pierre Gasly's penalty for pit-lane speeding in the Monaco Grand Prix.",
+  1324→    "published": "Sat, 13 Jun 2026 19:19:33 GMT",
+  1325→    "source": "BBC Sport F1",
+  1326→    "lang": "en",
+  1327→    "images": [
+  1328→      "https://ichef.bbci.co.uk/ace/standard/240/cpsprodpb/1059/live/b297df00-6753-11f1-856b-1f3e7240ecf2.jpg",
+  1329→      "https://ichef.bbci.co.uk/ace/branded_sport/1200/cpsprodpb/1059/live/b297df00-6753-11f1-856b-1f3e7240ecf2.jpg",
+  1330→      "https://ichef.bbci.co.uk/ace/standard/1024/cpsprodpb/1059/live/b297df00-6753-11f1-856b-1f3e7240ecf2.jpg",
+  1331→      "https://ichef.bbci.co.uk/ace/standard/1024/cpsprodpb/6ec7/live/7189a310-6756-11f1-856b-1f3e7240ecf2.jpg",
+  1332→      "https://ichef.bbci.co.uk/ace/standard/3840/cpsprodpb/5057/live/f22da460-6753-11f1-856b-1f3e7240ecf2.jpg"
+  1333→    ],
+  1334→    "fetched_at": "2026-06-13T20:24:53.446312+00:00"
+  1335→  },
+  1336→  {
+  1337→    "title": "2026 24 Hours of Le Mans: Cadillac leads BMW after six hours, Ferrari in trouble",
+  1338→    "url": "https://www.crash.net/le-mans/news/1098259/1/2026-24-hours-le-mans-cadillac-leads-bmw-after-six-hours-ferrari-trouble",
+  1339→    "summary": "The No.38 Jota Cadillac leads after six hours of racing at the 24 Hours of Le Mans",
+  1340→    "published": "Sat, 13 Jun 2026 21:12:34 +0100",
+  1341→    "source": "Crash.net F1",
+  1342→    "lang": "en",
+  1343→    "images": [
+  1344→      "https://www.crash.net/sites/default/files/2026-06/xpb_1415841_hires.jpg?width=1200",
+  1345→      "https://www.crash.net/sites/default/files/2026-06/xpb_1415841_hires.jpg?width=1600&aspect_ratio=16:9",
+  1346→      "https://www.crash.net/sites/default/files/2026-06/xpb_1417820_hires_0.jpg?width=1600",
+  1347→      "https://www.crash.net/sites/default/files/2026-06/xpb_1415876_hires.jpg?width=1600",
+  1348→      "https://www.crash.net/sites/default/files/2026-06/xpb_1415718_hires.jpg?width=1600"
+  1349→    ],
+  1350→    "fetched_at": "2026-06-13T20:24:54.261988+00:00"
+  1351→  },
+  1352→  {
+  1353→    "title": "Lando Norris admits McLaren is “very unpredictable” despite Barcelona F1 qualifying pace",
+  1354→    "url": "https://www.crash.net/f1/news/1098215/1/lando-norris-admits-mclaren-very-unpredictable-despite-barcelona-f1-qualifying",
+  1355→    "summary": "Lando Norris insists his McLaren remains \"very unpredictable\" despite securing a second row start at Barcelona.",
+  1356→    "published": "Sat, 13 Jun 2026 19:33:04 +0100",
+  1357→    "source": "Crash.net F1",
+  1358→    "lang": "en",
+  1359→    "images": [
+  1360→      "https://www.crash.net/sites/default/files/2026-06/xpb_1417812_hires.jpg?width=1200",
+  1361→      "https://www.crash.net/sites/default/files/2026-06/xpb_1417812_hires.jpg?width=1600&aspect_ratio=16:9",
+  1362→      "https://www.crash.net/sites/default/files/2026-06/xpb_1417305_hires.jpg?width=1600",
+  1363→      "https://www.crash.net/sites/default/files/2026-06/xpb_1417608_hires.jpg?width=1600",
+  1364→      "https://www.crash.net/sites/default/files/2026-06/xpb_1417549_hires.jpg?width=1600"
+  1365→    ],
+  1366→    "fetched_at": "2026-06-13T20:24:55.049634+00:00"
+  1367→  },
+  1368→  {
+  1369→    "title": "Should I reuse my clutch. (1992 Toyota Corolla)",
+  1370→    "url": "https://www.reddit.com/r/MechanicAdvice/comments/1u4zbcx/should_i_reuse_my_clutch_1992_toyota_corolla/",
+  1371→    "summary": "I bought a new clutch from partsgeek but they sent the wrong size. they refuse to give me a refund or send me the right one so I don’t want to try reordering from them again to get a “oem exedy” clutch.Does this old one look like it could hold up or should I replace it with a “ clutch max pro” clutch off Amazon?   &#32; submitted by &#32;  /u/user999900011   [link] &#32; [comments]",
+  1372→    "published": "2026-06-13T19:06:59+00:00",
+  1373→    "source": "Reddit MechanicAdvice",
+  1374→    "lang": "en",
+  1375→    "images": [
+  1376→      "https://preview.redd.it/16cbihi8m37h1.jpg?width=140&height=140&crop=1:1,smart&auto=webp&s=5ba303133228511edff60fbe42a4f2d8ea0d8ee3"
+  1377→    ],
+  1378→    "fetched_at": "2026-06-13T20:24:55.598193+00:00"
+  1379→  },
+  1380→  {
+  1381→    "title": "Legit had it in the shop yesterday even the mechanic said it drove fine..... fird f150 2020 2.7 eco 4x4 problems.....",
+  1382→    "url": "https://www.reddit.com/r/MechanicAdvice/comments/1u50zaq/legit_had_it_in_the_shop_yesterday_even_the/",
+  1383→    "summary": "&#32; submitted by &#32;  /u/Deep-Classic9056   [link] &#32; [comments]",
+  1384→    "published": "2026-06-13T20:15:59+00:00",
+  1385→    "source": "Reddit MechanicAdvice",
+  1386→    "lang": "en",
+  1387→    "images": [],
+  1388→    "fetched_at": "2026-06-13T20:24:56.139700+00:00"
+  1389→  },
+  1390→  {
+  1391→    "title": "Caliper boot folded back",
+  1392→    "url": "https://www.reddit.com/r/MechanicAdvice/comments/1u4zsde/caliper_boot_folded_back/",
+  1393→    "summary": "I’m doing a break change on my car tomorrow and noticed the piston boot folded back on one of the calipers. There is a lot of dirt and grime buildup on the exposed piston. Can it just be cleaned off and the boot folded back over?  &#32; submitted by &#32;  /u/okstate_cowboys_2020   [link] &#32; [comments]",
+  1394→    "published": "2026-06-13T19:26:34+00:00",
+  1395→    "source": "Reddit MechanicAdvice",
+  1396→    "lang": "en",
+  1397→    "images": [
+  1398→      "https://preview.redd.it/rx1bqgoqp37h1.jpg?width=140&height=105&auto=webp&s=333bf75bff3d95ef18db27a652dc66024a8ebc0e"
+  1399→    ],
+  1400→    "fetched_at": "2026-06-13T20:24:56.691020+00:00"
+  1401→  },
+  1402→  {
+  1403→    "title": "1984 f 250 Crank no start",
+  1404→    "url": "https://www.reddit.com/r/MechanicAdvice/comments/1u4zru9/1984_f_250_crank_no_start/",
+  1405→    "summary": "Hello, I have a 1984 F-250 with a 351W engine. I have been having intermittent issues with the truck cranking but not starting. I get no spark or a very weak spark at the ignition coil plug wire. The coil itself has 10-12 volts on it while cranking. I have replaced the ignition coil, the ignition module, and the ignition switch, and the mechanical fuel pump, but the truck still cranks without starting more often than not. I have ruled out a fuel delivery issue. Fuel is spraying into the carburet",
+  1406→    "published": "2026-06-13T19:25:56+00:00",
+  1407→    "source": "Reddit MechanicAdvice",
+  1408→    "lang": "en",
+  1409→    "images": [],
+  1410→    "fetched_at": "2026-06-13T20:24:57.244478+00:00"
+  1411→  },
+  1412→  {
+  1413→    "title": "Front Wheel Bearing Sound",
+  1414→    "url": "https://www.reddit.com/r/MechanicAdvice/comments/1u4yzh0/front_wheel_bearing_sound/",
+  1415→    "summary": "Hello folks,  &#x200b; I've got a Gen 2 Nissan Xterra with 140k miles. Driving home the other day, I heard this loud, popping, grinding sound when I hit the brakes but it then became apparent through the drive that this sound would come back even without being on the brakes. I checked the pads and rotors, there is plenty of meat left on both and they seem fine up front and back. I jacked the front end and spun the front wheels by hand and the front left barely made a sound. The video you have he",
+  1416→    "published": "2026-06-13T18:53:35+00:00",
+  1417→    "source": "Reddit MechanicAdvice",
+  1418→    "lang": "en",
+  1419→    "images": [
+  1420→      "https://external-preview.redd.it/OTYxZG9sb3VqMzdoMfdWKBhCjPkqS2SsTlWqd3WDiCv9F16JytHiO3e7Svxg.png?width=320&crop=smart&auto=webp&s=ba56c8a5f4d99d2a464243e174831c40f00015f5"
+  1421→    ],
+  1422→    "fetched_at": "2026-06-13T20:24:57.794637+00:00"
+  1423→  },
+  1424→  {
+  1425→    "title": "HELP HELP! i replaced coolant and now has foam !2013 ford raptor 6.2L with 240k KM and automatic",
+  1426→    "url": "https://www.reddit.com/r/MechanicAdvice/comments/1u4ynh4/help_help_i_replaced_coolant_and_now_has_foam/",
+  1427→    "summary": "I changed the radiator hoses and the engine oil cooler, drained the old coolant, and put in distilled water. I ran a flush cycle without using any chemical flush agents only using distilled water. Then, I drained the distilled water from the radiator and the engine block and put in new coolant (ford yellow). There were absolutely no issues before this at all. I drove it for 10 minutes, and this foam appeared, just like in the videos. Please advise me, guys.  &#32; submitted by &#32;  /u/shadijam",
+  1428→    "published": "2026-06-13T18:39:57+00:00",
+  1429→    "source": "Reddit MechanicAdvice",
+  1430→    "lang": "en",
+  1431→    "images": [
+  1432→      "https://external-preview.redd.it/NGNzeWdmd2RoMzdoMW0mVDAYt91Z-QhGymvo-K9cxcD0PNRI_Pb72pxSeMa8.png?width=640&crop=smart&auto=webp&s=1355878df43dfe7fd1001eb717db2da690d8d670"
+  1433→    ],
+  1434→    "fetched_at": "2026-06-13T20:24:58.339478+00:00"
+  1435→  },
+  1436→  {
+  1437→    "title": "В Архангельске на переправе автомобиль упал в воду - Происшествия - Новости Архангельска - News29.ru",
+  1438→    "url": "https://news.google.com/rss/articles/CBMimAFBVV95cUxOVXhQaElPaS1MUVZHLWRkNzc5TEZFbHdLWHh5a2NuTDB6ZGZsUnlsV1p3alF0NEJaNm9Sd0FhdF9JWjI3UXpGOHFoYmdKZ3NqUTNNRklkQ2hfTHZucldDcWV4R1dadHRYdGliNzhndmdISk9GdFctamFqV2t2cW5KSFZ4MGJCTTVrQ1lXd3N4N1NfZUhTTDVfUg?oc=5",
+  1439→    "summary": "В Архангельске на переправе автомобиль упал в воду - Происшествия - Новости Архангельска&nbsp;&nbsp;News29.ru",
+  1440→    "published": "Sat, 13 Jun 2026 15:22:41 GMT",
+  1441→    "source": "GoogleNews_автомобили новости",
+  1442→    "lang": "ru",
+  1443→    "images": [
+  1444→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1445→    ],
+  1446→    "fetched_at": "2026-06-13T20:24:59.068039+00:00"
+  1447→  },
+  1448→  {
+  1449→    "title": "Подщеколдин о продажах авто: «Это рынок Австралии, где кенгуру больше, чем машин!» - БИЗНЕС Online — Новости Казани",
+  1450→    "url": "https://news.google.com/rss/articles/CBMiWEFVX3lxTE04QTlwZ3RFVGt2OXM3czRlSm04aERWektHUW9ZVnFJTGpRRGJwRzUwUDMzNy10aUYyVHdRVGFvSGRVU0kxbC1VWl9EbXBwSng0clpCYmI0SzU?oc=5",
+  1451→    "summary": "Подщеколдин о продажах авто: «Это рынок Австралии, где кенгуру больше, чем машин!»&nbsp;&nbsp;БИЗНЕС Online — Новости Казани",
+  1452→    "published": "Wed, 21 Jan 2026 08:00:00 GMT",
+  1453→    "source": "GoogleNews_автозапчасти рынок",
+  1454→    "lang": "ru",
+  1455→    "images": [
+  1456→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1457→    ],
+  1458→    "fetched_at": "2026-06-13T20:24:59.770300+00:00"
+  1459→  },
+  1460→  {
+  1461→    "title": "Москвичи на обычных авто стали реже занимать парковки для электрокаров - Авто Mail",
+  1462→    "url": "https://news.google.com/rss/articles/CBMisgFBVV95cUxOcWhuenhRcFhCQzZUSVdldy1WeFFCeDFGMVp6QTMxa1U3OFZvT0NFRUsxMFJIWmJzZXNjRmRhZW5vV3VVU3VXa0oyVWxQczU2bVpieEh6SFVoSWtZbndtYmZDVEJndERYUThLNFAtTWMxUGktMkhTUEhoZ25RQnRLcWpzZWZ6VWlaYlFoM1pLTlllZEZNckZfUk5CekloOV9kZ21aYTR4OS13eThvYURMT0VR?oc=5",
+  1463→    "summary": "Москвичи на обычных авто стали реже занимать парковки для электрокаров&nbsp;&nbsp;Авто Mail",
+  1464→    "published": "Sat, 06 Jun 2026 16:30:35 GMT",
+  1465→    "source": "GoogleNews_электромобили зарядн",
+  1466→    "lang": "ru",
+  1467→    "images": [
+  1468→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1469→    ],
+  1470→    "fetched_at": "2026-06-13T20:25:00.468618+00:00"
+  1471→  },
+  1472→  {
+  1473→    "title": "В Госдуме предложили уравнять штрафы за нарушения ПДД в Петербурге с другими регионами - spbdnevnik.ru",
+  1474→    "url": "https://news.google.com/rss/articles/CBMixwFBVV95cUxOOFZZZ3RFV1lVdUVub1FWb1hKaUdjbHY1U3NkXzVRdjBQMzVtVHV2VC02SElvQVRSRzd1MXNNUXNPTjctaEJBV0tlaUcwVDdaYl9MSWM2dmV0ZDVnZFd3UzdOdWpiYVNoNF9LN0lCOUZSZ3JFempRLXlVQWNfSUZkaUVFQ2VpR3JGT3Q0SGNsQTZvYUxUZEkxY2s0YkdfSDV2djJfZlRYSlU4Uzkta2xMMkpGUE5OOGhrS3ZXdkNvVUpPTFo4WlhZ?oc=5",
+  1475→    "summary": "В Госдуме предложили уравнять штрафы за нарушения ПДД в Петербурге с другими регионами&nbsp;&nbsp;spbdnevnik.ru",
+  1476→    "published": "Thu, 11 Jun 2026 14:40:12 GMT",
+  1477→    "source": "GoogleNews_ПДД изменения штрафы",
+  1478→    "lang": "ru",
+  1479→    "images": [
+  1480→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1481→    ],
+  1482→    "fetched_at": "2026-06-13T20:25:01.171651+00:00"
+  1483→  },
+  1484→  {
+  1485→    "title": "Пять моделей 2026 года с АКПП дешевле 2,5 млн: альтернатива ушедшим брендам без потери комфорта - 110km.ru",
+  1486→    "url": "https://news.google.com/rss/articles/CBMitgFBVV95cUxOVFF4N3BmZzhhYXFCdXFUNnMxcHFhbG9EOHBwbTZXbXpNMDdMeXhwN3BIRDdHX3VMeC1pOFdHdUlXUE1XT0k0dkUzaEU4WHZnVjhRSzhxVTdZd3pycGh1Mm1fNXhWLXJMVTVBb2JGeXV2NHJ4YXRZdzJUblZZdmRMR3NZNm83M3dkTHIya3R1ZWpFdlNwcUpldENPcDkzeFVzYVJmaWdla1pwSjQwS3ltcER3clBDZw?oc=5",
+  1487→    "summary": "Пять моделей 2026 года с АКПП дешевле 2,5 млн: альтернатива ушедшим брендам без потери комфорта&nbsp;&nbsp;110km.ru",
+  1488→    "published": "Thu, 11 Jun 2026 03:50:38 GMT",
+  1489→    "source": "GoogleNews_новые модели авто 20",
+  1490→    "lang": "ru",
+  1491→    "images": [
+  1492→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1493→    ],
+  1494→    "fetched_at": "2026-06-13T20:25:01.864888+00:00"
+  1495→  },
+  1496→  {
+  1497→    "title": "Какие автомобили Kia появятся в России в 2026 году: корейский бренд готовится к жесткой конкуренции с китайскими марками - 110km.ru",
+  1498→    "url": "https://news.google.com/rss/articles/CBMirAFBVV95cUxNakl1V2JoN3Rtc3duTFdUS0hDeG54WDdKMGhYUjMzNHFTX241cHhOeURMazdkVWxKWnVOSDNjNnBBOU83cHNDSHpxQl9VUVpCRWdHSW95TUx6bl9fdnRPWWQtRlo5OWpQWE9sT1RObWJJTlZoYThrd09DaUFoQmRiUU95cHRhSG43UFllb3NVdkdVNlBIYXJRQU1TUktrZHM1Q2V2RzI2VzRZNExT?oc=5",
+  1499→    "summary": "Какие автомобили Kia появятся в России в 2026 году: корейский бренд готовится к жесткой конкуренции с китайскими марками&nbsp;&nbsp;110km.ru",
+  1500→    "published": "Fri, 12 Jun 2026 17:41:28 GMT",
+  1501→    "source": "GoogleNews_новые модели авто 20",
+  1502→    "lang": "ru",
+  1503→    "images": [
+  1504→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1505→    ],
+  1506→    "fetched_at": "2026-06-13T20:25:02.566248+00:00"
+  1507→  },
+  1508→  {
+  1509→    "title": "В Москве появится новая автомобильная выставка в 2025 году - Авто Mail",
+  1510→    "url": "https://news.google.com/rss/articles/CBMijwFBVV95cUxQZGlqckxENTdpTHNGSUFsd3dmZVU3TldtVmxfY1FGcmFLQ29hb2tDNWRqajVuNEU1OTBhd0dqUTNkbExSN3lXZUhUakN6QjAxMVpJaTdUUGdzNjdGWmNCVWM3c1cyRkxGV1kwT28xWExNdzhhek51SkhWYmdNbndtSzRfaUFBaW02LTFNMlNpRQ?oc=5",
+  1511→    "summary": "В Москве появится новая автомобильная выставка в 2025 году&nbsp;&nbsp;Авто Mail",
+  1512→    "published": "Mon, 29 Sep 2025 07:00:00 GMT",
+  1513→    "source": "GoogleNews_автосалон Москва",
+  1514→    "lang": "ru",
+  1515→    "images": [
+  1516→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1517→    ],
+  1518→    "fetched_at": "2026-06-13T20:25:03.284664+00:00"
+  1519→  },
+  1520→  {
+  1521→    "title": "ТОП-10 агентств по продвижению автодилеров в Москве (2025) - Sostav.ru",
+  1522→    "url": "https://news.google.com/rss/articles/CBMiUkFVX3lxTE01WnpvTFliV2taMk9zMGc3c3NvaDZST245UWJoTm8xUmo5bENWdkNLSmpfVVZ0WVZHeGZWR3plRGpmeDVEQkJlY3FmaEwySmluU2c?oc=5",
+  1523→    "summary": "ТОП-10 агентств по продвижению автодилеров в Москве (2025)&nbsp;&nbsp;Sostav.ru",
+  1524→    "published": "Thu, 23 Oct 2025 07:00:00 GMT",
+  1525→    "source": "GoogleNews_автосалон Москва",
+  1526→    "lang": "ru",
+  1527→    "images": [
+  1528→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1529→    ],
+  1530→    "fetched_at": "2026-06-13T20:25:03.998285+00:00"
+  1531→  },
+  1532→  {
+  1533→    "title": "Ирина Волк: В Москве задержаны представители автосалона по подозрению в мошенничестве - МВД Медиа",
+  1534→    "url": "https://news.google.com/rss/articles/CBMi1gFBVV95cUxPVkZPUjdTUVFhRWstMTA4TVc0RllNOVNsSDNGbU4zQjdWVXhNWW92Si1JNE1GVHNMbmtrbk1HRWsxUGRzZ3NNWENfZGpXU3k5ODY3bmdvVkhCSndOMy1RU01JQVJNUXh5SHM5X3NUOE9wNHNaMU5sOEhURDAyTTVfcWZpUmFVaXdtSG1PYU1STTltMnNEMnBkT0tVXzgzUTZWeGMyamxlaDd3ZDRQMy1VUGU5eXc3VXdpQ19fZU1hSWNJYkxZREV2cHJZMDUxNTMyWlVEcmhn?oc=5",
+  1535→    "summary": "Ирина Волк: В Москве задержаны представители автосалона по подозрению в мошенничестве&nbsp;&nbsp;МВД Медиа",
+  1536→    "published": "Mon, 20 Nov 2023 08:00:00 GMT",
+  1537→    "source": "GoogleNews_автосалон Москва",
+  1538→    "lang": "ru",
+  1539→    "images": [
+  1540→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1541→    ],
+  1542→    "fetched_at": "2026-06-13T20:25:04.674839+00:00"
+  1543→  },
+  1544→  {
+  1545→    "title": "Trump’s Inaccurate Anecdote on ‘Right to Repair’ Cars - FactCheck.org",
+  1546→    "url": "https://news.google.com/rss/articles/CBMijgFBVV95cUxOTHBuTG1tTlpRZWd1Z0dmUXZLYjR3b21ReEk1SE5OMFZzUFBHRXRfaUZzSGhpZ1lIQlZFVEliYTNTUVE0X1Q2ZDVFczlOTzU1a0U1a0V6U1dGcUxyQnJhUXZlbHFHYjVzZ2RwNVhTSzdkdnk2Z3R6ejdzYXY5XzlaZE00SUlYNjhtbTRYRTJB?oc=5",
+  1547→    "summary": "Trump’s Inaccurate Anecdote on ‘Right to Repair’ Cars&nbsp;&nbsp;FactCheck.org",
+  1548→    "published": "Fri, 12 Jun 2026 12:24:03 GMT",
+  1549→    "source": "GoogleNews_automotive industry ",
+  1550→    "lang": "en",
+  1551→    "images": [
+  1552→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1553→    ],
+  1554→    "fetched_at": "2026-06-13T20:25:05.379537+00:00"
+  1555→  },
+  1556→  {
+  1557→    "title": "Saudi Arabia updates traffic regulations to govern self-driving vehicles - Saudi Gazette",
+  1558→    "url": "https://news.google.com/rss/articles/CBMiVEFVX3lxTE8ybFhZalZ4VzZGSE42TjJPb25veGgycndrRTJkS0k4Y0VDd2p1RjZUeS1JM3VfQ3dsSlN4bHh6TDlGMU0xQU5menlvQk12UUJab2pmZQ?oc=5",
+  1559→    "summary": "Saudi Arabia updates traffic regulations to govern self-driving vehicles&nbsp;&nbsp;Saudi Gazette",
+  1560→    "published": "Sat, 13 Jun 2026 04:47:00 GMT",
+  1561→    "source": "GoogleNews_autonomous driving s",
+  1562→    "lang": "en",
+  1563→    "images": [
+  1564→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1565→    ],
+  1566→    "fetched_at": "2026-06-13T20:25:06.094945+00:00"
+  1567→  },
+  1568→  {
+  1569→    "title": "Waymo has bought the Apple Car self-driving test site for $220M - AppleInsider",
+  1570→    "url": "https://news.google.com/rss/articles/CBMiqAFBVV95cUxNNDdtcy13SUxlMEs0dENpSG5hZnR2ZU93NlNVU0czdXN1bDhNUENwb1JSOEtDaTBZbHh4LVdMYUx5Vnlac1pHVVZpMXpQZV84RndTdk1tMFNuYnl3TWdjWGZnQWV4TUZ3MkVqZm53Z01ucG9lalFHWVhYYThBRXdIVTFWMXFKa2t2X0xUVFc3aFBnNlB0U1VEOUp3TkVzRTc5TndGdkw2VHo?oc=5",
+  1571→    "summary": "Waymo has bought the Apple Car self-driving test site for $220M&nbsp;&nbsp;AppleInsider",
+  1572→    "published": "Sat, 13 Jun 2026 20:13:00 GMT",
+  1573→    "source": "GoogleNews_autonomous driving s",
+  1574→    "lang": "en",
+  1575→    "images": [
+  1576→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1577→    ],
+  1578→    "fetched_at": "2026-06-13T20:25:06.792567+00:00"
+  1579→  },
+  1580→  {
+  1581→    "title": "India clears way for self-driving, safety car tech to reduce road deaths - Reuters",
+  1582→    "url": "https://news.google.com/rss/articles/CBMisgFBVV95cUxNM2xwYWpRMlBOOUtqTXVpSTlMLWhDRm03YUVQUENPQk9DNUs4VVZtY3UyTlVVdFRpVFBnUi1zUjZsRGEyYjBvX2FUS1VoRFJjS1p5VE16SU1zOUttRGhkZXpzRHREU1lLYWtsbEV1c0JvWHU1ak51cDFxZjFDXzl5LVpuS2s0YnlIcjU5NWxJMHJDOTB1UW9UWkNFZlE3anpSSzMyX3F6S2lhcGg3d1RQU0Vn?oc=5",
+  1583→    "summary": "India clears way for self-driving, safety car tech to reduce road deaths&nbsp;&nbsp;Reuters",
+  1584→    "published": "Fri, 12 Jun 2026 10:32:34 GMT",
+  1585→    "source": "GoogleNews_autonomous driving s",
+  1586→    "lang": "en",
+  1587→    "images": [
+  1588→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1589→    ],
+  1590→    "fetched_at": "2026-06-13T20:25:07.501168+00:00"
+  1591→  },
+  1592→  {
+  1593→    "title": "Ford again recalls popular car due to unexpected stalling hazard - MassLive",
+  1594→    "url": "https://news.google.com/rss/articles/CBMiqwFBVV95cUxNVzFHMTU2XzVWX2FfaTg2cFVZUXZOT1Z5YWhNV1FDNVpzdWpZUTNRRTdBLVJiUU1FSVYtQlEzUDFtUG5ibk5jbldndlN1QkRoVFlWR3FYV2NEZGVRcGVvVUhnMGxBQmFiWGlCbm14eE1PYXp5b3RHNkJrSXNPalFOQ0ljRmx5Tm5ORVdGb1pEcDc4MWtKOTdXLVFDX0JGdUt3cHJ3OGN5THlGUXPSAb8BQVVfeXFMTXpqbmJQb3AzYjhlT1lNaFFSbFhISnZTMjFVYUJDMjBVdXp5X2h2SDZ5SWNHVjVPQ1Nqb2hEX21RdHlhR19PZHFwS1lDcWFSUURrOEJhVDNHX0N5eHBPenA1UlBORUVUNDFaOENRZkdmbHhSZnVhOUtwRlZsYy1PYmRxblF6RUloQnNBei12aHBFM0NLWS1zMlVPd3FaczUwTTJHSHlqZ3V6N2dlNnFKcnU2TjNkSnhSSURBSFJKSDA?oc=5",
+  1595→    "summary": "Ford again recalls popular car due to unexpected stalling hazard&nbsp;&nbsp;MassLive",
+  1596→    "published": "Sat, 13 Jun 2026 18:22:00 GMT",
+  1597→    "source": "GoogleNews_car recalls safety",
+  1598→    "lang": "en",
+  1599→    "images": [
+  1600→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1601→    ],
+  1602→    "fetched_at": "2026-06-13T20:25:08.201556+00:00"
+  1603→  },
+  1604→  {
+  1605→    "title": "Ford’s Recalling A Quarter-Million Cars Because It Can’t Recall If It Fixed Them In 2018 - Carscoops",
+  1606→    "url": "https://news.google.com/rss/articles/CBMibEFVX3lxTFBwWFJSYzN6STgxOXRxZ1hrc2JYd1lWWkRSbDhKOTFBaUtUNmxuXzhxaEE3RnhDamo5anlhb1hTRGthMWIydm5qNm5Sa2daT3ZPS2dWT1kxUS00WWtZMnRySGRPQ3g2dXZRWTBmag?oc=5",
+  1607→    "summary": "Ford’s Recalling A Quarter-Million Cars Because It Can’t Recall If It Fixed Them In 2018&nbsp;&nbsp;Carscoops",
+  1608→    "published": "Fri, 12 Jun 2026 15:04:03 GMT",
+  1609→    "source": "GoogleNews_car recalls safety",
+  1610→    "lang": "en",
+  1611→    "images": [
+  1612→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1613→    ],
+  1614→    "fetched_at": "2026-06-13T20:25:08.905392+00:00"
+  1615→  },
+  1616→  {
+  1617→    "title": "50 Future Cars Worth Waiting For: 2026-2030 - Motor1.com",
+  1618→    "url": "https://news.google.com/rss/articles/CBMiYEFVX3lxTE04VTQ4QnpZeWxYSkZ5eHJTV3ZpOThEZ3VEMHM2Z2pLWnR5ZlVOZ1c0bkJPVXdBZXpCMHhhSW1TeVo4WHZNV25sVmVDX25EQU5xUnVQVktMdk1RazJ4a0VXVg?oc=5",
+  1619→    "summary": "50 Future Cars Worth Waiting For: 2026-2030&nbsp;&nbsp;Motor1.com",
+  1620→    "published": "Thu, 21 May 2026 07:00:00 GMT",
+  1621→    "source": "GoogleNews_new car models 2026 ",
+  1622→    "lang": "en",
+  1623→    "images": [
+  1624→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1625→    ],
+  1626→    "fetched_at": "2026-06-13T20:25:09.620173+00:00"
+  1627→  },
+  1628→  {
+  1629→    "title": "Более 2,6 тыс. жителей Новгородской области остались без света в непогоду",
+  1630→    "url": "https://tass.ru/obschestvo/27749763",
+  1631→    "summary": "В восстановлении электроснабжения задействовали 26 бригад - 74 специалиста и 27 единиц техники",
+  1632→    "published": "Sat, 13 Jun 2026 21:27:10 +0300",
+  1633→    "source": "ТАСС Авто",
+  1634→    "lang": "ru",
+  1635→    "images": [],
+  1636→    "fetched_at": "2026-06-13T18:32:39.476867+00:00"
+  1637→  },
+  1638→  {
+  1639→    "title": "Известный отечественный кроссовер получит полноприводную версию",
+  1640→    "url": "https://auto.mail.ru/article/125022-izvestnyij-otechestvennyij-krossover-poluchit-polnoprivodnuyu-versiyu/",
+  1641→    "summary": "Полноприводный Москвич М70: автозавод объявил о тестах новой версии кроссовера",
+  1642→    "published": "Sat, 13 Jun 2026 21:30:44 +0300",
+  1643→    "source": "Авто Mail.ru",
+  1644→    "lang": "ru",
+  1645→    "images": [
+  1646→      "https://resizer.mail.ru/p/cf6996e6-8e0f-5b3b-8e80-d1554e42ae83/AQABAr6b6PFu-6GSuaOT0Tux-ikzkJsdZ7QGSkwZ7pPVtGrViZJISi1rL39au5NL0wGFvIjUPOQ8o26NRZQhGDGTLpA.jpg",
+  1647→      "https://resizer.mail.ru/p/cf6996e6-8e0f-5b3b-8e80-d1554e42ae83/AQAB5umBThxWV_AngT3MUBo3m7cd2j-mtql5DVYjJjpDte9n58nnuWy0ZYFLEp91PwkQAzduQQtMR0auz2gquyUUe-I.jpg",
+  1648→      "https://top-fwz1.mail.ru/counter?id=85837;js=na;r=https%3A%2F%2Fauto.mail.ru%2F",
+  1649→      "https://top-fwz1.mail.ru/counter?id=2664992;js=na;r=https%3A%2F%2Fauto.mail.ru%2F"
+  1650→    ],
+  1651→    "fetched_at": "2026-06-13T18:32:41.002087+00:00"
+  1652→  },
+  1653→  {
+  1654→    "title": "New Peugeot E-208 GTi: now available to order",
+  1655→    "url": "https://www.carmagazine.co.uk/car-news/first-official-pictures/peugeot/2026-e-208-gti/",
+  1656→    "summary": "Peugeot reveals production-spec E-208 GTi – and it'll set you back £35k",
+  1657→    "published": "Fri, 12 Jun 2026 15:07:43 GMT",
+  1658→    "source": "CAR Magazine",
+  1659→    "lang": "en",
+  1660→    "images": [
+  1661→      "https://car-images.bauersecure.com/wp-images/266122/peugeot-e208-gti-45.jpg",
+  1662→      "https://car-images.bauersecure.com/wp-images/266122/peugeot-e208-gti-46.jpg",
+  1663→      "https://car-images.bauersecure.com/wp-images/266122/peugeot-e208-gti-48.jpg",
+  1664→      "https://car-assets.bauersecure.com/images/1056x594/transparent.png",
+  1665→      "https://car-images.bauersecure.com/wp-images/266122/480x0/peugeot-e208-gti-46.jpg?scale=down"
+  1666→    ],
+  1667→    "fetched_at": "2026-06-13T18:32:42.033350+00:00"
+  1668→  },
+  1669→  {
+  1670→    "title": "F1 Barcelona GP: Russell leads Piastri in final practice, frustration for Antonelli",
+  1671→    "url": "https://www.autosport.com/f1/news/f1-barcelona-gp-fp3-report/10829842/?utm_source=RSS&utm_medium=referral&utm_campaign=RSS-F1&utm_term=News&utm_content=uk",
+  1672→    "summary": "George Russell was fastest in final practice for the Formula 1 Barcelona Grand Prix after pipping Oscar Piastri and Charles Leclerc in a frustrating session for Kimi Antonelli.Russell was two tenths faster than runner-up Piastri, whose McLaren was less than a tenth quicker than the Ferrari of Leclerc leaving what was a wide-open session.That was after a slow start though, as it often is ...Keep reading",
+  1673→    "published": "Sat, 13 Jun 2026 11:42:41 +0000",
+  1674→    "source": "Autosport",
+  1675→    "lang": "en",
+  1676→    "images": [
+  1677→      "https://cdn-5.motorsport.com/images/amp/2wlEV5KY/s6/george-russell-mercedes-2.jpg",
+  1678→      "https://cdn-6.motorsport.com/images/amp/2wlEV5KY/s6/george-russell-mercedes-2.jpg",
+  1679→      "https://cdn-2.motorsport.com/images/amp/0rVxblW0/s200/7-toyota-racing-toyota-tr010-h-5.webp",
+  1680→      "https://cdn-7.motorsport.com/images/amp/6n7AB5M0/s200/max-verstappen-red-bull-racing.webp",
+  1681→      "https://cdn-5.motorsport.com/images/amp/63QmGyg2/s200/8-toyota-racing-toyota-tr010-h.webp"
+  1682→    ],
+  1683→    "fetched_at": "2026-06-13T18:32:42.738866+00:00"
+  1684→  },
+  1685→  {
+  1686→    "title": "Electric BMW M3 previewed by M Neue Klasse concept",
+  1687→    "url": "https://www.carexpert.com.au/car-news/electric-bmw-m3-previewed-by-m-neue-klasse-concept",
+  1688→    "summary": "The first electric BMW M3 is nigh, and the M Concept Neue Klasse provides a very clear indication of what it will look like.",
+  1689→    "published": "Fri, 12 Jun 2026 15:10:17 GMT",
+  1690→    "source": "CarExpert",
+  1691→    "lang": "en",
+  1692→    "images": [
+  1693→      "https://images.carexpert.com.au/cms/v1/media/bmw-m-concept-neue-klasse-3.jpg",
+  1694→      "https://images.carexpert.com.au/cms/v1/media/bmw-m-concept-neue-klasse-6.jpg",
+  1695→      "https://images.carexpert.com.au/cms/v1/media/bmw-m-concept-neue-klasse-12.jpg",
+  1696→      "https://images.carexpert.com.au/cms/v1/media/bmw-m-concept-neue-klasse-10.jpg",
+  1697→      "https://images.carexpert.com.au/crop/1200/630/cms/v1/media/bmw-m-concept-neue-klasse-1.jpg"
+  1698→    ],
+  1699→    "fetched_at": "2026-06-13T18:32:43.306069+00:00"
+  1700→  },
+  1701→  {
+  1702→    "title": "Rivian’s CEO Says RAD Vehicles Will Be Fundamentally Different",
+  1703→    "url": "https://www.thedrive.com/news/rivians-ceo-says-rad-vehicles-will-be-fundamentally-different",
+  1704→    "summary": "Rivian CEO RJ Scaringe told The Drive that RAD vehicles will feature real hardware changes under the metal skin.\nThe post Rivian&#8217;s CEO Says RAD Vehicles Will Be Fundamentally Different appeared first on The Drive.",
+  1705→    "published": "Fri, 12 Jun 2026 09:45:00 -0400",
+  1706→    "source": "TheDrive",
+  1707→    "lang": "en",
+  1708→    "images": [
+  1709→      "https://www.thedrive.com/wp-content/uploads/2024/03/08/1.png?quality=85",
+  1710→      "https://www.thedrive.com/wp-content/uploads/2024/03/08/1.png?w=1200",
+  1711→      "https://www.thedrive.com/wp-content/uploads/2024/03/08/1.png?quality=85&w=1920",
+  1712→      "https://www.thedrive.com/wp-content/uploads/2025/04/Joel-Feder-headshot.jpg?quality=85&w=102&h=102&crop=1",
+  1713→      "https://www.thedrive.com/wp-content/uploads/2026/06/Farley-and-Bronco.jpg?quality=85&w=768"
+  1714→    ],
+  1715→    "fetched_at": "2026-06-13T18:32:43.829029+00:00"
+  1716→  },
+  1717→  {
+  1718→    "title": "Dacia Sandero Stepway and Fiat Grande Panda - pictures",
+  1719→    "url": "https://www.autoexpress.co.uk/car-group-tests/369771/dacia-sandero-stepway-and-fiat-grande-panda-pictures",
+  1720→    "summary": "Pictures of the Dacia Sandero Stepway and Fiat Grande Panda taking part in the Auto Express real-world road test. Pictures taken by senior photographer Pete Gibson.",
+  1721→    "published": "Sat, 13 Jun 2026 11:08:31 GMT",
+  1722→    "source": "AutoExpress",
+  1723→    "lang": "en",
+  1724→    "images": [
+  1725→      "https://media.autoexpress.co.uk/image/private/s--3c9_vTPb--/t_rss_image_w_845/v1781168690/autoexpress/2026/06/Dacia%20Sandero%20Stepway%20vs%20Fiat%20Grande%20Panda%20-%20front%20end_ekzhdk.jpg",
+  1726→      "https://media.autoexpress.co.uk/image/private/s--X-WVjvBW--/f_auto,t_content-image-full-desktop@1/v1781168690/autoexpress/2026/06/Dacia Sandero Stepway vs Fiat Grande Panda - front end_ekzhdk.jpg",
+  1727→      "https://media.autoexpress.co.uk/image/private/s--3c9_vTPb--/f_auto,t_content-image-full-mobile@1/v1781168690/autoexpress/2026/06/Dacia%20Sandero%20Stepway%20vs%20Fiat%20Grande%20Panda%20-%20front%20end_ekzhdk.jpg",
+  1728→      "https://media.autoexpress.co.uk/image/private/s--pj-aaP-s--/f_auto,t_content-image-full-mobile@1/v1781168691/autoexpress/2026/06/Dacia%20Sandero%20Stepway%20vs%20Fiat%20Grande%20Panda%20-%20rear%203_4_sspzub.jpg",
+  1729→      "https://media.autoexpress.co.uk/image/private/s--5-bL9a7S--/f_auto,t_content-image-full-mobile@1/v1781168692/autoexpress/2026/06/Dacia%20Sandero%20Stepway%20vs%20Fiat%20Grande%20Panda%20-%20head%20to%20head_kdmucv.jpg"
+  1730→    ],
+  1731→    "fetched_at": "2026-06-13T18:32:44.456233+00:00"
+  1732→  },
+  1733→  {
+  1734→    "title": "Used BMW X1 and iX1 (Mk3, 2022 to date) - pictures",
+  1735→    "url": "https://www.autoexpress.co.uk/bmw/ix1/369759/used-bmw-x1-and-ix1-mk3-2022-date-pictures",
+  1736→    "summary": "Pictures of the used BMW X1 and iX1 (Mk3, 2022 to date)",
+  1737→    "published": "Sat, 13 Jun 2026 08:03:34 GMT",
+  1738→    "source": "AutoExpress",
+  1739→    "lang": "en",
+  1740→    "images": [
+  1741→      "https://media.autoexpress.co.uk/image/private/s--09iZN-ps--/t_rss_image_w_845/v1781002426/autoexpress/2026/06/Used%20BMW%20iX1%20%28Mk3%2C%202022%20to%20date%29.jpg",
+  1742→      "https://media.autoexpress.co.uk/image/private/s--X-WVjvBW--/f_auto,t_content-image-full-desktop@1/v1781002426/autoexpress/2026/06/Used BMW iX1 (Mk3, 2022 to date).jpg",
+  1743→      "https://media.autoexpress.co.uk/image/private/s--09iZN-ps--/f_auto,t_content-image-full-mobile@1/v1781002426/autoexpress/2026/06/Used%20BMW%20iX1%20%28Mk3%2C%202022%20to%20date%29.jpg",
+  1744→      "https://media.autoexpress.co.uk/image/private/s--5RKlRKK---/f_auto,t_content-image-full-mobile@1/v1781002428/autoexpress/2026/06/Used%20BMW%20iX1%20%28Mk3%2C%202022%20to%20date%29-2.jpg",
+  1745→      "https://media.autoexpress.co.uk/image/private/s--DMpsc4zp--/f_auto,t_content-image-full-mobile@1/v1781002432/autoexpress/2026/06/Used%20BMW%20iX1%20%28Mk3%2C%202022%20to%20date%29-8.jpg"
+  1746→    ],
+  1747→    "fetched_at": "2026-06-13T18:32:45.027468+00:00"
+  1748→  },
+  1749→  {
+  1750→    "title": "New BMW M Concept Neue Klasse 2026 - pictures",
+  1751→    "url": "https://www.autoexpress.co.uk/bmw/369785/new-bmw-m-concept-neue-klasse-2026-pictures",
+  1752→    "summary": "Pictures of the BMW M Concept Neue Klasse",
+  1753→    "published": "Fri, 12 Jun 2026 13:00:17 GMT",
+  1754→    "source": "AutoExpress",
+  1755→    "lang": "en",
+  1756→    "images": [
+  1757→      "https://media.autoexpress.co.uk/image/private/s--71NtJLmX--/t_rss_image_w_845/v1781259515/autoexpress/2026/06/BMW%20M%20Concept%20Neue%20Klasse%202026-23.jpg",
+  1758→      "https://media.autoexpress.co.uk/image/private/s--X-WVjvBW--/f_auto,t_content-image-full-desktop@1/v1781259515/autoexpress/2026/06/BMW M Concept Neue Klasse 2026-23.jpg",
+  1759→      "https://media.autoexpress.co.uk/image/private/s--71NtJLmX--/f_auto,t_content-image-full-mobile@1/v1781259515/autoexpress/2026/06/BMW%20M%20Concept%20Neue%20Klasse%202026-23.jpg",
+  1760→      "https://media.autoexpress.co.uk/image/private/s--UvrQL2p7--/f_auto,t_content-image-full-mobile@1/v1781259472/autoexpress/2026/06/BMW%20M%20Concept%20Neue%20Klasse%202026-11.jpg",
+  1761→      "https://media.autoexpress.co.uk/image/private/s---n4Vv8DE--/f_auto,t_content-image-full-mobile@1/v1781259487/autoexpress/2026/06/BMW%20M%20Concept%20Neue%20Klasse%202026-17.jpg"
+  1762→    ],
+  1763→    "fetched_at": "2026-06-13T18:32:45.596329+00:00"
+  1764→  },
+  1765→  {
+  1766→    "title": "Car Deal of the Day: Hyundai’s Inster is a real cutie for a bargain £184 a month",
+  1767→    "url": "https://www.autoexpress.co.uk/hyundai/inster/367347/car-deal-day-hyundais-inster-real-cutie-bargain-ps184-month",
+  1768→    "summary": "The Hyundai Inster is one of the more quirky small EVs around. It’s our Deal of the Day for 12 June.",
+  1769→    "published": "Mon, 14 Jul 2025 16:10:53 GMT",
+  1770→    "source": "AutoExpress",
+  1771→    "lang": "en",
+  1772→    "images": [
+  1773→      "https://media.autoexpress.co.uk/image/private/s--cWZs5s3S--/t_rss_image_w_845/v1747154113/autoexpress/2025/05/Hyundai%20Inster%202025%20UK-9.jpg",
+  1774→      "https://media.autoexpress.co.uk/image/private/s--X-WVjvBW--/f_auto,t_content-image-full-desktop@1/v1747154113/autoexpress/2025/05/Hyundai Inster 2025 UK-9.jpg",
+  1775→      "https://media.autoexpress.co.uk/image/private/s--n-hTgi-H--/f_auto,t_author-mobile@1/v1730978072/autoexpress/2024/11/George%20Armitage.jpg",
+  1776→      "https://media.autoexpress.co.uk/image/private/s--cWZs5s3S--/f_auto,t_primary-image-mobile@1/v1747154113/autoexpress/2025/05/Hyundai%20Inster%202025%20UK-9.jpg",
+  1777→      "https://media.autoexpress.co.uk/image/private/s--dZ_qYLNU--/f_auto,t_related-embed-mobile@1/v1776702146/autoexpress/2026/04/Best%20Electric%20Cars%20-%20April%202026%20update.jpg"
+  1778→    ],
+  1779→    "fetched_at": "2026-06-13T18:32:46.164599+00:00"
+  1780→  },
+  1781→  {
+  1782→    "title": "Max Verstappen surprised as Red Bull halves gap to Mercedes in Barcelona",
+  1783→    "url": "https://www.motorsport.com/f1/news/max-verstappen-surprised-as-red-bull-halves-gap-to-mercedes-in-barcelona/10830057/?utm_source=RSS&utm_medium=referral&utm_campaign=RSS-ALL&utm_term=News&utm_content=www",
+  1784→    "summary": "Red Bull locked out the third row of the grid for Sunday’s Formula 1 Barcelona Grand Prix. Max Verstappen appeared to be in contention for pole position after two sectors, but saw his grip disappear in the last part of the lap – an issue many drivers struggled with due to tyres overheating.“I think it was a decent qualifying session for us,” Verstappen reflected afterwards when ...Keep reading",
+  1785→    "published": "Sat, 13 Jun 2026 18:12:40 +0000",
+  1786→    "source": "Motorsport.com",
+  1787→    "lang": "en",
+  1788→    "images": [
+  1789→      "https://cdn-7.motorsport.com/images/amp/6n7AB5M0/s6/max-verstappen-red-bull-racing.jpg",
+  1790→      "https://cdn-5.motorsport.com/images/amp/6n7AB5M0/s6/max-verstappen-red-bull-racing.jpg",
+  1791→      "https://cdn-7.motorsport.com/images/amp/63QmGyg2/s200/8-toyota-racing-toyota-tr010-h.webp",
+  1792→      "https://cdn-9.motorsport.com/images/amp/6n7AB5M0/s200/max-verstappen-red-bull-racing.webp",
+  1793→      "https://cdn-2.motorsport.com/images/amp/0JXwJ4AY/s200/kyle-larson-no-5-hendrick-moto.webp"
+  1794→    ],
+  1795→    "fetched_at": "2026-06-13T18:32:46.876494+00:00"
+  1796→  },
+  1797→  {
+  1798→    "title": "\"At least a two-stop\": George Russell and Lewis Hamilton expect Barcelona GP to be hard on tyres",
+  1799→    "url": "https://www.motorsport.com/f1/news/at-least-a-two-stop-russell-and-hamilton-expect-barcelona-gp-to-be-hard-on-tyres/10830002/?utm_source=RSS&utm_medium=referral&utm_campaign=RSS-ALL&utm_term=News&utm_content=www",
+  1800→    "summary": "High tyre degradation at the Formula 1 Barcelona Grand Prix will create small differences between the three compounds and considerable strategic variation during Sunday's race, according to pole winner George Russell.Friday's long runs over FP2 demonstrated that the medium compound was dropping off at around three tenths per lap across the opening 10-12 laps of a stint, before dropping off ...Keep reading",
+  1801→    "published": "Sat, 13 Jun 2026 17:23:59 +0000",
+  1802→    "source": "Motorsport.com",
+  1803→    "lang": "en",
+  1804→    "images": [
+  1805→      "https://cdn-4.motorsport.com/images/amp/2eZgBq3Y/s6/george-russell-mercedes-4.jpg",
+  1806→      "https://cdn-8.motorsport.com/images/amp/2eZgBq3Y/s6/george-russell-mercedes-4.jpg",
+  1807→      "https://cdn-7.motorsport.com/images/amp/63QmGyg2/s200/8-toyota-racing-toyota-tr010-h.webp",
+  1808→      "https://cdn-1.motorsport.com/images/amp/6n7AB5M0/s200/max-verstappen-red-bull-racing.webp",
+  1809→      "https://cdn-6.motorsport.com/images/amp/0JXwJ4AY/s200/kyle-larson-no-5-hendrick-moto.webp"
+  1810→    ],
+  1811→    "fetched_at": "2026-06-13T18:32:47.470585+00:00"
+  1812→  },
+  1813→  {
+  1814→    "title": "Fernando Alonso 'exhausted' by Aston Martin woes: \"We knew we have the worst car and worst engine\"",
+  1815→    "url": "https://www.motorsport.com/f1/news/fernando-alonso-exhausted-by-aston-martin-woes-we-knew-we-have-the-worst-car-and-worst-engine/10830021/?utm_source=RSS&utm_medium=referral&utm_campaign=RSS-ALL&utm_term=News&utm_content=www",
+  1816→    "summary": "Aston Martin's abject performance in Barcelona comes as no surprise to Fernando Alonso as he qualified last for his home race - but having to keep explaining the team's many woes is starting to wear on him.The world champion took 22nd, which ended a 42-race streak of outqualifying team-mate Lance Stroll, who was 21st and a second behind next slowest Cadillac and four seconds off pole.Not ...Keep reading",
+  1817→    "published": "Sat, 13 Jun 2026 17:18:33 +0000",
+  1818→    "source": "Motorsport.com",
+  1819→    "lang": "en",
+  1820→    "images": [
+  1821→      "https://cdn-8.motorsport.com/images/amp/YP7rMxA2/s6/fernando-alonso-aston-martin-r.jpg",
+  1822→      "https://cdn-3.motorsport.com/images/amp/YP7rMxA2/s6/fernando-alonso-aston-martin-r.jpg",
+  1823→      "https://cdn-7.motorsport.com/images/amp/63QmGyg2/s200/8-toyota-racing-toyota-tr010-h.webp",
+  1824→      "https://cdn-1.motorsport.com/images/amp/6n7AB5M0/s200/max-verstappen-red-bull-racing.webp",
+  1825→      "https://cdn-6.motorsport.com/images/amp/0JXwJ4AY/s200/kyle-larson-no-5-hendrick-moto.webp"
+  1826→    ],
+  1827→    "fetched_at": "2026-06-13T18:32:48.065319+00:00"
+  1828→  },
+  1829→  {
+  1830→    "title": "Le Mans 24h, H1: Toyota takes lead from 15th on the grid",
+  1831→    "url": "https://www.motorsport.com/wec/news/le-mans-24h-h-1-report/10829903/?utm_source=RSS&utm_medium=referral&utm_campaign=RSS-ALL&utm_term=News&utm_content=www",
+  1832→    "summary": "The #8 Toyota leads the 2026 Le Mans 24 Hours one hour into the race, despite starting from a lowly 15th position.Kevin Magnussen’s polesitting #15 BMW collapsed to eighth in the first hour; the Dane lost out to Will Stevens’ #12 Cadillac before even the first corner of the race before Rene Rast passed them both in the sister #20 BMW, by the first chicane of the Mulsanne ...Keep reading",
+  1833→    "published": "Sat, 13 Jun 2026 15:09:41 +0000",
+  1834→    "source": "Motorsport.com",
+  1835→    "lang": "en",
+  1836→    "images": [
+  1837→      "https://cdn-9.motorsport.com/images/amp/0mXR8N56/s6/8-toyota-racing-toyota-tr010-h.jpg",
+  1838→      "https://cdn-1.motorsport.com/images/amp/0mXR8N56/s6/8-toyota-racing-toyota-tr010-h.jpg",
+  1839→      "https://cdn-2.motorsport.com/images/usa/86AlO1Yb/s2/benjamin-vinel.jpg",
+  1840→      "https://cdn-1.motorsport.com/images/amp/0mXR8N56/s1000/8-toyota-racing-toyota-tr010-h.webp",
+  1841→      "https://cdn.motorsport.com/images/mgl/24Qe37qY/s1000/20-bmw-m-team-wrt-bmw-m-hybrid.jpg"
+  1842→    ],
+  1843→    "fetched_at": "2026-06-13T18:32:48.657066+00:00"
+  1844→  },
+  1845→  {
+  1846→    "title": "Toto Wolff claims Lewis Hamilton would have beaten Mercedes to F1 Barcelona GP pole without ‘mistake’",
+  1847→    "url": "https://www.crash.net/f1/news/1098131/1/toto-wolff-claims-lewis-hamilton-would-have-beaten-mercedes-pole-without-mistake",
+  1848→    "summary": "Toto Wolff is wary about the threat posed by former Mercedes driver Lewis Hamilton in Barcelona.",
+  1849→    "published": "Sat, 13 Jun 2026 17:58:31 +0100",
+  1850→    "source": "Crash.net F1",
+  1851→    "lang": "en",
+  1852→    "images": [
+  1853→      "https://www.crash.net/sites/default/files/2026-06/xpb_1417732_hires.jpg?width=1200",
+  1854→      "https://www.crash.net/sites/default/files/2026-06/xpb_1417732_hires.jpg?width=1600&aspect_ratio=16:9",
+  1855→      "https://www.crash.net/sites/default/files/2026-06/m605443_f1_grand_prix_of_barcelona_catalunya_final_practice.jpg?width=1600",
+  1856→      "https://www.crash.net/sites/default/files/2026-06/xpb_1417744_hires.jpg?width=1600",
+  1857→      "https://www.crash.net/sites/default/files/2026-06/xpb_1417767_hires.jpg?width=1600"
+  1858→    ],
+  1859→    "fetched_at": "2026-06-13T18:32:49.485354+00:00"
+  1860→  },
+  1861→  {
+  1862→    "title": "“Ashamed” Charles Leclerc explains costly qualifying crash at F1 Barcelona GP",
+  1863→    "url": "https://www.crash.net/f1/news/1098096/1/ashamed-charles-leclerc-explains-costly-qualifying-crash-f1-barcelona-gp",
+  1864→    "summary": "Charles Leclerc has explained his costly qualifying crash in Barcelona.",
+  1865→    "published": "Sat, 13 Jun 2026 17:18:45 +0100",
+  1866→    "source": "Crash.net F1",
+  1867→    "lang": "en",
+  1868→    "images": [
+  1869→      "https://www.crash.net/sites/default/files/2026-06/xpb_1417244_hires.jpg?width=1200",
+  1870→      "https://www.crash.net/sites/default/files/2026-06/xpb_1417244_hires.jpg?width=1600&aspect_ratio=16:9",
+  1871→      "https://www.crash.net/sites/default/files/2026-06/xpb_1417744_hires.jpg?width=1600",
+  1872→      "https://www.crash.net/sites/default/files/pictures/1bc46a82-ac76-40ea-9cf5-d309b802b0ef_1.jpeg",
+  1873→      "https://www.crash.net/sites/default/files/2026-06/xpb_1416948_hires.jpg?aspect_ratio=1:1"
+  1874→    ],
+  1875→    "fetched_at": "2026-06-13T18:32:50.043386+00:00"
+  1876→  },
+  1877→  {
+  1878→    "title": "F1 2026 Barcelona-Catalunya Grand Prix: Full starting grid for Sunday's race",
+  1879→    "url": "https://www.crash.net/f1/news/1098078/1/f1-2026-barcelona-catalunya-grand-prix-full-starting-grid-sundays-race",
+  1880→    "summary": "The starting grid for the 2026 Formula 1 Barcelona-Catalunya Grand Prix.",
+  1881→    "published": "Sat, 13 Jun 2026 16:45:23 +0100",
+  1882→    "source": "Crash.net F1",
+  1883→    "lang": "en",
+  1884→    "images": [
+  1885→      "https://www.crash.net/sites/default/files/2026-06/xpb_1417744_hires.jpg?width=1200",
+  1886→      "https://www.crash.net/sites/default/files/2026-06/xpb_1417744_hires.jpg?width=1600&aspect_ratio=16:9",
+  1887→      "https://www.crash.net/sites/default/files/2026-06/xpb_1417727_hires.jpg?width=1600",
+  1888→      "https://www.crash.net/sites/default/files/2026-06/xpb_1417599_hires.jpg?width=1600",
+  1889→      "https://www.crash.net/sites/default/files/2026-06/xpb_1417244_hires.jpg?width=1600"
+  1890→    ],
+  1891→    "fetched_at": "2026-06-13T18:32:50.682492+00:00"
+  1892→  },
+  1893→  {
+  1894→    "title": "2026 F1 Monaco Grand Prix: Full qualifying results",
+  1895→    "url": "https://www.crash.net/f1/results/1097307/1/2026-f1-monaco-grand-prix-full-qualifying-results",
+  1896→    "summary": "Full qualifying results from qualifying at the 2026 Formula 1 Monaco Grand Prix",
+  1897→    "published": "Sat, 06 Jun 2026 16:20:00 +0100",
+  1898→    "source": "Crash.net F1",
+  1899→    "lang": "en",
+  1900→    "images": [
+  1901→      "https://www.crash.net/sites/default/files/2026-06/xpb_1413451_hires.jpg?width=1200",
+  1902→      "https://www.crash.net/sites/default/files/2026-06/xpb_1413451_hires.jpg?width=1600&aspect_ratio=16:9",
+  1903→      "https://www.crash.net/sites/default/files/2026-06/xpb_1413734_hires.jpg?width=1600",
+  1904→      "https://www.crash.net/sites/default/files/2026-06/xpb_1414188_hires.jpg?width=1600",
+  1905→      "https://www.crash.net/sites/default/files/2026-06/xpb_1414196_hires.jpg?width=1600"
+  1906→    ],
+  1907→    "fetched_at": "2026-06-13T18:32:51.409365+00:00"
+  1908→  },
+  1909→  {
+  1910→    "title": "WUTTTT IS THIS SOUND?!",
+  1911→    "url": "https://www.reddit.com/r/MechanicAdvice/comments/1u4vln2/wutttt_is_this_sound/",
+  1912→    "summary": "after i parked my car this morning i went to put my keys in my purse and it started making this rapid clicking sound?? sounded like it was coming from the right side ???! just got a new battery and oil change 3 weeks ago  2012 chevy impala   &#32; submitted by &#32;  /u/Proof_Campaign6082   [link] &#32; [comments]",
+  1913→    "published": "2026-06-13T16:39:16+00:00",
+  1914→    "source": "Reddit MechanicAdvice",
+  1915→    "lang": "en",
+  1916→    "images": [
+  1917→      "https://external-preview.redd.it/eDhpYmJnOHZ2MjdoMYXjVfnBF1dn1bv2jftrRNX37ZQsE8Li9ctWoo06dBEE.png?width=640&crop=smart&auto=webp&s=2297c336fa290f7fb2e64e4c04940770f4a14554"
+  1918→    ],
+  1919→    "fetched_at": "2026-06-13T18:32:51.930712+00:00"
+  1920→  },
+  1921→  {
+  1922→    "title": "Андрей Ковалёв, «Авито Авто»: «Мы хотим, чтобы рынок стал безопаснее и прозрачнее» - Forbes.ru",
+  1923→    "url": "https://news.google.com/rss/articles/CBMidEFVX3lxTE5hU2NZcTFQS1hvdURRNFF0UVlWUjA3LUNWQkswVVY3NFI4Sm5tUDR2dk5tdkhLQkhTR3VYaU5Tb0tVcF9VWEUzWGY3cFctS0REdTVOU0daMHkxdHU0dzN2Vnl0SGRkTlBYdjVjN1ZlanItb1Bk?oc=5",
+  1924→    "summary": "Андрей Ковалёв, «Авито Авто»: «Мы хотим, чтобы рынок стал безопаснее и прозрачнее»&nbsp;&nbsp;Forbes.ru",
+  1925→    "published": "Tue, 23 Dec 2025 18:31:40 GMT",
+  1926→    "source": "GoogleNews_автозапчасти рынок",
+  1927→    "lang": "ru",
+  1928→    "images": [
+  1929→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1930→    ],
+  1931→    "fetched_at": "2026-06-13T18:32:52.649208+00:00"
+  1932→  },
+  1933→  {
+  1934→    "title": "Авито Авто: рынок автомобилей с пробегом в Тверской области оживает — спрос вырос на 7,2% - Новости Твери и Тверской области",
+  1935→    "url": "https://news.google.com/rss/articles/CBMivAFBVV95cUxQXzNURnBCTnpVSEdnRnZYTjlIOTVpWUlyMThndDJDMnZ6eWdvT3J4NngxS2tjTk82WHhmZFU0YURadTZwUkJSM29nR2Y3SVdramVRRkFDNE5qYmtCWi0zcWIyRjNDUFFLYm5ldGVZZzZIMWZxdm1wZjM0RjYtb0tnWWtDTVFMV3RPNnVkd1d3bjl3RllCa3NBdnRUNDd3U3NjUXFIMVJYSG45dlpzVGxpZkFaN1k1Y1NlQ2U0Sg?oc=5",
+  1936→    "summary": "Авито Авто: рынок автомобилей с пробегом в Тверской области оживает — спрос вырос на 7,2%&nbsp;&nbsp;Новости Твери и Тверской области",
+  1937→    "published": "Tue, 21 Apr 2026 07:00:00 GMT",
+  1938→    "source": "GoogleNews_автозапчасти рынок",
+  1939→    "lang": "ru",
+  1940→    "images": [
+  1941→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1942→    ],
+  1943→    "fetched_at": "2026-06-13T18:32:53.342413+00:00"
+  1944→  },
+  1945→  {
+  1946→    "title": "Россияне массово ушли на «вторичку»: рынок подержанных авто установил рекорд за всю историю наблюдений - ixbt.com",
+  1947→    "url": "https://news.google.com/rss/articles/CBMi4gFBVV95cUxNS1FvZm5NQVdFdDlBTHMtUlZCeWtGN21PU2ZQS1p4QVFqZ2lyZWpCbllQWGZ1aWJLZUhqNzRIQnRYZ3c3YkVsdUkzWDlwdkpuRmJISzh0SlF1cnNrQ1dTdjY0MWFtdkpsbHE5a19NeFEtOFY4XzFjeGVlRWNwQ19IUHV0WVBGZTkzQjhJY2lMVFNzQTd2ZGRlRHNhR0dpb2M2R2xCbndaaExadk52eV9VUGtQdzdZXzB3dl9aeVVfWGJDNUg0ZExvbXlMN3ZmZUlnUGo1cGxxMXR5bTJYdXMzSTZR0gHnAUFVX3lxTE5yMUJGbjU5X2VjOGJOdmdhaXJMci1ZeFVHbTV2a2ozcGNUQ2ptZjdaWlpqTWhreVNTWGotLXZNdUJlYmd2QXhidDFrVjFoOWd5b0laWVZMazVvVTRjbzN4ekpwYzdoRGdsNTZWQUo5YTZpeWJqc2JSVzFjck4xUzFpYnlPY1d4cTFITjY1Z0tTUmdIMXFlRXFjTlFPbnY1XzdNckRSWTA3X21ZX1VYZ21haXNUY0s0ejNEUzczb1RkclBFV1lNc1BDVWtEeWJvSFlSSHVLT1U1SVBVS0RKYnZRbVJDYVQ1cw?oc=5",
+  1948→    "summary": "Россияне массово ушли на «вторичку»: рынок подержанных авто установил рекорд за всю историю наблюдений&nbsp;&nbsp;ixbt.com",
+  1949→    "published": "Tue, 27 Jan 2026 08:00:00 GMT",
+  1950→    "source": "GoogleNews_автозапчасти рынок",
+  1951→    "lang": "ru",
+  1952→    "images": [
+  1953→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1954→    ],
+  1955→    "fetched_at": "2026-06-13T18:32:54.047363+00:00"
+  1956→  },
+  1957→  {
+  1958→    "title": "Последствия нового утильсбора: импорт новых автомобилей в Россию упал на 64%, а цены бьют рекорды - MenToday",
+  1959→    "url": "https://news.google.com/rss/articles/CBMi0gFBVV95cUxOUjFoS09ZUDY1YXpnUVNiV0VwWldNaGFhdEk5N3lxUXVuTkM0bDFVTUNzNDYwblRqZUdmRmJJYmMxT19QV3hIdWd4MXByLUtRNmgzUjF6N2x2YUNXS1NtM0tTdzZsMkRyS2JQaDNUOHAwc0o5R3JUWjVqSFdNVEp1UFBySVJSeWFQMG0zVVVqNXNRT1VtNDAtZDUtbVRnelVpREI4UG1UeHhMdVdvZWhQUnl3WjFlZWNrVXp5a3dvMUJocUtjYzdNWjlYTjByb3FXS3c?oc=5",
+  1960→    "summary": "Последствия нового утильсбора: импорт новых автомобилей в Россию упал на 64%, а цены бьют рекорды&nbsp;&nbsp;MenToday",
+  1961→    "published": "Fri, 21 Nov 2025 08:00:00 GMT",
+  1962→    "source": "GoogleNews_автозапчасти рынок",
+  1963→    "lang": "ru",
+  1964→    "images": [
+  1965→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1966→    ],
+  1967→    "fetched_at": "2026-06-13T18:32:54.745447+00:00"
+  1968→  },
+  1969→  {
+  1970→    "title": "Поставки автомобилей из Китая в Россию снизились в 2025 году на 42% - Ведомости",
+  1971→    "url": "https://news.google.com/rss/articles/CBMikwFBVV95cUxQZXRpMDhsYU96N25GZEVqcHlYRnJ2cDB3d0JWN0xQbmVEeUZVd21qNkFEX1NPYW51T1h4SUxtQ1JETEN1amViVWxPaXdmU2duZkFBY1V6d2Z0TE5GTnZ4bjltejdCZm1jR2JqVjZCWUc5N2VWd25zOVQxWmlmenZPVVNZRk1Qckx3MllGOGdXaEhXc1k?oc=5",
+  1972→    "summary": "Поставки автомобилей из Китая в Россию снизились в 2025 году на 42%&nbsp;&nbsp;Ведомости",
+  1973→    "published": "Tue, 20 Jan 2026 08:00:00 GMT",
+  1974→    "source": "GoogleNews_китайские автомобили",
+  1975→    "lang": "ru",
+  1976→    "images": [
+  1977→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1978→    ],
+  1979→    "fetched_at": "2026-06-13T18:32:55.429368+00:00"
+  1980→  },
+  1981→  {
+  1982→    "title": "В мае экспорт автомобилей из Китая резко вырос. - Vietnam.vn",
+  1983→    "url": "https://news.google.com/rss/articles/CBMihAFBVV95cUxOTGVJRy1zS0hiTG9qbnBIYk9KM09SYm5Ed25DQVVOZDMtek05NzJ4QVpwdS1Cem9mOHg0aXpINS1MOHc1eVRoYndHQmg4ZzhsZWpiQ3BLWU1TQUJuOWxLYXVDbWJrN1VVYUNUT1pJT3RPcmt6QVI3ZmRNazNyYXJWeWRIZDI?oc=5",
+  1984→    "summary": "В мае экспорт автомобилей из Китая резко вырос.&nbsp;&nbsp;Vietnam.vn",
+  1985→    "published": "Wed, 10 Jun 2026 11:36:55 GMT",
+  1986→    "source": "GoogleNews_китайские автомобили",
+  1987→    "lang": "ru",
+  1988→    "images": [
+  1989→      "https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"
+  1990→    ],
+  1991→    "fetched_at": "2026-06-13T18:32:56.131474+00:00"
+  1992→  },
+  1993→  {
+  1994→    "title": "Китай ограничит экспорт новых авто под видом подержанных – это приведет к задержкам поставок и росту цен - БИЗНЕС Online — Новости Казани",
+  1995→    "url": "https://news.google.com/rss/articles/CBMiUkFVX3lxTFBwS3pYaU1TN3A2MFVxVDItN0pVRVBoelQ4Nm1VQXVvWUNEdHVKX044WUU4V3B5X21qZ0VPQy1IVVFUQ2FqclJwa00xMmlDcGdhZVE?oc=5",
+  1996→    "summary": "Китай ограничит экспорт новых авто под видом подержанных – это приведет к задержкам поставок и росту цен&nbsp;&nbsp;БИЗНЕС Online — Новости Казани",
+  1997→    "published": "Thu, 20 Nov 2025 08:00:00 GMT",
+  1998→    "source": "GoogleNews_китайские автомобили",
+  1999→    "lang": "ru",
+  2000→    "images": [
+
+[showing lines 1-2000 of 2996; use offset=2001 with limit to continue reading]

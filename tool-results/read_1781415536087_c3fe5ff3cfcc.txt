@@ -1,0 +1,667 @@
+     1→     1→#!/usr/bin/env python3
+     2→     2→"""
+     3→     3→Auto News Parser — парсер автомобильных новостей с фото.
+     4→     4→Парсит RSS-ленты, извлекает статьи, скачивает фото, сохраняет в JSON.
+     5→     5→Запускается в GitHub Actions каждый час по крону.
+     6→     6→
+     7→     7→Источники: те же RSS-ленты что у бота Ася (@sochiautoparts).
+     8→     8→"""
+     9→     9→
+    10→    10→import feedparser
+    11→    11→import httpx
+    12→    12→import json
+    13→    13→import hashlib
+    14→    14→import re
+    15→    15→import time
+    16→    16→import logging
+    17→    17→import os
+    18→    18→from datetime import datetime, timezone
+    19→    19→from html.parser import HTMLParser
+    20→    20→from urllib.parse import urlparse, urljoin, quote_plus
+    21→    21→from pathlib import Path
+    22→    22→from typing import List, Dict, Optional, Set
+    23→    23→
+    24→    24→# ── Logging ────────────────────────────────────────────────────────────────────
+    25→    25→
+    26→    26→logging.basicConfig(
+    27→    27→    level=logging.INFO,
+    28→    28→    format="%(asctime)s [%(levelname)s] %(message)s",
+    29→    29→    datefmt="%Y-%m-%d %H:%M:%S",
+    30→    30→)
+    31→    31→logger = logging.getLogger("news_parser")
+    32→    32→
+    33→    33→# ── Configuration ──────────────────────────────────────────────────────────────
+    34→    34→
+    35→    35→OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "data"))
+    36→    36→OUTPUT_FILE = OUTPUT_DIR / "news.json"
+    37→    37→DEDUP_FILE = OUTPUT_DIR / "seen_urls.json"
+    38→    38→MAX_NEWS_PER_RUN = int(os.getenv("MAX_NEWS_PER_RUN", "50"))
+    39→    39→MAX_PHOTOS_PER_NEWS = int(os.getenv("MAX_PHOTOS_PER_NEWS", "5"))
+    40→    40→IMAGE_MIN_WIDTH = 300
+    41→    41→IMAGE_MIN_HEIGHT = 200
+    42→    42→REQUEST_TIMEOUT = 20.0
+    43→    43→FETCH_DELAY = 0.5  # delay between requests to same domain
+    44→    44→
+    45→    45→# ── RSS Sources (same as Asya bot, verified June 2026) ─────────────────────────
+    46→    46→
+    47→    47→RSS_SOURCES = [
+    48→    48→    # ── Russian-language ──
+    49→    49→    {"name": "ТАСС Авто", "url": "https://tass.ru/rss/v2.xml?sections=%D0%90%D0%B2%D1%82%D0%BE", "lang": "ru"},
+    50→    50→    {"name": "Авто Mail.ru", "url": "https://auto.mail.ru/rss/", "lang": "ru"},
+    51→    51→    {"name": "Коммерсант Авто", "url": "https://www.kommersant.ru/RSS/auto.xml", "lang": "ru"},
+    52→    52→    {"name": "5Колесо", "url": "https://5koleso.ru/rss/", "lang": "ru"},
+    53→    53→    # ── UK auto magazines ──
+    54→    54→    {"name": "Autocar UK", "url": "https://www.autocar.co.uk/rss/News", "lang": "en"},
+    55→    55→    {"name": "CAR Magazine", "url": "https://www.carmagazine.co.uk/api/rss", "lang": "en"},
+    56→    56→    {"name": "Top Gear", "url": "https://www.topgear.com/car-news/rss", "lang": "en"},
+    57→    57→    {"name": "EVO Magazine", "url": "https://www.evo.co.uk/rss", "lang": "en"},
+    58→    58→    # ── US auto news ──
+    59→    59→    {"name": "Car & Driver", "url": "https://www.caranddriver.com/rss/news.xml", "lang": "en"},
+    60→    60→    {"name": "Motor1", "url": "https://www.motor1.com/rss/feed/articles/", "lang": "en"},
+    61→    61→    {"name": "Motor Trend", "url": "https://www.motortrend.com/feed/", "lang": "en"},
+    62→    62→    {"name": "Autoweek", "url": "https://autoweek.com/rss", "lang": "en"},
+    63→    63→    {"name": "Road & Track", "url": "https://www.roadandtrack.com/rss", "lang": "en"},
+    64→    64→    # ── EV & Chinese auto ──
+    65→    65→    {"name": "CnEVPost", "url": "https://cnevpost.com/feed/", "lang": "en"},
+    66→    66→    {"name": "Electrek", "url": "https://electrek.co/feed/", "lang": "en"},
+    67→    67→    {"name": "InsideEVs", "url": "https://insideevs.com/rss/articles/", "lang": "en"},
+    68→    68→    {"name": "CarNewsChina", "url": "https://carnewschina.com/feed/", "lang": "en"},
+    69→    69→    # ── Asian auto ──
+    70→    70→    {"name": "PaulTan", "url": "https://paultan.org/feed/", "lang": "en"},
+    71→    71→    {"name": "Autosport", "url": "https://www.autosport.com/rss/f1/news/", "lang": "en"},
+    72→    72→    # ── Australian auto ──
+    73→    73→    {"name": "CarExpert", "url": "https://carexpert.com.au/feed/", "lang": "en"},
+    74→    74→    {"name": "Drive Australia", "url": "https://www.drive.com.au/feed/", "lang": "en"},
+    75→    75→    # ── Automotive news & reviews ──
+    76→    76→    {"name": "TheDrive", "url": "https://www.thedrive.com/feed", "lang": "en"},
+    77→    77→    {"name": "Jalopnik", "url": "https://jalopnik.com/rss", "lang": "en"},
+    78→    78→    {"name": "AutoExpress", "url": "https://www.autoexpress.co.uk/rss", "lang": "en"},
+    79→    79→    {"name": "The Autopian", "url": "https://theautopian.com/feed/", "lang": "en"},
+    80→    80→    {"name": "CarScoops", "url": "https://www.carscoops.com/feed/", "lang": "en"},
+    81→    81→    {"name": "AutoBlog", "url": "https://www.autoblog.com/rss.xml", "lang": "en"},
+    82→    82→    {"name": "Motor Authority", "url": "https://www.motorauthority.com/rss", "lang": "en"},
+    83→    83→    {"name": "Green Car Reports", "url": "https://www.greencarreports.com/rss", "lang": "en"},
+    84→    84→    # ── German auto (ADAC, AutoBild) ──
+    85→    85→    {"name": "AutoBild DE", "url": "https://www.autobild.de/rss/2116.xml", "lang": "de"},
+    86→    86→    # ── Motorsport ──
+    87→    87→    {"name": "Motorsport.com", "url": "https://www.motorsport.com/rss/all/news/", "lang": "en"},
+    88→    88→    {"name": "BBC Sport F1", "url": "https://feeds.bbci.co.uk/sport/formula1/rss.xml", "lang": "en"},
+    89→    89→    {"name": "Formula1.com", "url": "https://www.formula1.com/en/rss/latest_news.xml", "lang": "en"},
+    90→    90→    {"name": "Crash.net F1", "url": "https://www.crash.net/rss/f1", "lang": "en"},
+    91→    91→    # ── Reddit communities ──
+    92→    92→    {"name": "Reddit MechanicAdvice", "url": "https://www.reddit.com/r/MechanicAdvice/.rss", "lang": "en"},
+    93→    93→    {"name": "Reddit Cars", "url": "https://www.reddit.com/r/cars/.rss", "lang": "en"},
+    94→    94→    {"name": "Reddit ElectricVehicles", "url": "https://www.reddit.com/r/electricvehicles/.rss", "lang": "en"},
+    95→    95→    # ── Industry news ──
+    96→    96→    {"name": "Automotive News", "url": "https://www.autonews.com/rss", "lang": "en"},
+    97→    97→    {"name": "Reuters Autos", "url": "https://www.reuters.com/rssFeed/autosNews", "lang": "en"},
+    98→    98→]
+    99→    99→
+   100→   100→# Google News RSS queries — expanded global automotive coverage
+   101→   101→GOOGLE_NEWS_QUERIES = [
+   102→   102→    # ── Russian ──
+   103→   103→    "автомобили новости",
+   104→   104→    "автозапчасти рынок",
+   105→   105→    "китайские автомобили экспорт",
+   106→   106→    "электромобили зарядные станции",
+   107→   107→    "ПДД изменения штрафы",
+   108→   108→    "автокредит страхование ОСАГО",
+   109→   109→    "новые модели авто 2026",
+   110→   110→    "автосалон Москва",
+   111→   111→    # ── English industry & tech ──
+   112→   112→    "automotive industry news",
+   113→   113→    "electric vehicles 2026",
+   114→   114→    "autonomous driving self driving",
+   115→   115→    "car recalls safety",
+   116→   116→    "auto shows 2026",
+   117→   117→    "new car models 2026 2027",
+   118→   118→    # ── Advanced topics ──
+   119→   119→    "hydrogen fuel cell vehicle",
+   120→   120→    "EV battery technology solid state",
+   121→   121→    "supply chain automotive chips",
+   122→   122→    "used car market prices",
+   123→   123→    "Chinese cars global expansion",
+   124→   124→    # ── German ──
+   125→   125→    "Auto Nachrichten",
+   126→   126→    "Elektroauto Deutschland",
+   127→   127→    # ── Japanese ──
+   128→   128→    "car news Japan JDM",
+   129→   129→    "Toyota Honda news",
+   130→   130→    # ── Additional global ──
+   131→   131→    "supercar hypercar news",
+   132→   132→    "luxury car market",
+   133→   133→    "automotive AI technology",
+   134→   134→    "car manufacturing production",
+   135→   135→    " Formula 1 news 2026",
+   136→   136→    "WRC rally news",
+   137→   137→]
+   138→   138→
+   139→   139→# ── HTTP Client ────────────────────────────────────────────────────────────────
+   140→   140→
+   141→   141→HEADERS = {
+   142→   142→    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+   143→   143→                  "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+   144→   144→    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+   145→   145→    "Accept-Language": "en-US,en;q=0.5,ru-RU;q=0.8",
+   146→   146→}
+   147→   147→
+   148→   148→
+   149→   149→def get_client() -> httpx.Client:
+   150→   150→    return httpx.Client(
+   151→   151→        headers=HEADERS,
+   152→   152→        timeout=REQUEST_TIMEOUT,
+   153→   153→        follow_redirects=True,
+   154→   154→        verify=False,
+   155→   155→    )
+   156→   156→
+   157→   157→
+   158→   158→# ── Image extraction from RSS entries ─────────────────────────────────────────
+   159→   159→
+   160→   160→class ImgTagExtractor(HTMLParser):
+   161→   161→    """Extract <img> src URLs from HTML content."""
+   162→   162→    def __init__(self):
+   163→   163→        super().__init__()
+   164→   164→        self.urls: List[str] = []
+   165→   165→
+   166→   166→    def handle_starttag(self, tag, attrs):
+   167→   167→        if tag == "img":
+   168→   168→            for attr_name, attr_value in attrs:
+   169→   169→                if attr_name == "src" and attr_value:
+   170→   170→                    self.urls.append(attr_value)
+   171→   171→
+   172→   172→
+   173→   173→def _safe_get_dict(obj, key, default=""):
+   174→   174→    """Safely get a value from something that might be a dict or not."""
+   175→   175→    if isinstance(obj, dict):
+   176→   176→        return obj.get(key, default)
+   177→   177→    return default
+   178→   178→
+   179→   179→
+   180→   180→def extract_rss_images(entry) -> List[str]:
+   181→   181→    """Extract image URLs from an RSS entry (media_content, enclosures, <img> tags)."""
+   182→   182→    urls: List[str] = []
+   183→   183→
+   184→   184→    # 1. media_content (most RSS feeds use this)
+   185→   185→    media_list = getattr(entry, "media_content", [])
+   186→   186→    if media_list:
+   187→   187→        for media in media_list:
+   188→   188→            if isinstance(media, str):
+   189→   189→                if _is_image_url(media):
+   190→   190→                    urls.append(media)
+   191→   191→            elif isinstance(media, dict):
+   192→   192→                url = media.get("url", "")
+   193→   193→                if url and _is_image_url(url):
+   194→   194→                    urls.append(url)
+   195→   195→
+   196→   196→    # 2. media_thumbnail
+   197→   197→    thumbnails = getattr(entry, "media_thumbnail", [])
+   198→   198→    if thumbnails:
+   199→   199→        for thumb in thumbnails:
+   200→   200→            if isinstance(thumb, str):
+   201→   201→                if _is_image_url(thumb):
+   202→   202→                    urls.append(thumb)
+   203→   203→            elif isinstance(thumb, dict):
+   204→   204→                url = thumb.get("url", "")
+   205→   205→                if url and _is_image_url(url):
+   206→   206→                    urls.append(url)
+   207→   207→
+   208→   208→    # 3. enclosures
+   209→   209→    for enclosure in getattr(entry, "enclosures", []):
+   210→   210→        if isinstance(enclosure, str):
+   211→   211→            if _is_image_url(enclosure):
+   212→   212→                urls.append(enclosure)
+   213→   213→        elif isinstance(enclosure, dict):
+   214→   214→            href = enclosure.get("href", "")
+   215→   215→            enc_type = enclosure.get("type", "")
+   216→   216→            if href and (enc_type.startswith("image/") or _is_image_url(href)):
+   217→   217→                urls.append(href)
+   218→   218→
+   219→   219→    # 4. Parse HTML in summary/content for <img> tags
+   220→   220→    for field_name in ("summary", "description", "content"):
+   221→   221→        field_value = getattr(entry, field_name, None)
+   222→   222→        if not field_value:
+   223→   223→            continue
+   224→   224→        html_text = ""
+   225→   225→        if isinstance(field_value, str):
+   226→   226→            html_text = field_value
+   227→   227→        elif isinstance(field_value, dict):
+   228→   228→            html_text = field_value.get("value", "")
+   229→   229→        elif isinstance(field_value, list):
+   230→   230→            # feedparser sometimes returns content as a list of dicts with 'value' key
+   231→   231→            for item in field_value:
+   232→   232→                if isinstance(item, dict):
+   233→   233→                    html_text += item.get("value", "")
+   234→   234→                elif isinstance(item, str):
+   235→   235→                    html_text += item
+   236→   236→        if html_text:
+   237→   237→            extractor = ImgTagExtractor()
+   238→   238→            try:
+   239→   239→                extractor.feed(html_text)
+   240→   240→                urls.extend(extractor.urls)
+   241→   241→            except Exception:
+   242→   242→                pass
+   243→   243→
+   244→   244→    return _dedupe_urls(urls)
+   245→   245→
+   246→   246→
+   247→   247→def _is_image_url(url: str) -> bool:
+   248→   248→    """Check if URL looks like an image."""
+   249→   249→    lower = url.lower().split("?")[0]
+   250→   250→    return any(lower.endswith(ext) for ext in (
+   251→   251→        ".jpg", ".jpeg", ".png", ".webp", ".avif"
+   252→   252→    )) or "image" in url.lower() or "/img/" in url.lower() or "/image/" in url.lower()
+   253→   253→
+   254→   254→
+   255→   255→def _dedupe_urls(urls: List[str]) -> List[str]:
+   256→   256→    """Remove duplicate URLs while preserving order."""
+   257→   257→    seen: Set[str] = set()
+   258→   258→    result: List[str] = []
+   259→   259→    for url in urls:
+   260→   260→        if url not in seen:
+   261→   261→            seen.add(url)
+   262→   262→            result.append(url)
+   263→   263→    return result
+   264→   264→
+   265→   265→
+   266→   266→# ── Image extraction from article page ─────────────────────────────────────────
+   267→   267→
+   268→   268→# Junk image patterns to filter out
+   269→   269→JUNK_PATTERNS = [
+   270→   270→    re.compile(p, re.IGNORECASE) for p in [
+   271→   271→        r"logo", r"icon", r"favicon", r"avatar", r"badge", r"banner.*ad",
+   272→   272→        r"social", r"share", r"facebook", r"twitter", r"instagram", r"telegram",
+   273→   273→        r"whatsapp", r"pinterest", r"linkedin", r"youtube", r"subscribe",
+   274→   274→        r"newsletter", r"popup", r"modal", r"spinner", r"loading", r"placeholder",
+   275→   275→        r"pixel", r"tracking", r"analytics", r"1x1", r"spacer", r"blank",
+   276→   276→        r"dot", r"arrow", r"bullet", r"separator", r"divider", r"gradient",
+   277→   277→        r"sprite", r"emoji", r"flag", r"rating", r"star", r"checker",
+   278→   278→        r"\.svg$", r"\.gif$", r"ad[sx]?\.", r"doubleclick", r"adsense",
+   279→   279→        r"gravatar", r"captcha", r"captcha", r"recaptcha",
+   280→   280→        r"button", r"btn", r"close", r"hamburger", r"menu",
+   281→   281→        r"rss", r"atom", r"feed", r"comments?\.png",
+   282→   282→        r"weather", r"currency", r"stock", r"ticker",
+   283→   283→    ]
+   284→   284→]
+   285→   285→
+   286→   286→
+   287→   287→def extract_article_images(html: str, base_url: str) -> List[str]:
+   288→   288→    """Extract quality image URLs from an article HTML page."""
+   289→   289→    urls: List[str] = []
+   290→   290→
+   291→   291→    # 1. og:image from meta tags
+   292→   292→    og_match = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)', html, re.IGNORECASE)
+   293→   293→    if og_match:
+   294→   294→        urls.append(og_match.group(1))
+   295→   295→
+   296→   296→    # 2. twitter:image
+   297→   297→    tw_match = re.search(r'<meta[^>]+(?:name|property)=["\']twitter:image["\'][^>]+content=["\']([^"\']+)', html, re.IGNORECASE)
+   298→   298→    if tw_match:
+   299→   299→        urls.append(tw_match.group(1))
+   300→   300→
+   301→   301→    # 3. JSON-LD images
+   302→   302→    for ld_match in re.finditer(r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>', html, re.IGNORECASE | re.DOTALL):
+   303→   303→        try:
+   304→   304→            ld_data = json.loads(ld_match.group(1))
+   305→   305→            for img in _extract_jsonld_images(ld_data):
+   306→   306→                urls.append(img)
+   307→   307→        except (json.JSONDecodeError, TypeError):
+   308→   308→            pass
+   309→   309→
+   310→   310→    # 4. <img> tags with src attributes
+   311→   311→    extractor = ImgTagExtractor()
+   312→   312→    try:
+   313→   313→        extractor.feed(html)
+   314→   314→        urls.extend(extractor.urls)
+   315→   315→    except Exception:
+   316→   316→        pass
+   317→   317→
+   318→   318→    # Filter and normalize
+   319→   319→    filtered = []
+   320→   320→    for url in urls:
+   321→   321→        url = _normalize_url(url, base_url)
+   322→   322→        if url and not _is_junk_image(url):
+   323→   323→            filtered.append(url)
+   324→   324→
+   325→   325→    return _dedupe_urls(filtered)
+   326→   326→
+   327→   327→
+   328→   328→def _extract_jsonld_images(data, depth=0) -> List[str]:
+   329→   329→    """Recursively extract image URLs from JSON-LD data."""
+   330→   330→    if depth > 5:
+   331→   331→        return []
+   332→   332→    images = []
+   333→   333→    if isinstance(data, dict):
+   334→   334→        for key in ("image", "images", "thumbnailUrl", "contentUrl"):
+   335→   335→            val = data.get(key)
+   336→   336→            if isinstance(val, str):
+   337→   337→                images.append(val)
+   338→   338→            elif isinstance(val, dict):
+   339→   339→                images.extend(_extract_jsonld_images(val, depth + 1))
+   340→   340→            elif isinstance(val, list):
+   341→   341→                for item in val:
+   342→   342→                    if isinstance(item, str):
+   343→   343→                        images.append(item)
+   344→   344→                    elif isinstance(item, dict):
+   345→   345→                        images.extend(_extract_jsonld_images(item, depth + 1))
+   346→   346→    elif isinstance(data, list):
+   347→   347→        for item in data:
+   348→   348→            images.extend(_extract_jsonld_images(item, depth + 1))
+   349→   349→    return images
+   350→   350→
+   351→   351→
+   352→   352→def _normalize_url(url: str, base_url: str) -> Optional[str]:
+   353→   353→    """Normalize a URL to absolute form and validate it."""
+   354→   354→    if not url or url.startswith("data:") or url.startswith("javascript:"):
+   355→   355→        return None
+   356→   356→    # Make relative URLs absolute
+   357→   357→    if not url.startswith(("http://", "https://")):
+   358→   358→        url = urljoin(base_url, url)
+   359→   359→    # Clean URL
+   360→   360→    url = url.split("#")[0]  # Remove fragment
+   361→   361→    # Validate
+   362→   362→    parsed = urlparse(url)
+   363→   363→    if parsed.scheme not in ("http", "https"):
+   364→   364→        return None
+   365→   365→    if not parsed.netloc:
+   366→   366→        return None
+   367→   367→    return url
+   368→   368→
+   369→   369→
+   370→   370→def _is_junk_image(url: str) -> bool:
+   371→   371→    """Check if an image URL is a junk/decorative/icon image."""
+   372→   372→    full_url = url.lower()
+   373→   373→    path = urlparse(url).path.lower()
+   374→   374→    for pattern in JUNK_PATTERNS:
+   375→   375→        if pattern.search(full_url) or pattern.search(path):
+   376→   376→            return True
+   377→   377→    # Too small dimensions in URL
+   378→   378→    dim_match = re.search(r"[_\-x](\d{1,4})x(\d{1,4})", full_url)
+   379→   379→    if dim_match:
+   380→   380→        w, h = int(dim_match.group(1)), int(dim_match.group(2))
+   381→   381→        if w < IMAGE_MIN_WIDTH or h < IMAGE_MIN_HEIGHT:
+   382→   382→            return True
+   383→   383→    return False
+   384→   384→
+   385→   385→
+   386→   386→# ── Google News redirect resolution ───────────────────────────────────────────
+   387→   387→
+   388→   388→_GOOGLE_NEWS_RE = re.compile(r"news\.google\.com", re.IGNORECASE)
+   389→   389→
+   390→   390→
+   391→   391→def resolve_google_news_url(client: httpx.Client, url: str) -> str:
+   392→   392→    """Follow Google News redirect to get the real article URL."""
+   393→   393→    if not _GOOGLE_NEWS_RE.search(url):
+   394→   394→        return url
+   395→   395→    try:
+   396→   396→        resp = client.get(url, timeout=10.0)
+   397→   397→        return str(resp.url)
+   398→   398→    except Exception:
+   399→   399→        return url
+   400→   400→
+   401→   401→
+   402→   402→# ── Deduplication ──────────────────────────────────────────────────────────────
+   403→   403→
+   404→   404→def compute_fingerprint(title: str) -> str:
+   405→   405→    """Compute a simplified fingerprint for dedup (same as Asya bot)."""
+   406→   406→    cleaned = re.sub(
+   407→   407→        r'\b(в|на|с|о|у|по|из|за|от|до|к|не|и|но|а|что|как|это|тот|этот|для|при|через|между|после|перед|без|под|над|об|со|из-за|то|же|ли|бы|уже|ещё|еще|также|тоже|или|либо)\b',
+   408→   408→        '', title.lower()
+   409→   409→    )
+   410→   410→    cleaned = re.sub(r'[^a-zа-яё0-9]', ' ', cleaned)
+   411→   411→    words = cleaned.split()
+   412→   412→    return ' '.join(words[:5])
+   413→   413→
+   414→   414→
+   415→   415→def fingerprint_matches(fp: str, existing_fps: Set[str]) -> bool:
+   416→   416→    """Check if fingerprint matches any existing fingerprint (3+ of first 4 words match)."""
+   417→   417→    fp_words = fp.split()[:4]
+   418→   418→    for existing in existing_fps:
+   419→   419→        ex_words = existing.split()[:4]
+   420→   420→        matches = sum(1 for w in fp_words if w in ex_words)
+   421→   421→        if matches >= 3:
+   422→   422→            return True
+   423→   423→    return False
+   424→   424→
+   425→   425→
+   426→   426→# ── Main Parser ────────────────────────────────────────────────────────────────
+   427→   427→
+   428→   428→def load_seen_urls() -> Set[str]:
+   429→   429→    """Load previously seen URLs from JSON file."""
+   430→   430→    if DEDUP_FILE.exists():
+   431→   431→        try:
+   432→   432→            with open(DEDUP_FILE, "r", encoding="utf-8") as f:
+   433→   433→                data = json.load(f)
+   434→   434→                # Keep only URLs from last 72 hours
+   435→   435→                cutoff = time.time() - 72 * 3600
+   436→   436→                return {url for url, ts in data.items() if ts > cutoff}
+   437→   437→        except Exception:
+   438→   438→            pass
+   439→   439→    return set()
+   440→   440→
+   441→   441→
+   442→   442→def save_seen_urls(seen_urls: Set[str]) -> None:
+   443→   443→    """Save seen URLs with timestamps to JSON file."""
+   444→   444→    data = {url: time.time() for url in seen_urls}
+   445→   445→    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+   446→   446→    with open(DEDUP_FILE, "w", encoding="utf-8") as f:
+   447→   447→        json.dump(data, f, ensure_ascii=False)
+   448→   448→
+   449→   449→
+   450→   450→def load_existing_news() -> List[Dict]:
+   451→   451→    """Load existing news JSON if it exists."""
+   452→   452→    if OUTPUT_FILE.exists():
+   453→   453→        try:
+   454→   454→            with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
+   455→   455→                return json.load(f)
+   456→   456→        except Exception:
+   457→   457→            pass
+   458→   458→    return []
+   459→   459→
+   460→   460→
+   461→   461→def fetch_rss_feed(client: httpx.Client, source: Dict) -> List[Dict]:
+   462→   462→    """Fetch and parse a single RSS feed."""
+   463→   463→    name = source["name"]
+   464→   464→    url = source["url"]
+   465→   465→    lang = source.get("lang", "en")
+   466→   466→
+   467→   467→    try:
+   468→   468→        resp = client.get(url, timeout=15.0)
+   469→   469→        if resp.status_code != 200:
+   470→   470→            logger.warning(f"[{name}] HTTP {resp.status_code} for {url}")
+   471→   471→            return []
+   472→   472→
+   473→   473→        feed = feedparser.parse(resp.text)
+   474→   474→        if feed.bozo and not feed.entries:
+   475→   475→            logger.warning(f"[{name}] Parse error: {feed.bozo_exception}")
+   476→   476→            return []
+   477→   477→
+   478→   478→        items = []
+   479→   479→        for entry in feed.entries[:15]:  # Take latest 15 per source
+   480→   480→            title = getattr(entry, "title", "").strip()
+   481→   481→            link = getattr(entry, "link", "").strip()
+   482→   482→            summary = getattr(entry, "summary", "") or getattr(entry, "description", "")
+   483→   483→            published = getattr(entry, "published", "") or getattr(entry, "updated", "")
+   484→   484→
+   485→   485→            if not title or not link:
+   486→   486→                continue
+   487→   487→
+   488→   488→            # Convert summary from list/dict to string if needed
+   489→   489→            if isinstance(summary, list):
+   490→   490→                summary = " ".join(
+   491→   491→                    item.get("value", "") if isinstance(item, dict) else str(item)
+   492→   492→                    for item in summary
+   493→   493→                )
+   494→   494→            elif isinstance(summary, dict):
+   495→   495→                summary = summary.get("value", "")
+   496→   496→
+   497→   497→            # Clean summary - strip HTML
+   498→   498→            clean_summary = re.sub(r'<[^>]+>', '', str(summary)).strip()[:500]
+   499→   499→
+   500→   500→            # Extract images from RSS entry
+   501→   501→            rss_images = extract_rss_images(entry)
+   502→   502→
+   503→   503→            items.append({
+   504→   504→                "title": title,
+   505→   505→                "url": link,
+   506→   506→                "summary": clean_summary,
+   507→   507→                "published": published,
+   508→   508→                "source_name": name,
+   509→   509→                "lang": lang,
+   510→   510→                "rss_images": rss_images,
+   511→   511→            })
+   512→   512→
+   513→   513→        logger.info(f"[{name}] Fetched {len(items)} items")
+   514→   514→        return items
+   515→   515→
+   516→   516→    except Exception as e:
+   517→   517→        logger.warning(f"[{name}] Error: {e}")
+   518→   518→        return []
+   519→   519→
+   520→   520→
+   521→   521→def fetch_article_images(client: httpx.Client, url: str) -> List[str]:
+   522→   522→    """Fetch article page and extract images from it."""
+   523→   523→    try:
+   524→   524→        # Resolve Google News redirect
+   525→   525→        real_url = resolve_google_news_url(client, url)
+   526→   526→
+   527→   527→        resp = client.get(real_url, timeout=REQUEST_TIMEOUT)
+   528→   528→        if resp.status_code != 200:
+   529→   529→            return []
+   530→   530→
+   531→   531→        html = resp.text
+   532→   532→        if len(html) > 2_000_000:  # Skip huge pages
+   533→   533→            html = html[:2_000_000]
+   534→   534→
+   535→   535→        images = extract_article_images(html, real_url)
+   536→   536→        return images[:MAX_PHOTOS_PER_NEWS * 2]  # Get extra, filter later
+   537→   537→
+   538→   538→    except Exception as e:
+   539→   539→        logger.debug(f"Error fetching article images from {url}: {e}")
+   540→   540→        return []
+   541→   541→
+   542→   542→
+   543→   543→def main():
+   544→   544→    """Main entry point for the news parser."""
+   545→   545→    logger.info("=" * 60)
+   546→   546→    logger.info("Auto News Parser — starting...")
+   547→   547→    logger.info(f"Max news per run: {MAX_NEWS_PER_RUN}")
+   548→   548→    logger.info(f"Max photos per news: {MAX_PHOTOS_PER_NEWS}")
+   549→   549→    logger.info("=" * 60)
+   550→   550→
+   551→   551→    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+   552→   552→
+   553→   553→    seen_urls = load_seen_urls()
+   554→   554→    existing_news = load_existing_news()
+   555→   555→    existing_fingerprints = {compute_fingerprint(item.get("title", "")) for item in existing_news}
+   556→   556→
+   557→   557→    all_new_items: List[Dict] = []
+   558→   558→
+   559→   559→    with get_client() as client:
+   560→   560→        # ── Phase 1: Fetch all RSS feeds ───────────────────────────────────────
+   561→   561→        logger.info("Phase 1: Fetching RSS feeds...")
+   562→   562→
+   563→   563→        for source in RSS_SOURCES:
+   564→   564→            items = fetch_rss_feed(client, source)
+   565→   565→            for item in items:
+   566→   566→                url = item["url"]
+   567→   567→                if url in seen_urls:
+   568→   568→                    continue
+   569→   569→                fp = compute_fingerprint(item["title"])
+   570→   570→                if fingerprint_matches(fp, existing_fingerprints):
+   571→   571→                    continue
+   572→   572→                all_new_items.append(item)
+   573→   573→                seen_urls.add(url)
+   574→   574→                existing_fingerprints.add(fp)
+   575→   575→            time.sleep(FETCH_DELAY)
+   576→   576→
+   577→   577→        # ── Phase 2: Google News RSS ──────────────────────────────────────────
+   578→   578→        logger.info("Phase 2: Fetching Google News RSS...")
+   579→   579→
+   580→   580→        for query in GOOGLE_NEWS_QUERIES:
+   581→   581→            lang = "ru" if any(ord(c) > 127 for c in query) else "en"
+   582→   582→            gl = "RU" if lang == "ru" else "US"
+   583→   583→            gn_url = f"https://news.google.com/rss/search?q={quote_plus(query)}&hl={lang}&gl={gl}&ceid={gl}:{lang}"
+   584→   584→
+   585→   585→            source = {"name": f"GoogleNews_{query[:20]}", "url": gn_url, "lang": lang}
+   586→   586→            items = fetch_rss_feed(client, source)
+   587→   587→            for item in items:
+   588→   588→                url = item["url"]
+   589→   589→                if url in seen_urls:
+   590→   590→                    continue
+   591→   591→                fp = compute_fingerprint(item["title"])
+   592→   592→                if fingerprint_matches(fp, existing_fingerprints):
+   593→   593→                    continue
+   594→   594→                all_new_items.append(item)
+   595→   595→                seen_urls.add(url)
+   596→   596→                existing_fingerprints.add(fp)
+   597→   597→            time.sleep(FETCH_DELAY * 2)  # Extra delay for Google
+   598→   598→
+   599→   599→        logger.info(f"Total new items after dedup: {len(all_new_items)}")
+   600→   600→
+   601→   601→        # ── Phase 3: Fetch article images ─────────────────────────────────────
+   602→   602→        logger.info("Phase 3: Fetching article images...")
+   603→   603→
+   604→   604→        processed_items: List[Dict] = []
+   605→   605→        for i, item in enumerate(all_new_items[:MAX_NEWS_PER_RUN]):
+   606→   606→            article_images = []
+   607→   607→
+   608→   608→            # Try fetching images from the article page
+   609→   609→            if item["url"]:
+   610→   610→                article_images = fetch_article_images(client, item["url"])
+   611→   611→                time.sleep(FETCH_DELAY)
+   612→   612→
+   613→   613→            # Combine: RSS images first, then article images
+   614→   614→            all_images = item.get("rss_images", []) + article_images
+   615→   615→            all_images = _dedupe_urls(all_images)
+   616→   616→            all_images = all_images[:MAX_PHOTOS_PER_NEWS]
+   617→   617→
+   618→   618→            if not all_images:
+   619→   619→                logger.info(f"  [{i+1}/{min(len(all_new_items), MAX_NEWS_PER_RUN)}] {item['title'][:60]}... — NO IMAGES")
+   620→   620→            else:
+   621→   621→                logger.info(f"  [{i+1}/{min(len(all_new_items), MAX_NEWS_PER_RUN)}] {item['title'][:60]}... — {len(all_images)} images")
+   622→   622→
+   623→   623→            news_item = {
+   624→   624→                "title": item["title"],
+   625→   625→                "url": item["url"],
+   626→   626→                "summary": item.get("summary", ""),
+   627→   627→                "published": item.get("published", ""),
+   628→   628→                "source": item.get("source_name", ""),
+   629→   629→                "lang": item.get("lang", ""),
+   630→   630→                "images": all_images,
+   631→   631→                "fetched_at": datetime.now(timezone.utc).isoformat(),
+   632→   632→            }
+   633→   633→            processed_items.append(news_item)
+   634→   634→
+   635→   635→    # ── Phase 4: Save results ─────────────────────────────────────────────────
+   636→   636→    logger.info("Phase 4: Saving results...")
+   637→   637→
+   638→   638→    # Merge with existing news (newest first), keep max 500
+   639→   639→    merged = processed_items + existing_news
+   640→   640→    merged = merged[:500]
+   641→   641→
+   642→   642→    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+   643→   643→        json.dump(merged, f, ensure_ascii=False, indent=2)
+   644→   644→
+   645→   645→    logger.info(f"Saved {len(processed_items)} new items, total {len(merged)} in {OUTPUT_FILE}")
+   646→   646→
+   647→   647→    # Save dedup state
+   648→   648→    save_seen_urls(seen_urls)
+   649→   649→
+   650→   650→    # ── Summary ───────────────────────────────────────────────────────────────
+   651→   651→    with_photos = sum(1 for item in processed_items if item.get("images"))
+   652→   652→    without_photos = len(processed_items) - with_photos
+   653→   653→    total_images = sum(len(item.get("images", [])) for item in processed_items)
+   654→   654→
+   655→   655→    logger.info("=" * 60)
+   656→   656→    logger.info(f"PARSING COMPLETE")
+   657→   657→    logger.info(f"  New items: {len(processed_items)}")
+   658→   658→    logger.info(f"  With photos: {with_photos}")
+   659→   659→    logger.info(f"  Without photos: {without_photos}")
+   660→   660→    logger.info(f"  Total images: {total_images}")
+   661→   661→    logger.info(f"  Total in JSON: {len(merged)}")
+   662→   662→    logger.info("=" * 60)
+   663→   663→
+   664→   664→
+   665→   665→if __name__ == "__main__":
+   666→   666→    main()
+   667→   667→
