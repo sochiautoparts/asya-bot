@@ -276,7 +276,7 @@ class AIRouter:
                 )
             except Exception as e:
                 logger.error(f"Pollinations key exception: {e}")
-                return AIResponse(text="", model=model, provider="pollinations", error=True, error_message=str(e))
+                return AIResponse(text="", model=model, provider="pollinations", error=str(e), error_message=str(e))
 
         async def _safe_try_pollinations_free():
             """Try Pollinations free — return response or error."""
@@ -286,7 +286,7 @@ class AIRouter:
                 )
             except Exception as e:
                 logger.error(f"Pollinations free exception: {e}")
-                return AIResponse(text="", model=model, provider="pollinations-free", error=True, error_message=str(e))
+                return AIResponse(text="", model=model, provider="pollinations-free", error=str(e), error_message=str(e))
 
         async def _safe_try_cloudflare():
             """Try Cloudflare — return response or error."""
@@ -296,7 +296,7 @@ class AIRouter:
                 )
             except Exception as e:
                 logger.error(f"Cloudflare exception: {e}")
-                return AIResponse(text="", model="cloudflare", provider="cloudflare", error=True, error_message=str(e))
+                return AIResponse(text="", model="cloudflare", provider="cloudflare", error=str(e), error_message=str(e))
 
         async def _safe_try_local_fallback():
             """Try local model as fallback for function routes."""
@@ -306,7 +306,7 @@ class AIRouter:
                 )
             except Exception as e:
                 logger.error(f"Local fallback exception: {e}")
-                return AIResponse(text="", model="local-qwen3-4b", provider="local", error=True, error_message=str(e))
+                return AIResponse(text="", model="local-qwen3-4b", provider="local", error=str(e), error_message=str(e))
 
         # Build concurrent task list based on route type
         # Priority ordering: we want the best quality response first.
@@ -550,7 +550,7 @@ class AIRouter:
             text="",
             model=model or "openai",
             provider="pollinations-free",
-            error=True,
+            error="Free API failed for all models",
             error_message="Free API failed for all models",
         )
 
@@ -562,7 +562,7 @@ class AIRouter:
                 text="",
                 model="cloudflare",
                 provider="cloudflare",
-                error=True,
+                error="Cloudflare not configured",
                 error_message="Cloudflare not configured",
             )
 
@@ -597,7 +597,7 @@ class AIRouter:
                 text="",
                 model="local-qwen3-4b",
                 provider="local",
-                error=True,
+                error="Local provider not initialized",
                 error_message="Local provider not initialized",
             )
 
@@ -606,7 +606,7 @@ class AIRouter:
                 text="",
                 model="local-qwen3-4b",
                 provider="local",
-                error=True,
+                error="Local model disabled (ENABLE_LOCAL_MODEL=false)",
                 error_message="Local model disabled (ENABLE_LOCAL_MODEL=false)",
             )
 
@@ -752,8 +752,8 @@ class AIRouter:
             text="Ой, не получилось разглядеть фото 😅 Попробуй ещё раз!",
             model="fallback",
             provider="static",
-            error=True,
-            error_message=response.error_message,
+            error="All vision providers failed",
+            error_message=response.error_message or "All vision providers failed",
         )
 
     async def decode_vin(
@@ -1179,7 +1179,7 @@ class AIRouter:
         logger.warning("Local model unavailable for comment — NOT using cloud (user requirement)")
         return AIResponse(
             text="",
-            error=True,
+            error="Local model unavailable for comments — cloud APIs blocked by user requirement",
             provider="local-only",
             model="qwen3-4b",
             error_message="Local model unavailable for comments — cloud APIs blocked by user requirement",

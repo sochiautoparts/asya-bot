@@ -162,6 +162,17 @@ CREATE TABLE IF NOT EXISTS topic_registry (
 );
 
 CREATE INDEX IF NOT EXISTS idx_topic_registry_last ON topic_registry(last_posted);
+
+CREATE TABLE IF NOT EXISTS posted_urls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    url TEXT NOT NULL,
+    url_fingerprint TEXT NOT NULL,
+    title TEXT DEFAULT '',
+    posted_at REAL DEFAULT 0
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_posted_urls_fingerprint ON posted_urls(url_fingerprint);
+CREATE INDEX IF NOT EXISTS idx_posted_urls_time ON posted_urls(posted_at);
 """
 
 
@@ -1109,6 +1120,104 @@ async def cleanup_topic_registry(max_age_hours: int = 48) -> int:
         async with _connect_db() as db:
             cursor = await db.execute(
                 "DELETE FROM topic_registry WHERE last_posted < ?", (cutoff,)
+            )
+            await db.commit()
+            return cursor.rowcount
+    except Exception:
+        return 0
+
+
+# ── URL-based deduplication ────────────────────────────────────────────────────
+# PRIMARY dedup method: check if a news source URL was already posted.
+# This prevents the same news from being posted twice even when AI generates
+# completely different text for the same article.
+
+async def is_url_already_posted(url: str, hours: int = 168) -> bool:
+    """Check if a URL was already posted within the given time window.
+    
+    This is the PRIMARY deduplication method — it catches duplicates that
+    text-based dedup misses, because AI generates different text each time.
+    
+    Args:
+        url: The original news source URL to check
+        hours: How many hours back to check (default 168 = 7 days)
+    
+    Returns:
+        True if this URL was already posted (DUPLICATE), False if new
+    """
+    if not url:
+        return False
+    
+    url_fingerprint = _make_url_fingerprint(url)
+    if not url_fingerprint:
+        return False
+    
+    cutoff = time.time() - (hours * 3600)
+    
+    try:
+        async with _connect_db() as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM posted_urls WHERE url_fingerprint = ? AND posted_at >= ?",
+                (url_fingerprint, cutoff),
+            ) as cursor:
+                row = await cursor.fetchone()
+                return row[0] > 0 if row else False
+    except Exception:
+        # If posted_urls table doesn't exist yet, fall back to channel_posts check
+        try:
+            async with _connect_db() as db:
+                async with db.execute(
+                    "SELECT source_url FROM channel_posts WHERE created_at >= ?",
+                    (cutoff,),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                    for row in rows:
+                        existing_url = row[0] if row else ""
+                        if existing_url and _make_url_fingerprint(existing_url) == url_fingerprint:
+                            return True
+        except Exception:
+            pass
+        return False
+
+
+async def save_posted_url(url: str, title: str = "") -> None:
+    """Save a posted URL for deduplication.
+    
+    Call this AFTER successfully posting a news item to the channel.
+    This ensures that the same URL will be blocked in future posting cycles,
+    regardless of what text AI generates.
+    
+    Args:
+        url: The original news source URL
+        title: The title of the news item (for debugging/reference)
+    """
+    if not url:
+        return
+    
+    url_fingerprint = _make_url_fingerprint(url)
+    if not url_fingerprint:
+        return
+    
+    now = time.time()
+    try:
+        async with _connect_db() as db:
+            await db.execute(
+                """INSERT OR IGNORE INTO posted_urls (url, url_fingerprint, title, posted_at)
+                   VALUES (?, ?, ?, ?)""",
+                (url, url_fingerprint, title[:200], now),
+            )
+            await db.commit()
+    except Exception as e:
+        logger.debug(f"Could not save posted URL: {e}")
+
+
+async def cleanup_posted_urls(max_age_days: int = 30) -> int:
+    """Remove old URL dedup records. Returns count of removed rows."""
+    cutoff = time.time() - (max_age_days * 86400)
+    try:
+        async with _connect_db() as db:
+            cursor = await db.execute(
+                "DELETE FROM posted_urls WHERE posted_at < ?", (cutoff,)
             )
             await db.commit()
             return cursor.rowcount

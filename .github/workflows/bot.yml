@@ -1,52 +1,235 @@
-name: Asya Bot
+name: Asya Bot — LOCAL-FIRST v10 — Ася + Редакция
 
 on:
-  push:
-    branches: [main]
+  schedule:
+    - cron: '0 */5 * * *'
   workflow_dispatch:
+
+concurrency:
+  group: asya-bot-single
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+  OWNER_ID: ${{ secrets.OWNER_ID }}
+  CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+  CHANNEL_USERNAME: ${{ secrets.CHANNEL_USERNAME }}
+  POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
+  POLLINATIONS_API_KEY_2: ${{ secrets.POLLINATIONS_API_KEY_2 }}
+  CF_ACCOUNT_ID_1: ${{ secrets.CF_ACCOUNT_ID_1 }}
+  CF_API_TOKEN_1: ${{ secrets.CF_API_TOKEN_1 }}
+  CF_ACCOUNT_ID_2: ${{ secrets.CF_ACCOUNT_ID_2 }}
+  CF_API_TOKEN_2: ${{ secrets.CF_API_TOKEN_2 }}
+  GH_PAT_TOKEN: ${{ secrets.GH_PAT_TOKEN }}
+  GH_REPO: sochiautoparts/asya-bot
+  ADMITAD_ADS_FILE: data/admitad_ads.json
+  DB_PATH: asya_bot.db
+  PYTHONUNBUFFERED: "1"
+  LOG_LEVEL: INFO
+  # Local model — ENABLED (Qwen3-4B Q4_K_M, ~2.5GB)
+  ENABLE_LOCAL_MODEL: "true"
+  MODEL_PATH: "models/Qwen3-4B-Q4_K_M.gguf"
+  MODEL_N_CTX: "8192"
+  MODEL_N_THREADS: "4"
+  MODEL_MAX_TOKENS: "2048"
+  MODEL_AUTO_DOWNLOAD: "true"
+  MODEL_DOWNLOAD_URL: "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf"
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+  # Schedule settings
+  NEWS_INTERVAL_MINUTES: "30"
+  CHANNEL_POST_INTERVAL_MINUTES: "60"
+  CHANNEL_NEWS_PER_HOUR: "6"
+  CHANNEL_PARTNER_PER_HOUR: "1"
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # 6 hours max — auto-restart via push or schedule
+    timeout-minutes: 330
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT_TOKEN }}
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-
-      - name: Cache pip packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
+          python-version: '3.12'
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          # Install system dependencies for llama-cpp-python (OpenBLAS for fast CPU inference)
+          sudo apt-get update -qq && sudo apt-get install -y -qq libopenblas-dev
+          # Install llama-cpp-python with CPU optimizations (OpenBLAS for fast inference)
+          CMAKE_ARGS="-DGGML_BLAS=ON -DGGML_BLAS_VENDOR=OpenBLAS" pip install llama-cpp-python>=0.3.0 --no-cache-dir
+          # Install remaining dependencies
           pip install -r requirements.txt
-          # Install llama-cpp-python with CPU support for local model
-          CMAKE_ARGS='-DGGML_BLAS=ON -DGGML_BLAS_VENDOR=OpenBLAS' pip install llama-cpp-python --no-cache-dir 2>/dev/null || true
 
-      - name: Create models directory
-        run: mkdir -p models
+      - name: Cache local model
+        uses: actions/cache@v4
+        with:
+          path: models/Qwen3-4B-Q4_K_M.gguf
+          key: qwen3-4b-q4km-gguf-v2
+          restore-keys: |
+            qwen3-4b-q4km-gguf-
 
-      - name: Run Asya Bot
-        env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          OWNER_ID: ${{ secrets.OWNER_ID }}
-          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
-          POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
-          POLLINATIONS_API_KEY_2: ${{ secrets.POLLINATIONS_API_KEY_2 }}
-          CF_ACCOUNT_ID_1: ${{ secrets.CF_ACCOUNT_ID_1 }}
-          CF_API_TOKEN_1: ${{ secrets.CF_API_TOKEN_1 }}
-          CF_ACCOUNT_ID_2: ${{ secrets.CF_ACCOUNT_ID_2 }}
-          CF_API_TOKEN_2: ${{ secrets.CF_API_TOKEN_2 }}
-          ENABLE_LOCAL_MODEL: "false"
-          GH_PAT_TOKEN: ${{ secrets.GH_PAT_TOKEN }}
+      - name: Download local model (if not cached)
         run: |
-          python -m bot.main
+          mkdir -p models
+          if [ -f "models/Qwen3-4B-Q4_K_M.gguf" ]; then
+            SIZE=$(stat -c%s "models/Qwen3-4B-Q4_K_M.gguf" 2>/dev/null || echo 0)
+            SIZE_MB=$((SIZE / 1048576))
+            echo "Model file found in cache: ${SIZE_MB} MB"
+            if [ "$SIZE_MB" -lt 100 ]; then
+              echo "Cached file too small, removing..."
+              rm -f models/Qwen3-4B-Q4_K_M.gguf
+            fi
+          fi
+
+          if [ ! -f "models/Qwen3-4B-Q4_K_M.gguf" ]; then
+            echo "Downloading Qwen3-4B Q4_K_M (~2.3GB)..."
+            if [ -n "$HF_TOKEN" ]; then
+              echo "Using HuggingFace token for authenticated download..."
+              pip install huggingface_hub -q
+              hf download --local-dir models --include "Qwen3-4B-Q4_K_M.gguf" Qwen/Qwen3-4B-GGUF --token "$HF_TOKEN"
+            else
+              echo "No HF_TOKEN set, trying unauthenticated download..."
+              curl -L --max-time 600 --retry 3 --retry-delay 10 \
+                -o models/Qwen3-4B-Q4_K_M.gguf \
+                "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf"
+            fi
+          fi
+
+          # Verify
+          if [ -f "models/Qwen3-4B-Q4_K_M.gguf" ]; then
+            SIZE=$(stat -c%s "models/Qwen3-4B-Q4_K_M.gguf" 2>/dev/null || echo 0)
+            SIZE_MB=$((SIZE / 1048576))
+            echo "Model file size: ${SIZE_MB} MB"
+            if [ "$SIZE_MB" -lt 100 ]; then
+              echo "ERROR: Model file too small or corrupted!"
+              rm -f models/Qwen3-4B-Q4_K_M.gguf
+              echo "WARNING: Model download failed — bot will run in cloud-only mode"
+              echo "ENABLE_LOCAL_MODEL=false" >> $GITHUB_ENV
+            fi
+          else
+            echo "WARNING: Model download failed — bot will run in cloud-only mode"
+            echo "ENABLE_LOCAL_MODEL=false" >> $GITHUB_ENV
+          fi
+
+      - name: Clean Python cache
+        run: |
+          find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+          find . -type f -name "*.pyc" -delete 2>/dev/null || true
+          echo "Python cache cleaned"
+
+      - name: Download Admitad partner data
+        run: |
+          echo "=== Downloading admitad partner data ==="
+          mkdir -p data
+          curl -sL "https://raw.githubusercontent.com/creastudioai-beep/pr/main/data/admitad_ads.json" \
+            -o data/admitad_ads.json || echo "Failed to download admitad data, will use cached version"
+          if [ -f data/admitad_ads.json ]; then
+            echo "OK: admitad_ads.json downloaded ($(wc -c < data/admitad_ads.json) bytes)"
+          else
+            echo "WARNING: admitad_ads.json not found"
+          fi
+
+      - name: Restore database from cache
+        uses: actions/cache@v4
+        with:
+          path: asya_bot.db
+          key: asya-bot-db-v2
+          restore-keys: |
+            asya-bot-db-
+
+      - name: Ensure .gitignore allows database
+        run: |
+          if [ -f .gitignore ]; then
+            sed -i '/asya_bot\.db/d' .gitignore
+          fi
+
+      - name: Run Asya Bot with auto-restart
+        run: |
+          echo "=== Starting Asya Bot v10.0 — LOCAL-FIRST ==="
+          echo "ARCHITECTURE: Local-First 4-Level Failover"
+          echo "  Level 0: LOCAL Qwen3-4B (4B params, Q4_K_M, CPU) — chat & comments"
+          echo "  Level 1: Pollinations (key) — all routes, 60+ models"
+          echo "  Level 2: Pollinations FREE — fallback, no auth"
+          echo "  Level 3: Cloudflare Workers AI — Mistral Small 3.1, 20K req/day"
+          echo "  Last resort: Static fallback"
+          echo "LOCAL MODEL USAGE:"
+          echo "  CHAT route: Local → Cloud (saves balance!)"
+          echo "  COMMENT route: Local → Cloud (saves balance!)"
+          echo "  FUNCTION route (posts, VIN, diagnostics): Cloud → Local (fallback)"
+          echo "  VISION: Cloud only (local can't do vision)"
+          echo "  IMAGE GEN: Cloud only"
+          echo "ROUTING: Local(chat/comment) → Pollinations(key) → Pollinations(free) → Cloudflare → Static"
+          echo "EDITORIAL TEAM: Ася + Лёха + Димон + Марина + Кеша + Сеньор Помидор"
+          echo "CONTENT: Auto-first, JSON pipeline + RSS fallback, multi-strategy image sourcing"
+          echo "FORMATS: 6 content types for diverse schedule"
+          echo "SCHEDULE: 60 min intervals, 6 news + 1 partner per cycle"
+          echo ""
+
+          # Verify model file before starting
+          if [ -f "models/Qwen3-4B-Q4_K_M.gguf" ]; then
+            SIZE=$(stat -c%s "models/Qwen3-4B-Q4_K_M.gguf" 2>/dev/null || echo 0)
+            SIZE_MB=$((SIZE / 1048576))
+            echo "LOCAL MODEL: Available (${SIZE_MB} MB)"
+          else
+            echo "LOCAL MODEL: NOT FOUND — running in cloud-only mode"
+            echo "ENABLE_LOCAL_MODEL=false" >> $GITHUB_ENV
+          fi
+
+          MAX_RESTARTS=10
+          RESTART_COUNT=0
+
+          while [ $RESTART_COUNT -lt $MAX_RESTARTS ]; do
+            echo "=== Bot start attempt $((RESTART_COUNT + 1))/$MAX_RESTARTS ==="
+
+            timeout 18000 python -m bot.main || EXIT_CODE=$?
+            EXIT_CODE=${EXIT_CODE:-0}
+
+            echo "Bot exited with code: $EXIT_CODE"
+
+            if [ $EXIT_CODE -eq 0 ] || [ $EXIT_CODE -eq 124 ]; then
+              echo "Bot process ended, restarting..."
+              RESTART_COUNT=$((RESTART_COUNT + 1))
+              sleep 5
+            else
+              echo "Bot crashed with error code $EXIT_CODE, restarting..."
+              RESTART_COUNT=$((RESTART_COUNT + 1))
+              sleep 10
+            fi
+          done
+
+          echo "Max restarts reached, workflow will be re-dispatched."
+
+      - name: Save database
+        if: always()
+        run: |
+          if [ -f asya_bot.db ]; then
+            git config user.name "Asya Bot"
+            git config user.email "asya-bot@users.noreply.github.com"
+            git add -f asya_bot.db || true
+            git diff --staged --quiet || git commit -m "db: update $(date +%Y-%m-%d_%H:%M)" || true
+            git pull --rebase origin main || true
+            git push || true
+          fi
+
+      - name: Re-dispatch workflow for 24/7 operation
+        if: always()
+        run: |
+          echo "Re-dispatching workflow for continuous operation..."
+          sleep 30
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.GH_PAT_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/sochiautoparts/asya-bot/actions/workflows/bot.yml/dispatches" \
+            -d '{"ref":"main"}' || echo "Re-dispatch failed, will retry on next schedule"

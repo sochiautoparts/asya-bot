@@ -32,6 +32,7 @@ from bot.database import (
     mark_news_posted, add_partner_post, get_today_partner_post_count,
     is_duplicate_post, add_post_fingerprint, cleanup_old_fingerprints,
     get_recent_post_titles, DB_PATH,
+    is_url_already_posted, save_posted_url,
 )
 from ai.router import ai_router
 from bot.partners import partner_manager
@@ -1003,10 +1004,27 @@ class ChannelManager:
                 return False
             logger.info(f"post_news: content engine selected: {news_item.get('title', '')[:60]}")
 
+        # ── DEDUPLICATION LAYER 0: URL-based dedup (PRIMARY — fastest and most reliable) ──
+        # This is the MOST IMPORTANT dedup check. Same news URL = same article, regardless
+        # of what text AI generates. Without this, AI can write different text for the same
+        # news each time, and text-based dedup (fingerprints, hashes) won't catch it.
+        if news_item and news_item.get("url"):
+            if await is_url_already_posted(news_item["url"], hours=168):  # 7 days
+                logger.warning(f"URL DEDUP blocked (already posted this URL): {news_item['url'][:80]}")
+                await mark_news_posted(news_item["url"])
+                return False
+
         # ── DEDUPLICATION LAYER 1: DB-level dedup (title hash, keyword overlap) ──
         if news_item and news_item.get("title"):
             # Check with extended 72h window — same topic should not reappear within 3 days
-            if await is_duplicate_post(news_item["title"], hours=72):
+            # IMPORTANT: Pass source_url for URL-based dedup — this is the PRIMARY dedup method.
+            # Without it, same news with different AI text = different hash = duplicate slips through.
+            if await is_duplicate_post(
+                news_item["title"],
+                content="",
+                hours=72,
+                source_url=news_item.get("url", ""),
+            ):
                 logger.warning(f"DB DUPLICATE blocked: {news_item['title'][:60]}")
                 if news_item.get("url"):
                     await mark_news_posted(news_item["url"])
@@ -1297,7 +1315,12 @@ class ChannelManager:
         # ── DB fingerprint dedup — last chance to catch duplicates ──
         # Check both title AND generated content against DB with 72h window
         try:
-            if await is_duplicate_post(news_item.get("title", ""), content=post_text, hours=72):
+            if await is_duplicate_post(
+                news_item.get("title", ""),
+                content=post_text,
+                hours=72,
+                source_url=news_item.get("url", ""),
+            ):
                 logger.warning(f"DB dedup blocked post (post-gen): {news_item.get('title', '')[:60]}")
                 return False
         except Exception:
@@ -1390,6 +1413,16 @@ class ChannelManager:
                 post_id=sent.message_id,
             )
 
+            # ── DEDUPLICATION: Save posted URL (PRIMARY dedup method) ──
+            # This is CRITICAL — saves the original news URL so that next time
+            # the same news comes through, it gets blocked by URL dedup (Layer 0)
+            # regardless of what text AI generates.
+            if news_item.get("url"):
+                await save_posted_url(
+                    news_item["url"],
+                    title=news_item.get("title", ""),
+                )
+
             # Mark news as posted
             if news_item.get("url"):
                 await mark_news_posted(news_item["url"])
@@ -1433,6 +1466,13 @@ class ChannelManager:
                     content=post_text,
                     post_id=sent.message_id,
                 )
+
+                # ── DEDUPLICATION: Save posted URL for fallback post too ──
+                if news_item.get("url"):
+                    await save_posted_url(
+                        news_item["url"],
+                        title=news_item.get("title", ""),
+                    )
 
                 if news_item.get("url"):
                     await mark_news_posted(news_item["url"])

@@ -331,7 +331,7 @@ class LocalProvider(BaseAIProvider):
                 text="",
                 model="local-qwen3-4b",
                 provider=self.name,
-                error=True,
+                error="Local model not available (not loaded or not enabled)",
                 error_message="Local model not available (not loaded or not enabled)",
             )
 
@@ -343,7 +343,7 @@ class LocalProvider(BaseAIProvider):
                     text="",
                     model="local-qwen3-4b",
                     provider=self.name,
-                    error=True,
+                    error=f"Local model in cooldown ({self._consecutive_errors} consecutive errors)",
                     error_message=f"Local model in cooldown ({self._consecutive_errors} consecutive errors)",
                 )
             else:
@@ -441,7 +441,7 @@ class LocalProvider(BaseAIProvider):
                     text="",
                     model="local-qwen3-4b",
                     provider=self.name,
-                    error=True,
+                    error="Empty or too short response from local model",
                     error_message="Empty or too short response from local model",
                 )
 
@@ -472,7 +472,7 @@ class LocalProvider(BaseAIProvider):
                 text="",
                 model="local-qwen3-4b",
                 provider=self.name,
-                error=True,
+                error=str(e),
                 error_message=str(e),
             )
 

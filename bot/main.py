@@ -12,6 +12,7 @@ Features:
 """
 
 import asyncio
+import faulthandler
 import logging
 import os
 import random
@@ -20,6 +21,9 @@ import sys
 import time
 import fcntl
 from pathlib import Path
+
+# Enable faulthandler for C-level crash diagnostics (segfaults in llama-cpp)
+faulthandler.enable()
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
