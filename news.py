@@ -29,6 +29,7 @@ import re
 from html import unescape as html_unescape
 from typing import List, Dict, Optional
 from datetime import datetime
+from collections import OrderedDict
 
 from bot.config import config
 from bot.database import add_news_item, get_unposted_news, mark_news_posted, is_duplicate_post
@@ -48,7 +49,8 @@ FETCH_TIMEOUT = 30.0
 MAX_NEWS_PER_CYCLE = 500  # Process almost all items — user wants selection from FULL array
 
 # ── Fingerprint-based deduplication ────────────────────────────────────────────
-_recent_fingerprints: set = set()
+# Using OrderedDict to maintain insertion order — oldest entries removed first
+_recent_fingerprints: OrderedDict = OrderedDict()
 
 
 def _compute_fingerprint(title: str) -> str:
@@ -317,13 +319,13 @@ async def run_news_cycle() -> int:
                 image_urls=item.get("image_urls", []),
                 published=item.get("published", ""),
             )
-            _recent_fingerprints.add(fingerprint)
-            # Keep fingerprint set bounded
+            _recent_fingerprints[fingerprint] = True
+            # Keep fingerprint OrderedDict bounded — remove oldest first
             if len(_recent_fingerprints) > 500:
-                # Remove oldest entries (set doesn't guarantee order, but that's fine)
+                # Remove oldest entries (first inserted in OrderedDict)
                 excess = len(_recent_fingerprints) - 300
                 for _ in range(excess):
-                    _recent_fingerprints.pop()
+                    _recent_fingerprints.popitem(last=False)  # Remove oldest
             new_count += 1
         except Exception as e:
             # May be a duplicate in DB (unique constraint on URL)

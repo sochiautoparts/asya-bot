@@ -16,6 +16,7 @@ import re
 import hashlib
 import httpx
 import aiosqlite
+from html import unescape as html_unescape
 from typing import Optional, List, Dict, Tuple
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -774,54 +775,93 @@ class ChannelManager:
     async def _get_post_images(self, news_item: Dict) -> tuple:
         """Get images for a news post — download directly from JSON URLs.
 
-        v6.0: Images come pre-extracted from the external parser (news.json).
-        No RSS scraping, no article page crawling, no search engines.
-        Just download the image URLs from the JSON data.
+        v7.0: Enhanced image handling with robust downloading, proper format
+        detection, retry logic, and article scraping fallback.
+        Images come pre-extracted from the external parser (news.json).
+        If JSON images fail, falls back to scraping the article page for og:image.
 
         Returns (image_list: List[bytes], source: str)
-        source is 'json', 'cache', or 'none'.
+        source is 'json', 'article', 'cache', or 'none'.
         """
         title = news_item.get("title", "")
         image_urls = news_item.get("image_urls", [])
 
         if not image_urls:
-            logger.info(f"No image URLs in JSON for '{title[:50]}' — text-only post")
+            logger.info(f"No image URLs in JSON for '{title[:50]}' — trying article scrape")
+            # FALLBACK: Try scraping the article page for images
+            article_images = await self._scrape_article_images(news_item)
+            if article_images:
+                return article_images, "article"
+            logger.info(f"No images found for '{title[:50]}' — text-only post")
             return [], "none"
 
         images = []
         downloaded = 0
         failed = 0
 
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=15.0,
+            follow_redirects=True,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+                "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+            },
+        ) as client:
             for url in image_urls[:MAX_IMAGES_PER_POST]:
                 try:
                     # Skip obviously bad URLs
                     url_lower = url.lower()
                     bad_patterns = ['logo', 'icon', 'banner', 'ad.', 'pixel',
                                     'tracking', '1x1', 'spacer', 'favicon',
-                                    'avatar', 'badge', 'newsletter', 'subscribe']
+                                    'avatar', 'badge', 'newsletter', 'subscribe',
+                                    'button', 'arrow', 'bullet', 'gradient-bg',
+                                    'placeholder', 'loading', 'spinner', 'blank']
                     if any(bp in url_lower for bp in bad_patterns):
+                        logger.debug(f"Skipping bad-pattern URL: {url[:60]}")
                         continue
 
-                    resp = await client.get(url)
-                    if resp.status_code != 200:
+                    # Retry logic: up to 2 attempts
+                    resp = None
+                    for attempt in range(2):
+                        try:
+                            resp = await client.get(url)
+                            if resp.status_code == 200:
+                                break
+                            if resp.status_code in (403, 429) and attempt == 0:
+                                # Some CDNs block first request — wait and retry
+                                await asyncio.sleep(1)
+                                continue
+                            break
+                        except (httpx.TimeoutException, httpx.ConnectError):
+                            if attempt == 0:
+                                await asyncio.sleep(1)
+                                continue
+                            raise
+
+                    if resp is None or resp.status_code != 200:
                         failed += 1
+                        logger.debug(f"Image download HTTP {resp.status_code if resp else 'timeout'} for {url[:60]}")
                         continue
 
-                    content_type = resp.headers.get("content-type", "")
-                    if not any(ft in content_type for ft in ["image/jpeg", "image/png", "image/webp", "image/jpg"]):
-                        # Check magic bytes if content-type is missing
+                    content_type = resp.headers.get("content-type", "").lower()
+                    # Note: "image/jpg" is NOT a standard MIME type, but some servers send it
+                    if not any(ft in content_type for ft in ["image/jpeg", "image/png", "image/webp", "image/jpg", "image/gif"]):
+                        # Check magic bytes if content-type is missing or unexpected
                         if not (resp.content[:3] == b'\xff\xd8\xff' or  # JPEG
                                 resp.content[:4] == b'\x89PNG' or        # PNG
-                                (resp.content[:4] == b'RIFF' and resp.content[8:12] == b'WEBP')):
+                                (resp.content[:4] == b'RIFF' and len(resp.content) > 12 and resp.content[8:12] == b'WEBP') or  # WEBP
+                                (resp.content[:4] == b'GIF8')):          # GIF
                             failed += 1
+                            logger.debug(f"Non-image content-type '{content_type}' for {url[:60]}")
                             continue
 
                     # Size check — skip tiny (icons) and huge (might OOM) images
                     size_kb = len(resp.content) / 1024
                     if size_kb < 5:  # Too small — probably icon/tracking
+                        logger.debug(f"Skipping tiny image ({size_kb:.0f}KB): {url[:60]}")
                         continue
                     if size_kb > 5000:  # Too large — skip
+                        logger.debug(f"Skipping huge image ({size_kb:.0f}KB): {url[:60]}")
                         continue
 
                     images.append(resp.content)
@@ -840,8 +880,114 @@ class ChannelManager:
             logger.info(f"Downloaded {downloaded}/{len(image_urls)} images for '{title[:50]}' ({failed} failed)")
             return images, "json"
         else:
-            logger.info(f"No valid images downloaded for '{title[:50]}' ({failed} failed) — text-only post")
+            # FALLBACK: Try scraping the article page
+            logger.info(f"No valid images downloaded for '{title[:50]}' ({failed} failed) — trying article scrape")
+            article_images = await self._scrape_article_images(news_item)
+            if article_images:
+                return article_images, "article"
+            logger.info(f"All image sources failed for '{title[:50]}' — text-only post")
             return [], "none"
+
+    async def _scrape_article_images(self, news_item: Dict) -> List[bytes]:
+        """Scrape the article page for images (og:image, twitter:image, etc.)
+
+        This is a FALLBACK when the JSON-provided image URLs fail or are missing.
+        Fetches the article HTML and extracts the main image from meta tags.
+        Returns a list of image bytes (max 3 images).
+        """
+        article_url = news_item.get("url", "")
+        if not article_url:
+            return []
+
+        images = []
+        try:
+            async with httpx.AsyncClient(
+                timeout=15.0,
+                follow_redirects=True,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                },
+            ) as client:
+                resp = await client.get(article_url)
+                if resp.status_code != 200:
+                    return []
+
+                html = resp.text
+                if not html:
+                    return []
+
+                # Extract image URLs from meta tags
+                img_urls = []
+
+                # og:image
+                og_match = re.search(r'<meta\s+[property|name]=["\']og:image["\']\s+content=["\']([^"\']+)["\']', html, re.IGNORECASE)
+                if not og_match:
+                    og_match = re.search(r'<meta\s+content=["\']([^"\']+)["\']\s+[property|name]=["\']og:image["\']', html, re.IGNORECASE)
+                if og_match:
+                    img_urls.append(html_unescape(og_match.group(1)))
+
+                # twitter:image
+                tw_match = re.search(r'<meta\s+[property|name]=["\']twitter:image["\']\s+content=["\']([^"\']+)["\']', html, re.IGNORECASE)
+                if not tw_match:
+                    tw_match = re.search(r'<meta\s+content=["\']([^"\']+)["\']\s+[property|name]=["\']twitter:image["\']', html, re.IGNORECASE)
+                if tw_match:
+                    url_val = html_unescape(tw_match.group(1))
+                    if url_val not in img_urls:
+                        img_urls.append(url_val)
+
+                # Also look for <img> tags with large src attributes in the article
+                # This catches article images that aren't in meta tags
+                for img_match in re.finditer(r'<img[^>]+src=["\']([^"\']+)["\']', html, re.IGNORECASE):
+                    src = html_unescape(img_match.group(1))
+                    src_lower = src.lower()
+                    # Skip tiny/UI images
+                    if any(skip in src_lower for skip in ['logo', 'icon', 'avatar', 'badge', '1x1', 'pixel', 'tracking', 'banner']):
+                        continue
+                    # Only add if not already present
+                    if src not in img_urls and src.startswith('http'):
+                        img_urls.append(src)
+                    if len(img_urls) >= 5:  # Limit to 5 candidates
+                        break
+
+                if not img_urls:
+                    return []
+
+                # Download the extracted images
+                async with httpx.AsyncClient(
+                    timeout=15.0,
+                    follow_redirects=True,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                        "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+                    },
+                ) as img_client:
+                    for img_url in img_urls[:3]:  # Max 3 from article scrape
+                        try:
+                            img_resp = await img_client.get(img_url)
+                            if img_resp.status_code != 200:
+                                continue
+                            ct = img_resp.headers.get("content-type", "").lower()
+                            if not any(ft in ct for ft in ["image/jpeg", "image/png", "image/webp", "image/jpg"]):
+                                # Check magic bytes
+                                if not (img_resp.content[:3] == b'\xff\xd8\xff' or
+                                        img_resp.content[:4] == b'\x89PNG' or
+                                        (img_resp.content[:4] == b'RIFF' and len(img_resp.content) > 12 and img_resp.content[8:12] == b'WEBP')):
+                                    continue
+                            size_kb = len(img_resp.content) / 1024
+                            if size_kb < 5 or size_kb > 5000:
+                                continue
+                            images.append(img_resp.content)
+                        except Exception:
+                            continue
+
+                if images:
+                    logger.info(f"Scraped {len(images)} images from article page: {article_url[:60]}")
+
+        except Exception as e:
+            logger.debug(f"Article image scraping failed for {article_url[:60]}: {e}")
+
+        return images
 
     async def _download_partner_image(self, image_url: str) -> Optional[bytes]:
         """Download a partner program image (logo/banner).
@@ -1152,27 +1298,17 @@ class ChannelManager:
                 "Объясни непонятные термины, добавь сравнения с российским рынком. "
             )
 
-        # Get images: pre-fetched images → RSS images → article page images → done
+        # Get images: download from JSON URLs or scrape article page
         image_list: List[bytes] = []
         image_source = "none"
         has_media = False
 
-        # Check if images were already pre-downloaded
-        pre_fetched = news_item.get("_fetched_images", [])
-        if pre_fetched:
-            image_list = pre_fetched
-            image_source = news_item.get("_image_source", "pre-fetched")
-            logger.info(f"Using {len(image_list)} pre-fetched images (source={image_source})")
-        
-        if not image_list:
-            try:
-                image_list, image_source = await self._get_post_images(news_item)
-            except Exception as e:
-                logger.warning(f"Image download skipped: {e}")
+        try:
+            image_list, image_source = await self._get_post_images(news_item)
+        except Exception as e:
+            logger.warning(f"Image download skipped: {e}")
 
-            has_media = len(image_list) > 0
-        else:
-            has_media = True
+        has_media = len(image_list) > 0
 
         media_count = len(image_list) if has_media else 0
         
@@ -1396,14 +1532,24 @@ class ChannelManager:
                         pass
                     except Exception as e:
                         logger.debug(f"Image resize check failed: {e}")
-                    tmp_path = os.path.join(tempfile.gettempdir(), f"asya_post_{int(time.time())}_{i}.png")
+
+                    # Detect actual image format from magic bytes for proper file extension
+                    ext = ".jpg"  # Default
+                    if img_data[:4] == b'\x89PNG':
+                        ext = ".png"
+                    elif img_data[:4] == b'RIFF' and len(img_data) > 12 and img_data[8:12] == b'WEBP':
+                        ext = ".webp"
+                    elif img_data[:4] == b'GIF8':
+                        ext = ".gif"
+
+                    tmp_path = os.path.join(tempfile.gettempdir(), f"asya_post_{int(time.time())}_{i}{ext}")
                     with open(tmp_path, "wb") as f:
                         f.write(img_data)
                     tmp_paths.append(tmp_path)
 
                 if len(tmp_paths) == 1:
                     # Single image — use send_photo (caption already enforced by _enforce_char_limit)
-                    photo = FSInputFile(tmp_paths[0], filename="asya_post.png")
+                    photo = FSInputFile(tmp_paths[0], filename=f"asya_post{ext}")
                     sent = await self._bot.send_photo(
                         chat_id=config.CHANNEL_ID,
                         photo=photo,
@@ -1415,7 +1561,9 @@ class ChannelManager:
                     # Multiple images — use send_media_group (album/carousel up to 10)
                     media_group = []
                     for i, tmp_path in enumerate(tmp_paths):
-                        photo_file = FSInputFile(tmp_path, filename=f"asya_post_{i}.png")
+                        # Detect extension for this image
+                        img_ext = os.path.splitext(tmp_path)[1] or ".jpg"
+                        photo_file = FSInputFile(tmp_path, filename=f"asya_post_{i}{img_ext}")
                         if i == 0:
                             # First image gets the caption (already enforced by _enforce_char_limit)
                             media_group.append(InputMediaPhoto(
@@ -1448,11 +1596,17 @@ class ChannelManager:
                 )
 
             # Record in database
+            # Track whether post has image and first image URL for analytics
+            first_image_url = ""
+            if has_media and news_item.get("image_urls"):
+                first_image_url = news_item["image_urls"][0] if news_item["image_urls"] else ""
             await add_channel_post(
                 content=post_text,
                 message_id=sent.message_id,
                 post_type="news",
                 source_url=news_item.get("url", ""),
+                has_image=has_media,
+                image_url=first_image_url,
             )
 
             # ── DEDUPLICATION: Store fingerprint to prevent duplicates ──
@@ -1519,7 +1673,7 @@ class ChannelManager:
                         _register_topic(entity_key, news_item["title"])
                         _record_post_title(news_item["title"])
                         logger.info(f"✅ Text-only fallback: {news_item['title'][:60]}")
-                        return news_item
+                        return True
                 except Exception as e2:
                     logger.error(f"Text-only fallback also failed: {e2}")
             # Try sending without formatting

@@ -444,8 +444,13 @@ async def mark_news_posted(url: str) -> None:
 
 
 async def add_channel_post(content: str, message_id: int = 0, post_type: str = "news",
-                            source_url: str = "", partner_program: str = "") -> int:
-    """Add a channel post record. Returns post ID."""
+                            source_url: str = "", partner_program: str = "",
+                            has_image: bool = False, image_url: str = "") -> int:
+    """Add a channel post record. Returns post ID.
+
+    has_image: whether the post includes an image/photo
+    image_url: URL of the first image in the post (for analytics)
+    """
     now = time.time()
     async with _connect_db() as db:
         cursor = await db.execute(
