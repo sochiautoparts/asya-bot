@@ -116,8 +116,19 @@ jobs:
       - name: Download Admitad partner data
         run: |
           mkdir -p data
-          curl -sL "https://raw.githubusercontent.com/creastudioai-beep/pr/main/data/admitad_ads.json" \
-            -o data/admitad_ads.json || echo "Failed to download admitad data, will use cached version"
+          # Try downloading admitad data — don't save if the URL returns an error
+          HTTP_CODE=$(curl -sL -o /tmp/admitad_check.json -w "%{http_code}" "https://raw.githubusercontent.com/creastudioai-beep/pr/main/data/admitad_ads.json")
+          if [ "$HTTP_CODE" = "200" ]; then
+            # Validate it's actually JSON (not an error page)
+            if python3 -c "import json; json.load(open('/tmp/admitad_check.json'))" 2>/dev/null; then
+              cp /tmp/admitad_check.json data/admitad_ads.json
+              echo "Admitad data downloaded successfully"
+            else
+              echo "WARNING: Downloaded file is not valid JSON, skipping"
+            fi
+          else
+            echo "Failed to download admitad data (HTTP $HTTP_CODE), will use cached version or skip"
+          fi
 
       - name: Restore database cache
         uses: actions/cache@v4
@@ -131,8 +142,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: models/RuadaptQwen3-4B-Instruct-Q4_K_M.gguf
-          key: ruadapt-qwen3-4b-instruct-q4km-asya-v1
+          key: ruadapt-qwen3-4b-instruct-q4km-asya-v2
           restore-keys: |
+            qwen3-4b-
             ruadapt-qwen3-4b-
 
       - name: Download local model (if not cached)

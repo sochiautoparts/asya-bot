@@ -273,13 +273,24 @@ class PartnerManager:
             path = Path(filepath)
             if path.exists():
                 try:
-                    with open(path, "r", encoding="utf-8") as f:
-                        data = json.load(f)
+                    content = path.read_text(encoding="utf-8").strip()
+                    if not content.startswith(("{", "[")):
+                        logger.warning(f"Local admitad cache is not JSON (starts with '{content[:20]}...'), removing")
+                        path.unlink(missing_ok=True)
+                        continue
+                    data = json.loads(content)
                     count = self._parse_programs(data)
                     self._loaded = True
                     self._last_load_time = time.time()
                     logger.info(f"Loaded {count} partner programs from local cache: {filepath}")
                     return count
+                except json.JSONDecodeError as e:
+                    logger.error(f"Invalid JSON in local admitad cache ({filepath}): {e}")
+                    # Remove corrupted cache file
+                    try:
+                        path.unlink(missing_ok=True)
+                    except Exception:
+                        pass
                 except Exception as e:
                     logger.error(f"Error loading local admitad cache: {e}")
         logger.warning("No admitad_ads.json found locally or remotely")
