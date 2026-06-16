@@ -1,26 +1,27 @@
 """
-News Engine v2.2 — Multi-Source JSON Fetcher
-Fetches pre-parsed automotive news from creastudioai-beep/news repository.
+News Engine v3.0 — Single-Source JSON Fetcher
+Fetches pre-parsed automotive news from sochiautoparts/nws repository.
 No RSS parsing, no image extraction — all done by the external parser.
 
 ARCHITECTURE:
-  External parser (creastudioai-beep/news) → data/news.json + data/ru-news.json (GitHub Raw)
+  External parser (sochiautoparts/nws) → data/auto-news.json (GitHub Raw)
   → This module fetches JSON → loads into DB → ready for posting
 
-The external parser runs every hour via GitHub Actions and produces:
-  - Title, summary, source URL
-  - Multiple photo URLs per news item
+The external parser runs hourly via GitHub Actions and produces:
+  - Title, summary, source URL, single image URL
   - Deduplication already done
-  - Language detection already done
+  - Language detection done by this module from title
+  - Wrapped in metadata object with {kind, generated_at, total_items, items: [...]}
 
 This module just fetches and stores — fast, reliable, no heavy lifting.
 
-v2.2 CHANGES:
-  - ENABLED ru-news.json (Russian news source) for full coverage
-  - Increased MAX_NEWS_PER_CYCLE to 2000 for FULL news volume
-  - Reduced dedup window from 72h to 48h for higher throughput
-  - Tightened fingerprint dedup to 5/5 word match (was 4/5 — too many false positives)
-  - Increased fingerprint cache from 500 to 1000 for full volume
+v3.0 CHANGES:
+  - Changed news source to sochiautoparts/nws/data/auto-news.json
+  - New JSON format: items under "items" key in wrapper object with metadata
+  - Single "image" field instead of "images" array (already supported by normalizer)
+  - No "lang" field — language detected from title by _detect_language()
+  - Added "id" and "source_url" field support from new format
+  - Removed separate ru-news.json source (auto-news.json contains all auto news)
 """
 import httpx
 import json
@@ -38,13 +39,13 @@ from bot.database import add_news_item, get_unposted_news, mark_news_posted, is_
 logger = logging.getLogger("asya.news")
 
 # ── Source JSON URLs ────────────────────────────────────────────────────────────
-NEWS_JSON_URL = "https://raw.githubusercontent.com/creastudioai-beep/news/refs/heads/main/data/news.json"
-# Russian source (may not exist yet — will be created by external parser)
-NEWS_JSON_RU_URL = "https://raw.githubusercontent.com/creastudioai-beep/news/refs/heads/main/data/ru-news.json"
+# sochiautoparts/nws repository — auto news from 14+ curated RSS sources
+NEWS_JSON_URL = "https://raw.githubusercontent.com/sochiautoparts/nws/main/data/auto-news.json"
 
 NEWS_JSON_FALLBACK_URLS = [
     NEWS_JSON_URL,
-    NEWS_JSON_RU_URL,  # Enabled: ru-news.json now available from external parser
+    # Legacy fallback — creastudioai-beep/news (deprecated, may be unavailable)
+    "https://raw.githubusercontent.com/creastudioai-beep/news/refs/heads/main/data/news.json",
 ]
 FETCH_TIMEOUT = 30.0
 MAX_NEWS_PER_CYCLE = 2000  # Process ALL items — user wants selection from FULL array
@@ -97,10 +98,15 @@ def _detect_language(title: str) -> str:
 
 
 async def fetch_news_json() -> Optional[List[Dict]]:
-    """Fetch news JSON from the creastudioai-beep/news repository.
+    """Fetch news JSON from the sochiautoparts/nws repository.
     
     Returns a list of news items from all sources, deduplicated by URL.
-    Each item has: title, summary, url, source, images[], published, lang
+    Each item has: title, summary, url, source, image, published
+    
+    Supported JSON formats:
+    - New format: {"kind": "auto", "items": [...], "total_items": N, ...}
+    - Old format: [{...}, {...}] (flat list)
+    - Legacy format: {"news": [...]} (dict with news key)
     """
     all_items = []
     seen_urls = set()
@@ -121,8 +127,20 @@ async def fetch_news_json() -> Optional[List[Dict]]:
                     items = []
                     if isinstance(data, list):
                         items = data
-                    elif isinstance(data, dict) and "news" in data:
-                        items = data["news"]
+                    elif isinstance(data, dict):
+                        # New sochiautoparts/nws format: items under "items" key
+                        if "items" in data:
+                            items = data["items"]
+                            meta_total = data.get("total_items", len(items))
+                            generated_at = data.get("generated_at", "")
+                            sources_count = data.get("sources_count", 0)
+                            logger.info(
+                                f"Metadata: {meta_total} items, generated at {generated_at}, "
+                                f"{sources_count} sources"
+                            )
+                        # Legacy format: items under "news" key
+                        elif "news" in data:
+                            items = data["news"]
                     
                     # Deduplicate by URL across sources
                     for item in items:
@@ -150,7 +168,19 @@ async def fetch_news_json() -> Optional[List[Dict]]:
 def _normalize_news_item(item: Dict) -> Optional[Dict]:
     """Normalize a news item from the external JSON format.
     
-    The external parser produces items like:
+    Sochiautoparts/nws format (current):
+    {
+        "id": "bb7defca8f5cbcbe",
+        "title": "...",
+        "summary": "...",
+        "url": "https://...",
+        "image": "https://...",     # Single image (string)
+        "source": "Car and Driver",
+        "source_url": "https://...",
+        "published": "2026-06-16T19:44:00+00:00"
+    }
+    
+    Legacy creastudioai-beep/news format (fallback):
     {
         "title": "...",
         "summary": "...",

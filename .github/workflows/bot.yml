@@ -251,7 +251,7 @@ jobs:
           echo "STRATEGY: LOCAL-first (chat/comments) / CLOUD-first (functions)"
           echo "FAILOVER: Local -> Pollinations(key) -> Pollinations(free) -> Cloudflare -> Static"
           echo "EDITORIAL TEAM: Ася + Лёха + Димон + Марина + Кеша + Сеньор Помидор"
-          echo "NEWS: JSON pipeline from creastudioai-beep/news"
+          echo "NEWS: JSON pipeline from sochiautoparts/nws"
           echo "SCHEDULE: News every 15min, Posts every 20min"
           echo "=== Launching bot with UNLIMITED auto-restart ==="
 

@@ -1,17 +1,23 @@
-"""Smart Content Engine v3.0 — Single-Source JSON Pipeline for @sochiautoparts.
+"""Smart Content Engine v3.1 — Single-Source JSON Pipeline for @sochiautoparts.
 
-ARCHITECTURE (v3.0 — Single Source):
-  Phase 1: FETCH — News from creastudioai-beep/news JSON (external parser)
+ARCHITECTURE (v3.1 — Single Source):
+  Phase 1: FETCH — News from sochiautoparts/nws auto-news.json (external parser)
   Phase 2: SCORE — Interest scoring + image bonus + freshness
   Phase 3: AI PICK — AI selects the BEST topic from top 5 candidates
   Phase 4: DEDUPLICATE — Topic registry with entity extraction
   Phase 5: ENRICH — Translation + unique text + expert opinion (via AI post generation)
   Phase 6: POST — Quality validation with interest scoring
 
+KEY CHANGES FROM v3.0:
+  - News source changed to sochiautoparts/nws/data/auto-news.json
+  - New JSON format: items under "items" key with metadata wrapper
+  - Single "image" field per item (not "images" array)
+  - No "lang" field — language detected from title
+
 KEY CHANGES FROM v2.0:
   - NO RSS PARSING — external parser handles all RSS/HTML/image extraction
   - NO WEB SEARCH — external parser provides pre-curated news
-  - NO AI DISCOVERY — external parser runs every hour with 20+ sources
+  - NO AI DISCOVERY — external parser runs every hour with 14+ sources
   - Images come directly from JSON (pre-extracted by external parser)
   - Bot only: fetches JSON → scores → picks best → generates post → publishes
 

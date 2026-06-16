@@ -807,7 +807,7 @@ class ChannelManager:
 
         v7.0: Enhanced image handling with robust downloading, proper format
         detection, retry logic, and article scraping fallback.
-        Images come pre-extracted from the external parser (news.json).
+        Images come pre-extracted from the external parser (auto-news.json).
         If JSON images fail, falls back to scraping the article page for og:image.
 
         Returns (image_list: List[bytes], source: str)
