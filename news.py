@@ -223,11 +223,23 @@ def _normalize_news_item(item: Dict) -> Optional[Dict]:
                         decoded_url = html_unescape(html_unescape(img_url))
                         image_urls.append(decoded_url)
 
-    # Single image field
+    # Single image field — handle both string and list formats
     single_image = item.get("image", "") or item.get("thumbnail", "") or item.get("featured_image", "")
-    if single_image and isinstance(single_image, str) and single_image.startswith("http"):
-        decoded_single = html_unescape(html_unescape(single_image))
-        image_urls.insert(0, decoded_single)
+    if single_image:
+        if isinstance(single_image, str) and single_image.startswith("http"):
+            decoded_single = html_unescape(html_unescape(single_image))
+            image_urls.insert(0, decoded_single)
+        elif isinstance(single_image, list):
+            # Handle "image": ["url1", "url2"] format
+            for img in single_image:
+                if isinstance(img, str) and img.startswith("http"):
+                    decoded_img = html_unescape(html_unescape(img))
+                    image_urls.append(decoded_img)
+                elif isinstance(img, dict):
+                    img_url = img.get("url", "")
+                    if img_url and img_url.startswith("http"):
+                        decoded_url = html_unescape(html_unescape(img_url))
+                        image_urls.append(decoded_url)
 
     # Deduplicate image URLs
     # v2.2: Enhanced dedup — also dedup by base URL (without query params)
@@ -300,17 +312,8 @@ async def run_news_cycle() -> int:
         if normalized:
             items.append(normalized)
 
-    # Sort by published date (newest first) if available
-    def _sort_key(item):
-        pub = item.get("published", "")
-        if pub:
-            try:
-                return pub  # ISO format sorts lexicographically
-            except Exception:
-                pass
-        return ""
-
-    items.sort(key=_sort_key, reverse=True)
+    # Sort by published date (newest first) if available — ISO format sorts lexicographically
+    items.sort(key=lambda item: item.get("published", ""), reverse=True)
 
     # Limit items per cycle
     items = items[:MAX_NEWS_PER_CYCLE]

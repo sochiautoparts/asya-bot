@@ -713,11 +713,11 @@ async def _process_text_message(message: Message, text: str):
 
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
 
-    # ── OVERALL TIMEOUT: Max 60 seconds for the entire processing ──
-    # INCREASED from 30s — local model generation can take 10-15s,
-    # plus web search ~10-15s. 30s was causing CancelledError during
-    # llama-cpp generation → segfault (exit 139).
-    _OVERALL_TIMEOUT = 60.0  # seconds
+    # ── OVERALL TIMEOUT: Max 90 seconds for the entire processing ──
+    # INCREASED from 60s — local model generation can take 10-30s,
+    # plus web search ~10-15s, plus cloud fallback ~15-30s.
+    # 60s was too tight when local model + cloud fallback both run.
+    _OVERALL_TIMEOUT = 90.0  # seconds
 
     async def _do_process():
         await _process_text_message_inner(message, text, user_id, chat_mode)

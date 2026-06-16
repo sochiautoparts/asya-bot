@@ -498,7 +498,7 @@ class LocalProvider(BaseAIProvider):
                 # The generation runs to completion in the thread pool no matter what.
                 # If the caller cancels, we wait for the thread to finish safely,
                 # then discard the result and re-raise the cancellation.
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 fut = loop.run_in_executor(
                     None,
                     self._generate,

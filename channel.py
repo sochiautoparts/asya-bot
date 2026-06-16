@@ -1493,12 +1493,14 @@ class ChannelManager:
         # and blocked valid rewrites of the same topic.
 
         # ── DB fingerprint dedup — last chance to catch duplicates ──
-        # Check both title AND generated content against DB with 72h window
+        # Check both title AND generated content against DB with 48h window
+        # (Consistent with pre-gen dedup window — avoids wasting AI calls on
+        # items that pass pre-gen but fail post-gen due to different window)
         try:
             if await is_duplicate_post(
                 news_item.get("title", ""),
                 content=post_text,
-                hours=72,
+                hours=48,
                 source_url=news_item.get("url", ""),
             ):
                 logger.warning(f"DB dedup blocked post (post-gen): {news_item.get('title', '')[:60]}")
@@ -1579,7 +1581,8 @@ class ChannelManager:
 
                 if len(tmp_paths) == 1:
                     # Single image — use send_photo (caption already enforced by _enforce_char_limit)
-                    photo = FSInputFile(tmp_paths[0], filename=f"asya_post{ext}")
+                    actual_ext = os.path.splitext(tmp_paths[0])[1] or ".jpg"
+                    photo = FSInputFile(tmp_paths[0], filename=f"asya_post{actual_ext}")
                     sent = await self._bot.send_photo(
                         chat_id=config.CHANNEL_ID,
                         photo=photo,
@@ -1774,7 +1777,7 @@ class ChannelManager:
                     }
 
                     # Check for duplicate BEFORE returning
-                    if await is_duplicate_post(result.title, hours=72):
+                    if await is_duplicate_post(result.title, hours=48):
                         logger.info(f"Internet news is duplicate: {result.title[:60]}")
                         continue
 

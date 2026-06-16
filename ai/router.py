@@ -139,7 +139,7 @@ class AIRouter:
         if config.ENABLE_LOCAL_MODEL:
             try:
                 import asyncio
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 local_loaded = await loop.run_in_executor(None, self._local._load_model)
             except Exception as e:
                 logger.warning(f"Local model pre-load failed: {e}")
