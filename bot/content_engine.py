@@ -371,7 +371,7 @@ async def get_best_news_item(unposted_items: List[Dict]) -> Optional[Dict]:
         # ── DB fingerprint check ──
         try:
             from bot.database import is_duplicate_post
-            if await is_duplicate_post(title, hours=72):
+            if await is_duplicate_post(title, hours=48):  # 2 days (was 72h — reduced for higher throughput)
                 logger.debug(f"DB dedup blocked: {title[:50]}")
                 continue
         except Exception:

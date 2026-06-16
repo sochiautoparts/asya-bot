@@ -427,7 +427,7 @@ async def main():
     dp.shutdown.register(on_shutdown)
 
     # Run polling
-    logger.info("=== Asya Bot Starting (Local-First v12.1 — RuadaptQwen3-4B) ===")
+    logger.info("=== Asya Bot Starting (Local-First v12.2 — RuadaptQwen3-4B) ===")
     local_status = "enabled" if config.ENABLE_LOCAL_MODEL else "disabled"
     model_info = f", model={config.MODEL_PATH}" if config.ENABLE_LOCAL_MODEL and config.MODEL_PATH else ""
     logger.info(f"Local model: {local_status}{model_info}, Cloud: Pollinations + Cloudflare")

@@ -60,6 +60,9 @@ Thumbs.db
 tmp/
 temp/
 
+# Phantom file created by pip install '>=0.3.0' parsing
+=0.3.0
+
 # Tool results from AI sessions
 tool-results/
 upload/

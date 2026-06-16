@@ -1,10 +1,10 @@
 """
-News Engine v2.1 — Multi-Source JSON Fetcher
+News Engine v2.2 — Multi-Source JSON Fetcher
 Fetches pre-parsed automotive news from creastudioai-beep/news repository.
 No RSS parsing, no image extraction — all done by the external parser.
 
 ARCHITECTURE:
-  External parser (creastudioai-beep/news) → data/news.json (GitHub Raw)
+  External parser (creastudioai-beep/news) → data/news.json + data/ru-news.json (GitHub Raw)
   → This module fetches JSON → loads into DB → ready for posting
 
 The external parser runs every hour via GitHub Actions and produces:
@@ -15,11 +15,12 @@ The external parser runs every hour via GitHub Actions and produces:
 
 This module just fetches and stores — fast, reliable, no heavy lifting.
 
-v2.1 CHANGES:
-  - Added Russian news source (ru-news.json) for better coverage
-  - Reduced overly aggressive dedup (7d → 3d window, fingerprint 4→3 word match)
-  - Increased MAX_NEWS_PER_CYCLE to 50 for better throughput
-  - Fixed NEWS_JSON_FALLBACK_URLS (was duplicate of primary)
+v2.2 CHANGES:
+  - ENABLED ru-news.json (Russian news source) for full coverage
+  - Increased MAX_NEWS_PER_CYCLE to 2000 for FULL news volume
+  - Reduced dedup window from 72h to 48h for higher throughput
+  - Tightened fingerprint dedup to 5/5 word match (was 4/5 — too many false positives)
+  - Increased fingerprint cache from 500 to 1000 for full volume
 """
 import httpx
 import json
@@ -43,10 +44,10 @@ NEWS_JSON_RU_URL = "https://raw.githubusercontent.com/creastudioai-beep/news/ref
 
 NEWS_JSON_FALLBACK_URLS = [
     NEWS_JSON_URL,
-    # NEWS_JSON_RU_URL,  # Disabled: ru-news.json doesn't exist yet
+    NEWS_JSON_RU_URL,  # Enabled: ru-news.json now available from external parser
 ]
 FETCH_TIMEOUT = 30.0
-MAX_NEWS_PER_CYCLE = 500  # Process almost all items — user wants selection from FULL array
+MAX_NEWS_PER_CYCLE = 2000  # Process ALL items — user wants selection from FULL array
 
 # ── Fingerprint-based deduplication ────────────────────────────────────────────
 # Using OrderedDict to maintain insertion order — oldest entries removed first
@@ -79,8 +80,9 @@ def _fingerprint_matches_existing(fingerprint: str) -> bool:
     for existing in _recent_fingerprints:
         ex_words = existing.split()[:5]
         matches = sum(1 for w in fp_words if w in ex_words)
-        # Need 4+ matching words to be considered duplicate (was 3, too aggressive)
-        if matches >= 4 and len(fp_words) >= 4:
+        # v2.2: Require EXACT 5/5 word match for dedup — 4/5 was still too aggressive
+        # causing different news about same car model to be blocked
+        if matches >= 5 and len(fp_words) >= 5:
             return True
     return False
 
@@ -290,7 +292,7 @@ async def run_news_cycle() -> int:
         # Skip if URL already in DB — reduced window from 7d to 3d
         # (7 days was too aggressive, blocking valid news that refreshed)
         try:
-            if await is_duplicate_post(title, hours=72):  # 3 days dedup window (was 168h/7d)
+            if await is_duplicate_post(title, hours=48):  # 2 days dedup window (was 72h/3d — reduced for higher throughput)
                 duplicates += 1
                 continue
         except Exception:
@@ -321,9 +323,10 @@ async def run_news_cycle() -> int:
             )
             _recent_fingerprints[fingerprint] = True
             # Keep fingerprint OrderedDict bounded — remove oldest first
-            if len(_recent_fingerprints) > 500:
+            # v2.2: Increased from 500→1000 to handle full news volume
+            if len(_recent_fingerprints) > 1000:
                 # Remove oldest entries (first inserted in OrderedDict)
-                excess = len(_recent_fingerprints) - 300
+                excess = len(_recent_fingerprints) - 800
                 for _ in range(excess):
                     _recent_fingerprints.popitem(last=False)  # Remove oldest
             new_count += 1

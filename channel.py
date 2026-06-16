@@ -635,6 +635,10 @@ class ChannelManager:
         self._poll_count: int = 0
         self._post_model_index: int = 0  # For rotating content models
         self._semantic_loaded: bool = False  # Track if we loaded recent post keywords from DB
+        # Rate limiting: minimum seconds between messages to same chat
+        # Prevents Telegram Flood Control (RetryAfter) errors
+        self._last_message_times: Dict[int, float] = {}  # chat_id -> last send time
+        self._MIN_MESSAGE_GAP = 3.0  # 3 seconds between messages to same chat
 
     # Content models rotation — each post uses a different model for variety
     # NOTE: openai-fast removed — it always returns empty responses for content generation
@@ -647,6 +651,32 @@ class ChannelManager:
     def set_bot(self, bot: Bot) -> None:
         """Set the bot instance for sending messages."""
         self._bot = bot
+
+    async def _rate_limited_send(self, chat_id: int, **kwargs) -> object:
+        """Send a message with rate limiting to prevent Telegram Flood Control.
+        
+        Waits if the last message to this chat was sent too recently.
+        This prevents the 141 TelegramRetryAfter errors we saw in production.
+        """
+        now = time.time()
+        last_sent = self._last_message_times.get(chat_id, 0)
+        gap = now - last_sent
+        
+        if gap < self._MIN_MESSAGE_GAP:
+            wait_time = self._MIN_MESSAGE_GAP - gap
+            logger.debug(f"Rate limit: waiting {wait_time:.1f}s before sending to chat {chat_id}")
+            await asyncio.sleep(wait_time)
+        
+        result = await self._bot.send_message(chat_id=chat_id, **kwargs)
+        self._last_message_times[chat_id] = time.time()
+        
+        # Clean up old entries (keep only last 10 chats)
+        if len(self._last_message_times) > 10:
+            oldest = sorted(self._last_message_times.items(), key=lambda x: x[1])[:5]
+            for chat_id_old, _ in oldest:
+                del self._last_message_times[chat_id_old]
+        
+        return result
 
     async def load_recent_semantic_data(self) -> None:
         """Load recently posted titles from DB into in-memory semantic dedup.
@@ -1151,7 +1181,7 @@ class ChannelManager:
 
         # Get news item if not provided — use Smart Content Engine!
         if not news_item:
-            unposted = await get_unposted_news(limit=25)
+            unposted = await get_unposted_news(limit=100)  # v2.2: Increased from 25 to 100 for FULL news volume selection
             logger.info(f"post_news: {len(unposted)} unposted items in DB")
             # Use content engine to pick the best item (interest scoring + topic dedup)
             news_item = await get_best_news_item(unposted)
@@ -1166,7 +1196,7 @@ class ChannelManager:
         # of what text AI generates. Without this, AI can write different text for the same
         # news each time, and text-based dedup (fingerprints, hashes) won't catch it.
         if news_item and news_item.get("url"):
-            if await is_url_already_posted(news_item["url"], hours=72):  # 3 days (was 7 — too aggressive)
+            if await is_url_already_posted(news_item["url"], hours=48):  # 2 days (was 72h/3d — reduced for higher throughput)
                 logger.warning(f"URL DEDUP blocked (already posted this URL): {news_item['url'][:80]}")
                 await mark_news_posted(news_item["url"])
                 return False
@@ -1179,7 +1209,7 @@ class ChannelManager:
             if await is_duplicate_post(
                 news_item["title"],
                 content="",
-                hours=72,
+                hours=48,  # 2 days (was 72h/3d — reduced for higher throughput)
                 source_url=news_item.get("url", ""),
             ):
                 logger.warning(f"DB DUPLICATE blocked: {news_item['title'][:60]}")

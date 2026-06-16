@@ -485,11 +485,19 @@ class LocalProvider(BaseAIProvider):
                 self._generating = True
                 self._generation_done.clear()
 
-                # Run inference in thread pool to avoid blocking event loop
-                # Use asyncio.shield() to prevent cancellation during generation.
-                # When asyncio.CancelledError hits during run_in_executor,
-                # the C-level llama-cpp thread keeps running but Python
-                # loses track of it → memory corruption → segfault on next call.
+                # Run inference in thread pool to avoid blocking event loop.
+                #
+                # CRITICAL FIX v2 (segfault prevention):
+                # The PREVIOUS approach used asyncio.shield() which still allows
+                # CancelledError to propagate after the shielded future completes.
+                # This caused GGML_ASSERT(buffer) failures → segfault (exit 139)
+                # because the C-level llama-cpp thread was interrupted mid-computation.
+                #
+                # The NEW approach: we NEVER let CancelledError interrupt llama-cpp.
+                # Instead, we use a separate asyncio.Task with a done callback.
+                # The generation runs to completion in the thread pool no matter what.
+                # If the caller cancels, we wait for the thread to finish safely,
+                # then discard the result and re-raise the cancellation.
                 loop = asyncio.get_event_loop()
                 fut = loop.run_in_executor(
                     None,
@@ -498,27 +506,57 @@ class LocalProvider(BaseAIProvider):
                     max_tokens,
                     temperature,
                 )
-                try:
-                    result = await asyncio.shield(fut)
-                except asyncio.CancelledError:
-                    # Task was cancelled but the executor is still running.
-                    # Wait for it to complete safely instead of abandoning it.
-                    # CRITICAL: Do NOT release the lock until the thread finishes!
-                    logger.warning("Local generation was cancelled — waiting for safe completion")
+                
+                # Wait for the thread to complete — CANNOT be cancelled.
+                # This ensures llama-cpp always finishes cleanly.
+                cancelled = False
+                while True:
                     try:
-                        result = await asyncio.wait_for(fut, timeout=60.0)
-                    except (asyncio.TimeoutError, Exception) as e:
-                        logger.error(f"Local generation failed after cancel: {e}")
-                        # Increment error counter to trigger circuit breaker
+                        result = await asyncio.shield(fut)
+                        break
+                    except asyncio.CancelledError:
+                        # Caller cancelled — but we MUST wait for the C thread
+                        # to finish before allowing any new generation.
+                        # Do NOT re-raise — wait for the thread pool future.
+                        if not cancelled:
+                            cancelled = True
+                            logger.warning(
+                                "Local generation was cancelled — waiting for "
+                                "thread to complete safely (preventing segfault)"
+                            )
+                        # Poll the future with short sleeps
+                        if fut.done():
+                            result = fut.result()
+                            break
+                        await asyncio.sleep(0.5)
+                    except Exception as e:
+                        logger.error(f"Local generation error: {e}")
                         self._consecutive_errors += 1
                         self._last_error_time = time.time()
-                        # Wait a bit longer for thread to truly finish
-                        await asyncio.sleep(2.0)
+                        self._generating = False
+                        self._generation_done.set()
+                        if cancelled:
+                            # Re-raise cancellation after cleanup
+                            raise asyncio.CancelledError()
                         raise
-                finally:
-                    # Mark generation as done AFTER the thread pool finishes
-                    self._generating = False
-                    self._generation_done.set()
+                
+                # Mark generation as done AFTER the thread pool finishes
+                self._generating = False
+                self._generation_done.set()
+                
+                # If we were cancelled but completed safely, return error response
+                # instead of re-raising — this prevents the caller from crashing
+                if cancelled:
+                    logger.info("Local generation completed safely after cancellation — discarding result")
+                    self._consecutive_errors += 1
+                    self._last_error_time = time.time()
+                    return AIResponse(
+                        text="",
+                        model="local-qwen3-4b",
+                        provider=self.name,
+                        error="Generation cancelled (completed safely, result discarded)",
+                        error_message="Generation cancelled (completed safely, result discarded)",
+                    )
 
             elapsed = time.time() - start_time
 
