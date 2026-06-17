@@ -113,21 +113,21 @@ jobs:
       - name: Create data directory
         run: mkdir -p data models
 
-      - name: Download Admitad partner data
+      - name: Download partner data
         run: |
           mkdir -p data
-          # Try downloading admitad data — don't save if the URL returns an error
-          HTTP_CODE=$(curl -sL -o /tmp/admitad_check.json -w "%{http_code}" "https://raw.githubusercontent.com/creastudioai-beep/pr/main/data/admitad_ads.json")
+          # Download partners.json from sochiautoparts.ru — don't save if the URL returns an error
+          HTTP_CODE=$(curl -sL -o /tmp/partners_check.json -w "%{http_code}" "https://sochiautoparts.ru/partners.json")
           if [ "$HTTP_CODE" = "200" ]; then
             # Validate it's actually JSON (not an error page)
-            if python3 -c "import json; json.load(open('/tmp/admitad_check.json'))" 2>/dev/null; then
-              cp /tmp/admitad_check.json data/admitad_ads.json
-              echo "Admitad data downloaded successfully"
+            if python3 -c "import json; json.load(open('/tmp/partners_check.json'))" 2>/dev/null; then
+              cp /tmp/partners_check.json data/partners.json
+              echo "Partner data downloaded successfully"
             else
               echo "WARNING: Downloaded file is not valid JSON, skipping"
             fi
           else
-            echo "Failed to download admitad data (HTTP $HTTP_CODE), will use cached version or skip"
+            echo "Failed to download partner data (HTTP $HTTP_CODE), will use cached version or skip"
           fi
 
       - name: Restore database cache
@@ -247,7 +247,7 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           # Database
           DB_PATH: asya_bot.db
-          ADMITAD_ADS_FILE: data/admitad_ads.json
+          ADMITAD_ADS_FILE: data/partners.json
           LOG_LEVEL: INFO
           # Schedule settings — like nastya-bot intervals
           NEWS_FETCH_INTERVAL: 900      # 15 min (was 30 min in asya)

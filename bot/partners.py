@@ -1,17 +1,43 @@
 """
-Admitad Partner Program Integration v3.0
+Partner Program Integration v4.0
 
-Loads partner data from remote admitad_ads.json (updateable file!).
+Loads partner data from remote partners.json (sochiautoparts.ru — updateable file!).
 Uses goto_link EXACTLY as-is — no subid additions, no modifications.
 The goto_links are ready for both posts and user dialogs.
 
-Key changes from v2:
-- Downloads admitad_ads.json from remote GitHub URL
-- Auto-refreshes every 6 hours (file is updateable!)
+Source: https://sochiautoparts.ru/partners.json
+Schema:
+    {
+      "updated": "<iso-ts>",
+      "campaigns": [
+        {
+          "id": 38740,
+          "name": "Autopiter KZ",
+          "logo": "https://cdn.admitad-connect.com/...",
+          "goto_link": "https://xmknb.com/g/.../",
+          "site_url": "https://autopiter.kz/",
+          "regions": ["KZ"],
+          "categories": ["Интернет-магазины", "Автомобили и мотоциклы", ...]
+        },
+        ...
+      ]
+    }
+
+Key features:
+- Downloads partners.json from sochiautoparts.ru (updateable file!)
+- Auto-refreshes every 6 hours
 - Uses goto_link EXACTLY as provided — NO subid additions
-- Regional filtering by allowed_regions
-- For article searches, modifies ulp parameter in goto_link
+- Photo/logo extracted from the "logo" field
+- regions  -> allowed_regions (regional filtering)
+- categories (RU strings) -> internal category key + human-readable label
+  (autoparts / tires / tools / autoinsurance / checkauto / autorent / coupons / other)
+- For article searches, adds a ulp parameter to admitad /g/{hash}/ shortlinks
+  so the user lands on the search page while affiliate tracking is preserved.
 - Proper formatting: "Name (category description): goto_link"
+
+Backward compatibility: the legacy admitad_ads.json schema (allowed_regions,
+category, category_name, image, ...) is still accepted, so old cache files
+keep working.
 """
 
 import json
@@ -28,26 +54,88 @@ from bot.config import config
 
 logger = logging.getLogger("asya.partners")
 
-# Remote admitad_ads.json URL (updateable file!)
-ADMITAD_JSON_URL = "https://raw.githubusercontent.com/creastudioai-beep/pr/main/data/admitad_ads.json"
-ADMITAD_LOCAL_CACHE = "data/admitad_ads.json"
-ADMITAD_REFRESH_INTERVAL = 6 * 3600  # Refresh every 6 hours
+# Remote partners.json URL — sochiautoparts.ru (updateable file!)
+PARTNERS_JSON_URL = "https://sochiautoparts.ru/partners.json"
+PARTNERS_LOCAL_CACHE = "data/partners.json"
+PARTNERS_REFRESH_INTERVAL = 6 * 3600  # Refresh every 6 hours
+
+# Backward-compatible aliases (legacy code may still reference these names)
+ADMITAD_JSON_URL = PARTNERS_JSON_URL
+ADMITAD_LOCAL_CACHE = PARTNERS_LOCAL_CACHE
+ADMITAD_REFRESH_INTERVAL = PARTNERS_REFRESH_INTERVAL
 
 # Default region for partner filtering
 DEFAULT_REGION = "RU"
 
 
 class PartnerProgram:
-    """Single partner program from admitad."""
+    """Single partner program from partners.json (sochiautoparts.ru).
+
+    Accepts BOTH the new partners.json schema (regions, categories, logo)
+    and the legacy admitad_ads.json schema (allowed_regions, category, ...).
+    """
+
+    # ── Category derivation tables ────────────────────────────────────────
+    # Internal category keys used across the bot:
+    #   autoparts, tires, tools, autoinsurance, checkauto, autorent, coupons, other
+    #
+    # The new partners.json exposes human-readable Russian category strings
+    # (e.g. "Товары для авто и мотоциклов", "Аренда машин"). We map each
+    # campaign to an internal key using its site_url domain (most reliable)
+    # with a fallback to the Russian category strings.
+
+    # site_url/name substring → internal category key (order matters: most
+    # specific first, e.g. tyres are checked before generic autoparts).
+    _SITE_CATEGORY_MAP: List[Tuple[str, str]] = [
+        # Tires & wheels (checked first — they also carry "Товары для авто")
+        ("euro-diski.ru", "tires"),
+        ("bs-tyres.ru", "tires"),
+        ("koleso.ru", "tires"),
+        # Check auto
+        ("avtocod.ru", "checkauto"),
+        # Insurance / fuel cards
+        ("petrolplus.ru", "autoinsurance"),
+        # Car rental
+        ("discovercars.com", "autorent"),
+        ("localrent.com", "autorent"),
+        # Auto parts & auto goods
+        ("rossko.ru", "autoparts"),
+        ("autopiter.ru", "autoparts"),
+        ("autopiter.kz", "autoparts"),
+        ("avtoall.ru", "autoparts"),
+        ("globaldrive.ru", "autoparts"),
+        ("mirdvornikov.ru", "autoparts"),
+        ("hyperauto.ru", "autoparts"),
+        ("lukoil-shop", "autoparts"),
+        # Marketplaces / coupons
+        ("aliexpress", "coupons"),
+        ("alibaba", "coupons"),
+        ("geekbuying", "coupons"),
+        ("raketacn.ru", "coupons"),
+        ("raketa", "coupons"),
+    ]
+
+    # internal category key → human-readable label (RU)
+    _CATEGORY_LABELS: Dict[str, str] = {
+        "autoparts": "Автозапчасти",
+        "tires": "Шины и диски",
+        "tools": "Автоинструменты",
+        "autoinsurance": "Автострахование",
+        "checkauto": "Проверка авто",
+        "autorent": "Аренда авто",
+        "coupons": "Маркетплейсы и скидки",
+        "other": "Полезный сервис",
+    }
 
     def __init__(self, data: Dict):
         self.id = str(data.get("id", ""))
         self.name = data.get("name", "")
         self.slug = data.get("slug", "")
+        # Photo / logo — new source uses "logo", legacy used image/image_url
         self.image = (
+            data.get("logo") or
             data.get("image") or
             data.get("image_url") or
-            data.get("logo") or
             data.get("brand_logo") or
             ""
         )
@@ -55,11 +143,65 @@ class PartnerProgram:
         self.ad_text = data.get("ad_text", "")
         self.goto_link = data.get("goto_link", "")
         self.site_url = data.get("site_url", "")
-        self.category = data.get("category", "")
-        self.category_name = data.get("category_name", "")
-        self.allowed_regions = data.get("allowed_regions", [])
+        # Regions — new source uses "regions", legacy used "allowed_regions"
+        self.allowed_regions = (
+            data.get("regions") or
+            data.get("allowed_regions") or
+            []
+        )
         self.rating = data.get("rating", "")
+        # Categories — new source uses "categories" (list of RU strings)
+        self.categories_list = data.get("categories", []) or []
+        # Derive internal category key + human-readable category_name
+        self.category, self.category_name = self._derive_category(data)
         self.raw = data
+
+    def _derive_category(self, data: Dict) -> Tuple[str, str]:
+        """Derive (internal_category_key, human_readable_label) for this campaign.
+
+        Priority:
+        1. Explicit legacy fields (category / category_name) if present.
+        2. site_url / name match against _SITE_CATEGORY_MAP (most reliable).
+        3. Russian category string heuristics.
+        4. Fallback to ("other", first RU category or "Полезный сервис").
+        """
+        # 1. Legacy explicit fields (old admitad_ads.json)
+        legacy_cat = data.get("category", "")
+        legacy_cat_name = data.get("category_name", "")
+        if legacy_cat:
+            label = legacy_cat_name or self._CATEGORY_LABELS.get(
+                legacy_cat, legacy_cat_name or self._CATEGORY_LABELS["other"]
+            )
+            return legacy_cat, label
+
+        site_lower = (self.site_url or "").lower()
+        name_lower = (self.name or "").lower()
+        cats_joined = " | ".join(self.categories_list).lower()
+
+        # 2. site_url / name domain match
+        for domain_fragment, cat_key in self._SITE_CATEGORY_MAP:
+            if domain_fragment in site_lower or domain_fragment in name_lower:
+                return cat_key, self._CATEGORY_LABELS[cat_key]
+
+        # 3. Russian category string heuristics
+        if "аренда машин" in cats_joined:
+            return "autorent", self._CATEGORY_LABELS["autorent"]
+        if "автострах" in cats_joined or "страхование" in cats_joined:
+            return "autoinsurance", self._CATEGORY_LABELS["autoinsurance"]
+        if any(k in cats_joined for k in ("шины", "диски", "колёса", "колеса")):
+            return "tires", self._CATEGORY_LABELS["tires"]
+        if "товары для авто" in cats_joined or "автомобили и мотоциклы" in cats_joined:
+            # Could be parts, tyres, or tools — default to autoparts
+            return "autoparts", self._CATEGORY_LABELS["autoparts"]
+        if "маркетплейс" in cats_joined:
+            return "coupons", self._CATEGORY_LABELS["coupons"]
+
+        # 4. Fallback
+        other_label = (
+            self.categories_list[0] if self.categories_list
+            else self._CATEGORY_LABELS["other"]
+        )
+        return "other", other_label
 
     def has_region(self, region: str = DEFAULT_REGION) -> bool:
         """Check if program is available in a region."""
@@ -103,35 +245,57 @@ class PartnerProgram:
     def get_search_url(self, query: str) -> str:
         """Get a search URL for this partner, using the goto_link as base.
 
-        If the goto_link has a ulp parameter (redirect URL), we modify it
-        to include the search path. Otherwise, returns the goto_link as-is.
+        The affiliate tracking part of goto_link is ALWAYS preserved.
+
+        - If goto_link already has a ulp parameter → replace it so the user
+          lands on the search results page on the partner's site.
+        - If goto_link is an admitad /g/{hash}/ shortlink WITHOUT ulp → ADD a
+          ulp parameter (admitad shortlinks support ulp) so the user lands on
+          the search page while affiliate tracking is still applied.
+        - Otherwise (e.g. ali.click style links, or unknown site) → return
+          goto_link EXACTLY as-is.
         """
         if not self.goto_link:
             return ""
         if not query:
             return self.goto_link
 
-        # Try to modify the ulp parameter to include search
         try:
             parsed = urlparse(self.goto_link)
             params = parse_qs(parsed.query)
 
+            # Build the search URL on the partner's own site (raw, unencoded)
+            search_url = self._build_search_url(self.site_url, query)
+            # _build_search_url returns the original input unchanged when no
+            # site-specific pattern is known.
+            if not search_url or search_url == self.site_url:
+                # No site-specific search pattern — use goto_link as-is
+                return self.goto_link
+
             if "ulp" in params and params["ulp"]:
+                # Existing ulp → replace it
                 original_ulp = params["ulp"][0]
-                # Build search URL based on site_url patterns
-                search_url = self._build_search_url(original_ulp, query)
                 if search_url != original_ulp:
-                    # Replace ulp parameter
                     new_params = {}
                     for k, v_list in params.items():
                         if k == "ulp":
                             new_params[k] = search_url
                         else:
                             new_params[k] = v_list[0] if len(v_list) == 1 else v_list
-
-                    # Rebuild URL with new ulp
                     new_query = urlencode(new_params, doseq=True)
                     return urlunparse(parsed._replace(query=new_query))
+                return self.goto_link
+
+            # No ulp present. For admitad /g/{hash}/ shortlinks we can ADD a
+            # ulp parameter to deep-link to the search page (tracking kept).
+            path = parsed.path or ""
+            is_admitad_shortlink = "/g/" in path
+            if is_admitad_shortlink:
+                merged = {k: (v[0] if len(v) == 1 else v) for k, v in params.items()}
+                merged["ulp"] = search_url  # urlencode will URL-encode the value
+                new_query = urlencode(merged, doseq=True)
+                return urlunparse(parsed._replace(query=new_query))
+
         except Exception as e:
             logger.debug(f"Error modifying goto_link for search: {e}")
 
@@ -139,11 +303,19 @@ class PartnerProgram:
         return self.goto_link
 
     def _build_search_url(self, original_ulp: str, query: str) -> str:
-        """Build a search URL by modifying the original redirect URL."""
-        site_url = self.site_url.rstrip("/")
+        """Build a raw (unencoded) search URL on the partner's site.
+
+        Returns the search URL string, or `original_ulp` unchanged if no
+        site-specific search pattern is known. The caller is responsible for
+        URL-encoding the result when placing it into a query parameter
+        (urlencode handles that).
+        """
+        site_url = (self.site_url or "").rstrip("/")
+        if not site_url:
+            return original_ulp
         query_encoded = quote_plus(query)
 
-        # Site-specific search URL patterns
+        # Site-specific search URL patterns (raw URLs — urlencode encodes later)
         search_patterns = {
             "rossko.ru": f"{site_url}/search?text={query_encoded}",
             "autopiter.ru": f"{site_url}/search?querystr={query_encoded}",
@@ -164,20 +336,21 @@ class PartnerProgram:
             "globaldrive.ru": f"{site_url}/search/?q={query_encoded}",
             "mirdvornikov.ru": f"{site_url}/search/?q={query_encoded}",
             "lukoil-shop.com": f"{site_url}/search/?q={query_encoded}",
+            "lukoil-shop": f"{site_url}/search/?q={query_encoded}",
         }
 
         # Check if site_url matches any pattern
         for domain, pattern in search_patterns.items():
-            if domain in self.site_url:
-                return quote_plus(pattern)
+            if domain in (self.site_url or ""):
+                return pattern  # raw URL — urlencode encodes it later
 
-        # Generic fallback: just add search parameter
+        # Generic fallback: no known pattern
         return original_ulp
 
     def format_link(self, with_description: bool = True) -> str:
         """Format this partner's link for display.
 
-        Uses goto_link EXACTLY as-is from the file.
+        Uses goto_link EXACTLY as-is from the source.
         No subid additions — the link is ready to use!
         """
         if not self.goto_link:
@@ -190,8 +363,8 @@ class PartnerProgram:
     def format_link_with_search(self, query: str) -> str:
         """Format this partner's link with a search query.
 
-        Modifies the ulp parameter in goto_link to include search.
-        The base goto_link (with tracking) is preserved.
+        Adds/replaces the ulp parameter in goto_link to point at a search
+        results page. The base goto_link (with affiliate tracking) is preserved.
         """
         search_url = self.get_search_url(query)
         if not search_url:
@@ -221,7 +394,7 @@ class PartnerProgram:
 class PartnerManager:
     """Manages all partner programs — loading, matching, posting.
 
-    v3.0: Downloads admitad_ads.json from remote URL, auto-refreshes.
+    v4.0: Downloads partners.json from sochiautoparts.ru, auto-refreshes.
     Uses goto_link EXACTLY as-is — NO subid additions!
     """
 
@@ -247,11 +420,11 @@ class PartnerManager:
     load_admitad_async = load_async
 
     async def _load_from_remote(self) -> int:
-        """Download admitad_ads.json from GitHub."""
+        """Download partners.json from sochiautoparts.ru."""
         try:
             import httpx
             async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-                response = await client.get(ADMITAD_JSON_URL)
+                response = await client.get(PARTNERS_JSON_URL)
                 if response.status_code == 200:
                     data = response.json()
                     count = self._parse_programs(data)
@@ -263,19 +436,24 @@ class PartnerManager:
                         logger.info(f"Loaded {count} partner programs from remote URL")
                         return count
         except Exception as e:
-            logger.warning(f"Failed to load admitad_ads.json from remote: {e}")
+            logger.warning(f"Failed to load partners.json from remote: {e}")
         return 0
 
     def _load_from_local(self) -> int:
         """Load from local cache file."""
-        # Try data/ directory first, then root
-        for filepath in [ADMITAD_LOCAL_CACHE, "admitad_ads.json"]:
+        # Try data/partners.json first, then root, then legacy filenames
+        for filepath in [
+            PARTNERS_LOCAL_CACHE,
+            "partners.json",
+            "data/admitad_ads.json",
+            "admitad_ads.json",
+        ]:
             path = Path(filepath)
             if path.exists():
                 try:
                     content = path.read_text(encoding="utf-8").strip()
                     if not content.startswith(("{", "[")):
-                        logger.warning(f"Local admitad cache is not JSON (starts with '{content[:20]}...'), removing")
+                        logger.warning(f"Local partner cache is not JSON (starts with '{content[:20]}...'), removing")
                         path.unlink(missing_ok=True)
                         continue
                     data = json.loads(content)
@@ -285,15 +463,15 @@ class PartnerManager:
                     logger.info(f"Loaded {count} partner programs from local cache: {filepath}")
                     return count
                 except json.JSONDecodeError as e:
-                    logger.error(f"Invalid JSON in local admitad cache ({filepath}): {e}")
+                    logger.error(f"Invalid JSON in local partner cache ({filepath}): {e}")
                     # Remove corrupted cache file
                     try:
                         path.unlink(missing_ok=True)
                     except Exception:
                         pass
                 except Exception as e:
-                    logger.error(f"Error loading local admitad cache: {e}")
-        logger.warning("No admitad_ads.json found locally or remotely")
+                    logger.error(f"Error loading local partner cache: {e}")
+        logger.warning("No partners.json found locally or remotely")
         self._loaded = True
         return 0
 
@@ -302,9 +480,9 @@ class PartnerManager:
         filepath = filepath or config.ADMITAD_ADS_FILE
         path = Path(filepath)
         if not path.exists():
-            path = Path(ADMITAD_LOCAL_CACHE)
+            path = Path(PARTNERS_LOCAL_CACHE)
         if not path.exists():
-            path = Path("admitad_ads.json")
+            path = Path("partners.json")
 
         if not path.exists():
             logger.warning(f"Partner ads file not found")
@@ -325,7 +503,12 @@ class PartnerManager:
             return 0
 
     def _parse_programs(self, data) -> int:
-        """Parse programs from JSON data."""
+        """Parse programs from JSON data.
+
+        Supports:
+        - New partners.json: { "campaigns": [ ... ] }
+        - Legacy admitad_ads.json: list, or { "programs"|"items"|"results": [...] }
+        """
         self.programs = []
         self._site_map = {}
 
@@ -333,7 +516,13 @@ class PartnerManager:
         if isinstance(data, list):
             items = data
         elif isinstance(data, dict):
-            items = data.get("programs", data.get("items", data.get("results", [])))
+            items = (
+                data.get("campaigns") or
+                data.get("programs") or
+                data.get("items") or
+                data.get("results") or
+                []
+            )
             if not isinstance(items, list):
                 items = []
 
@@ -341,22 +530,23 @@ class PartnerManager:
             prog = PartnerProgram(item)
             if prog.goto_link:
                 self.programs.append(prog)
-                # Build site URL mapping
+                # Build site URL mapping (domain → program) for fast lookup
                 if prog.site_url:
                     domain = urlparse(prog.site_url).netloc.replace("www.", "")
-                    self._site_map[domain] = prog
+                    if domain:
+                        self._site_map[domain] = prog
 
         return len(self.programs)
 
     def _save_cache(self, data) -> None:
         """Save data to local cache."""
         try:
-            cache_path = Path(ADMITAD_LOCAL_CACHE)
+            cache_path = Path(PARTNERS_LOCAL_CACHE)
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             with open(cache_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False)
         except Exception as e:
-            logger.warning(f"Failed to save admitad cache: {e}")
+            logger.warning(f"Failed to save partner cache: {e}")
 
     def ensure_loaded(self) -> None:
         """Load partner programs if not yet loaded."""
@@ -365,7 +555,7 @@ class PartnerManager:
 
     async def maybe_refresh(self) -> None:
         """Refresh from remote if enough time has passed."""
-        if not self._loaded or (time.time() - self._last_load_time > ADMITAD_REFRESH_INTERVAL):
+        if not self._loaded or (time.time() - self._last_load_time > PARTNERS_REFRESH_INTERVAL):
             await self.load_async()
 
     def get_by_category(self, category: str, region: str = DEFAULT_REGION) -> List[PartnerProgram]:
@@ -378,25 +568,25 @@ class PartnerManager:
         self.ensure_loaded()
         if not site_url:
             return None
-        
+
         # Try parsing as URL first
         domain = urlparse(site_url).netloc.replace("www.", "") if site_url else ""
-        
+
         # If urlparse didn't extract a netloc (bare domain like "rossko.ru"),
         # treat the input itself as the domain
         if not domain and site_url:
             domain = site_url.replace("www.", "").rstrip("/")
-        
+
         # Direct lookup
         result = self._site_map.get(domain)
         if result:
             return result
-        
+
         # Fallback: partial match on domain keys
         for key, prog in self._site_map.items():
             if domain in key or key in domain:
                 return prog
-        
+
         return None
 
     def get_all_categories(self) -> List[str]:
@@ -463,7 +653,7 @@ class PartnerManager:
         Generate context about matching partner programs for AI to reference
         naturally in its response.
 
-        v3: Uses goto_link from admitad_ads.json EXACTLY as-is.
+        v4: Uses goto_link from partners.json EXACTLY as-is.
         No subid additions — the link is ready!
         """
         self.ensure_loaded()
@@ -515,7 +705,7 @@ class PartnerManager:
             return ""
 
         lines.append("")
-        lines.append("ВАЖНО: Ссылки выше — ПАРТНЁРСКИЕ (goto_link из admitad_ads.json). Используй их КАК ЕСТЬ, ничего не добавляй и не меняй!")
+        lines.append("ВАЖНО: Ссылки выше — ПАРТНЁРСКИЕ (goto_link из partners.json). Используй их КАК ЕСТЬ, ничего не добавляй и не меняй!")
 
         return "\n".join(lines)
 
@@ -576,7 +766,7 @@ class PartnerManager:
         """Get all partner links relevant to a parts query.
 
         Returns list of dicts with 'name', 'url', 'description' keys.
-        Uses goto_link from admitad_ads.json.
+        Uses goto_link from partners.json.
         """
         links = []
         self.ensure_loaded()
@@ -643,7 +833,7 @@ class PartnerManager:
             "сальник", "подшипник", "амортизатор", "реле", "датчик",
             "масло", "антифриз", "тормозн", "где купить",
             "росско", "rossko", "autopiter", "автопитер",
-            "vin", "вин", "машина", "авто", "мотор", "двигатель",
+            "vin", "вин", "машина", "машин", "авто", "мотор", "двигатель",
             "ремонт", "поломк", "стучит", "диагност",
             "avtoall", "exist", "emex", "autodoc",
         ]

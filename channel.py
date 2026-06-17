@@ -1872,11 +1872,11 @@ class ChannelManager:
 
     async def post_partner_content(self) -> bool:
         """
-        Post a partner/admitad post to the channel with partner image and link.
+        Post a partner post to the channel with partner image (logo) and link.
         
         RULES:
         - Partner post MUST have a photo (from partner image URL)
-        - Partner post MUST contain the goto_link from admitad_ads.json
+        - Partner post MUST contain the goto_link from partners.json
         - The link is guaranteed to be in the text (appended if AI forgot it)
         - Text + photo must fit within Telegram caption limit (1024 chars)
         """

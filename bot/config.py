@@ -64,8 +64,8 @@ class BotConfig:
     TELEGRAM_CAPTION_LIMIT: int = 1024    # Max chars for media caption
     TELEGRAM_MAX_MEDIA_PER_POST: int = 10  # Max photos/videos per post (Telegram limit is 10)
 
-    # Partner / admitad / Rossko
-    ADMITAD_ADS_FILE: str = os.getenv("ADMITAD_ADS_FILE", "admitad_ads.json")
+    # Partner programs / Rossko — source: sochiautoparts.ru/partners.json
+    ADMITAD_ADS_FILE: str = os.getenv("ADMITAD_ADS_FILE", "data/partners.json")
     PARTNER_POST_INTERVAL_HOURS: int = int(os.getenv("PARTNER_POST_INTERVAL_HOURS", "1"))
     PARTNER_DAILY_LIMIT: int = 24  # Up to 24 partner posts per day (1 per hour)
     # Rossko professional parts selection
@@ -807,7 +807,7 @@ class PartnerCategory:
 
 @dataclass
 class PartnerConfig:
-    """Partner/admitad/Rossko configuration."""
+    """Partner programs / Rossko configuration."""
 
     categories: List[PartnerCategory] = field(default_factory=lambda: [
         PartnerCategory("autoparts", "Автозапчасти", ["запчасти", "детали", "артикул", "купить запчасть", "замена", "оригинал", "аналог", "подбор", "номер детали", "oem"]),

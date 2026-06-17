@@ -1233,7 +1233,7 @@ async def _send_response(message: Message, response, status_msg=None, partner_li
     reply_text = _clean_markdown(reply_text)
 
     # CRITICAL: Replace any plain partner URLs (rossko.ru, autopiter.ru, etc.)
-    # with affiliate goto_link equivalents from admitad_ads.json
+    # with affiliate goto_link equivalents from partners.json
     reply_text = _replace_plain_urls_with_affiliate(reply_text)
 
     # Remove raw affiliate URLs that AI may have dumped into the response
@@ -1395,7 +1395,7 @@ def _replace_plain_urls_with_affiliate(text: str) -> str:
     """Replace any plain partner domain URLs with affiliate goto_link equivalents.
     
     When the AI generates responses containing plain URLs like rossko.ru or 
-    autopiter.ru instead of the affiliate tracking links from admitad_ads.json,
+    autopiter.ru instead of the affiliate tracking links from partners.json,
     this function detects them and replaces with the proper goto_link.
     
     This handles cases where:
