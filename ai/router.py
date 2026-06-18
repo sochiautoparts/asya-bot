@@ -41,6 +41,7 @@ from bot.optimizations import (
     get_circuit_breaker,
     normalize_for_cache_key,
     chat_type_context,
+    get_model_blacklist,  # v5.2: per-model failure tracking
 )
 from bot.database import get_ai_cached, set_ai_cached, get_chat_history, add_chat_message
 
@@ -486,9 +487,11 @@ class AIRouter:
         """Level 1: Try Pollinations with API key (KEY1 → KEY2 internally).
         Also tries model-level fallbacks.
 
-        v5.1 — protected by CircuitBreaker: 5 consecutive failures trips the
+        v5.1 — protected by CircuitBreaker: 3 consecutive failures trips the
         breaker open for 5 minutes, skipping this provider entirely (saves
         timeout delays when Pollinations is down).
+        v5.2 — per-model blacklist: skip individual failing models without
+        disabling the whole provider. Threshold=2, cooldown=10min.
         """
         cb = get_circuit_breaker()
         if cb.is_tripped("pollinations"):
@@ -500,6 +503,16 @@ class AIRouter:
                 error_message="Pollinations circuit breaker tripped (cooldown)",
             )
 
+        model_blacklist = get_model_blacklist()
+        # v5.2: If the requested model is blacklisted, try alternatives immediately
+        if model and model_blacklist.is_blacklisted(model):
+            logger.info(f"Pollinations: requested model '{model}' blacklisted, using fallback")
+            # Pick first non-blacklisted reliable model
+            for alt in ["mistral-4", "deepseek", "nova-fast", "mistral", "openai"]:
+                if not model_blacklist.is_blacklisted(alt) and not self._primary._is_model_in_cooldown(alt):
+                    model = alt
+                    break
+
         messages = self._primary.format_messages(sys_prompt, history, message)
 
         # Try primary model (provider will try KEY1 → KEY2 internally)
@@ -510,21 +523,33 @@ class AIRouter:
             max_tokens=max_tokens,
         )
 
+        # v5.2: Update model blacklist based on primary attempt result
+        if response.error:
+            model_blacklist.record_failure(model)
+        elif response.text:
+            model_blacklist.record_success(model)
+
         # If primary failed, try fallback models
         if response.error:
             is_key_error = any(code in (response.error_message or "")
                               for code in ["All API keys depleted", "401", "402", "unavailable", "cooldown"])
 
             if is_key_error:
-                fallback_models = [m for m in FALLBACK_MODELS
-                                   if m != model and not self._primary._is_model_in_cooldown(m)][:1]
+                # v5.2: prioritize reliable models that demonstrably work in production
+                fallback_candidates = ["mistral-4", "deepseek", "nova-fast", "mistral", "gemma", "openai"]
+                fallback_models = [m for m in fallback_candidates
+                                   if m != model
+                                   and not self._primary._is_model_in_cooldown(m)
+                                   and not model_blacklist.is_blacklisted(m)][:2]
                 if fallback_models:
-                    logger.info(f"Key error, trying {len(fallback_models)} fallback model")
+                    logger.info(f"Key error, trying {len(fallback_models)} fallback models: {fallback_models}")
             else:
                 fallback_models = [
-                    m for m in ["mistral-small", "nova-fast", "gemma"]
-                    if m != model and not self._primary._is_model_in_cooldown(m)
-                ][:1]
+                    m for m in ["mistral-small", "nova-fast", "gemma", "mistral-4"]
+                    if m != model
+                    and not self._primary._is_model_in_cooldown(m)
+                    and not model_blacklist.is_blacklisted(m)
+                ][:2]
                 logger.info(f"Non-key error, trying fallback: {fallback_models}")
 
             for fallback_model in fallback_models:
@@ -539,8 +564,11 @@ class AIRouter:
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
-                if not response.error:
+                if not response.error and response.text:
+                    model_blacklist.record_success(fallback_model)
                     break
+                else:
+                    model_blacklist.record_failure(fallback_model)
 
         # v5.1: Update circuit breaker
         if response.error:
@@ -983,35 +1011,83 @@ class AIRouter:
         post_max_tokens = 600 if has_media else 1500
 
         # ── LEVEL 1: Pollinations with key ──
+        # v5.2: Use model blacklist — if a specific model has failed 2+ times
+        # recently, skip it and try a known-good alternative directly.
+        # This avoids the ~10s timeout cascade when openai-large is down.
         post_model = model or "openai-large"
-        response = await self._primary.chat(
-            messages=messages,
+        model_blacklist = get_model_blacklist()
+
+        # Build a smart fallback chain — skip blacklisted models immediately
+        # v5.2 ORDER: prioritize models that demonstrably work in production.
+        # Based on log analysis: mistral-4 / deepseek / nova-fast work reliably,
+        # while openai-large / gpt-5.5 frequently timeout or 402.
+        _CHANNEL_POST_MODELS = [
+            "openai-large",   # Primary — best quality when available
+            "mistral-4",      # v5.2: Fast & reliable (1.6s in production logs)
+            "deepseek",       # Strong reasoning, 1M context
+            "nova-fast",      # Fast, rarely fails
+            "mistral",        # Mistral Small — fast fallback
+            "gemma",          # Gemma 4 — fast MoE
+            "openai",         # GPT-5.4 Nano — last resort on Pollinations key
+        ]
+
+        # Filter out blacklisted models
+        candidate_models = []
+        for m in _CHANNEL_POST_MODELS:
+            if m == post_model:
+                # Always try the requested/primary model first (unless blacklisted)
+                if not model_blacklist.is_blacklisted(m):
+                    candidate_models.insert(0, m)
+            elif not model_blacklist.is_blacklisted(m):
+                candidate_models.append(m)
+
+        # If primary model is blacklisted, log it
+        if model_blacklist.is_blacklisted(post_model):
+            logger.info(
+                f"Channel post: primary model '{post_model}' is blacklisted, "
+                f"trying alternatives: {candidate_models[:3]}"
+            )
+
+        response = AIResponse(
+            text="",
             model=post_model,
-            temperature=0.8,
-            max_tokens=post_max_tokens,
+            provider="pollinations",
+            error="no candidates",
+            error_message="All channel-post models blacklisted",
         )
 
-        # If primary model failed, try a few quality fallback models
-        if response.error:
-            for fallback in ["gpt-5.5", "deepseek", "openai"]:
-                if fallback == post_model:
-                    continue
-                if self._primary._is_model_in_cooldown(fallback):
-                    continue
-                logger.info(f"Channel post: trying fallback model {fallback}")
-                response = await self._primary.chat(
-                    messages=messages,
-                    model=fallback,
-                    temperature=0.8,
-                    max_tokens=post_max_tokens,
+        # Try each candidate model in order — break on first success
+        for try_model in candidate_models[:4]:  # Max 4 model attempts (was 4 + 3 fallback = 7)
+            if self._primary._is_model_in_cooldown(try_model):
+                continue
+            logger.info(f"Channel post: trying model {try_model}")
+            response = await self._primary.chat(
+                messages=messages,
+                model=try_model,
+                temperature=0.8,
+                max_tokens=post_max_tokens,
+            )
+            if not response.error and response.text:
+                model_blacklist.record_success(try_model)
+                break
+            else:
+                # Record per-model failure for blacklist tracking
+                model_blacklist.record_failure(try_model)
+                logger.info(
+                    f"Channel post: model {try_model} failed "
+                    f"({response.error_message[:60] if response.error_message else 'unknown'}), "
+                    f"trying next"
                 )
-                if not response.error:
-                    break
 
         # ── LEVEL 2: Pollinations free API ──
+        # v5.2: Reduced timeout via 8s (was 12s) and only 2 model attempts
         if response.error:
             logger.warning(f"Channel post Level 1 failed, trying free API")
-            for free_model in ["openai", "mistral", "openai-large"]:
+            for free_model in ["mistral", "openai"]:  # v5.2: only 2 fastest
+                if free_model == "openai-large":  # Skip known-failing models
+                    continue
+                if model_blacklist.is_blacklisted(free_model):
+                    continue
                 result = await self._primary.chat_free(
                     messages=messages,
                     model=free_model,
@@ -1020,16 +1096,28 @@ class AIRouter:
                 )
                 if not result.error and result.text:
                     response = result
+                    model_blacklist.record_success(free_model)
                     break
+                else:
+                    model_blacklist.record_failure(free_model)
 
         # ── LEVEL 3: Cloudflare ──
+        # v5.2: Skip if circuit breaker is tripped (3+ CF failures recently)
         if response.error and self._cloudflare and self._cloudflare._accounts:
-            logger.warning(f"Channel post Level 2 failed, trying Cloudflare")
-            response = await self._cloudflare.chat(
-                messages=messages,
-                temperature=0.8,
-                max_tokens=post_max_tokens,
-            )
+            cb = get_circuit_breaker()
+            if cb.is_tripped("cloudflare"):
+                logger.info("Channel post: skipping Cloudflare (circuit breaker tripped)")
+            else:
+                logger.warning(f"Channel post Level 2 failed, trying Cloudflare")
+                response = await self._cloudflare.chat(
+                    messages=messages,
+                    temperature=0.8,
+                    max_tokens=post_max_tokens,
+                )
+                if response.error:
+                    cb.record_failure("cloudflare")
+                else:
+                    cb.record_success("cloudflare")
 
         # ── LEVEL 4: Local model fallback — when ALL cloud providers fail ──
         # Local model can generate decent channel posts when cloud is unavailable.

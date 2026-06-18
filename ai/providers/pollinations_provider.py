@@ -731,9 +731,9 @@ class PollinationsProvider(BaseAIProvider):
             headers = {"Content-Type": "application/json"}
             # NO Authorization header — this is the free API
 
-            # Use 12s timeout for free API — it's a fallback, should be fast or fail fast.
+            # v5.2: 8s timeout (was 12s) — fail faster, free API is best-effort.
             # User is already waiting after the paid API attempt failed.
-            async with httpx.AsyncClient(timeout=12.0) as client:
+            async with httpx.AsyncClient(timeout=8.0) as client:
                 start_time = time.time()
                 url = f"{self._free_text_url}/openai/chat/completions"
                 response = await client.post(url, headers=headers, json=payload)

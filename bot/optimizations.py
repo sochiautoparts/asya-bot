@@ -255,8 +255,11 @@ def get_partner_logo_cache() -> PartnerLogoCache:
 # CB_FAILURE_THRESHOLD consecutive failures, it's "tripped open" for
 # CB_COOLDOWN_SECONDS. While open, is_tripped() returns True and the
 # router can skip that provider entirely (saving timeout delays).
+#
+# v5.2: Threshold lowered from 5 → 3 for faster provider-isolation.
+# Per-model blacklist added (ModelBlacklist class below).
 
-_CB_FAILURE_THRESHOLD = 5
+_CB_FAILURE_THRESHOLD = 3   # v5.2: was 5 — trip faster when provider is down
 _CB_COOLDOWN_SECONDS = 300  # 5 minutes
 
 
@@ -333,6 +336,92 @@ _circuit_breaker = CircuitBreaker()
 def get_circuit_breaker() -> CircuitBreaker:
     """Get the global CircuitBreaker singleton."""
     return _circuit_breaker
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# v5.2: PER-MODEL BLACKLIST
+# ════════════════════════════════════════════════════════════════════════════
+# The circuit breaker operates at PROVIDER level (pollinations, cloudflare).
+# But often a SINGLE model is failing (e.g. openai-large returns 402)
+# while other models on the same provider work fine (mistral-4 works).
+# Per-model blacklist tracks failures per individual model name, so we
+# can skip just that model for a short cooldown without disabling the
+# whole provider.
+
+_MODEL_BLACKLIST_THRESHOLD = 2   # 2 failures → blacklist for 10 min
+_MODEL_BLACKLIST_COOLDOWN = 600  # 10 minutes
+
+
+class ModelBlacklist:
+    """Per-model failure tracker with short cooldown.
+
+    Tracks consecutive failures per individual model name. After
+    _MODEL_BLACKLIST_THRESHOLD failures, is_blacklisted() returns True
+    for _MODEL_BLACKLIST_COOLDOWN seconds — the router can skip this
+    specific model without disabling the whole provider.
+
+    This is more granular than CircuitBreaker (which is per-provider).
+    """
+
+    def __init__(self):
+        self._failures: Dict[str, int] = {}
+        self._blacklisted_at: Dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def record_success(self, model: str) -> None:
+        with self._lock:
+            self._failures.pop(model, None)
+            self._blacklisted_at.pop(model, None)
+
+    def record_failure(self, model: str) -> None:
+        with self._lock:
+            self._failures[model] = self._failures.get(model, 0) + 1
+            if self._failures[model] >= _MODEL_BLACKLIST_THRESHOLD:
+                self._blacklisted_at[model] = time.time()
+                logger.warning(
+                    f"Model '{model}' blacklisted for {_MODEL_BLACKLIST_COOLDOWN}s "
+                    f"after {self._failures[model]} consecutive failures."
+                )
+
+    def is_blacklisted(self, model: str) -> bool:
+        """Check if a model is currently blacklisted.
+
+        If cooldown has elapsed, clears the blacklist entry and returns False.
+        """
+        with self._lock:
+            bl_at = self._blacklisted_at.get(model)
+            if bl_at is None:
+                return False
+            if time.time() - bl_at >= _MODEL_BLACKLIST_COOLDOWN:
+                # Cooldown elapsed — allow this model again
+                self._blacklisted_at.pop(model, None)
+                self._failures.pop(model, None)
+                logger.info(f"Model '{model}' blacklist expired — retrying allowed")
+                return False
+            return True
+
+    def status(self) -> Dict[str, Any]:
+        with self._lock:
+            return {
+                model: {
+                    "failures": fails,
+                    "blacklisted": model in self._blacklisted_at,
+                    "blacklisted_ago_seconds": (
+                        time.time() - self._blacklisted_at[model]
+                        if model in self._blacklisted_at else None
+                    ),
+                }
+                for model, fails in self._failures.items()
+            }
+
+
+# Global singleton
+_model_blacklist = ModelBlacklist()
+
+
+def get_model_blacklist() -> ModelBlacklist:
+    """Get the global ModelBlacklist singleton."""
+    return _model_blacklist
 
 
 # ════════════════════════════════════════════════════════════════════════════
