@@ -468,9 +468,11 @@ class LocalProvider(BaseAIProvider):
             if self._generating:
                 logger.warning("Local model: previous generation still running in thread pool, waiting...")
                 try:
-                    await asyncio.wait_for(self._generation_done.wait(), timeout=60.0)
+                    # 15s wait — if local model is busy, fail fast and let router use cloud providers
+                    # Was 60s which caused chat requests to pile up while post generation runs (60s+)
+                    await asyncio.wait_for(self._generation_done.wait(), timeout=15.0)
                 except asyncio.TimeoutError:
-                    logger.error("Local model: timed out waiting for previous generation — marking unavailable")
+                    logger.error("Local model: timed out waiting for previous generation (15s) — returning busy, router will use cloud")
                     self._consecutive_errors += 1
                     self._last_error_time = time.time()
                     return AIResponse(
