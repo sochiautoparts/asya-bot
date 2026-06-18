@@ -26,7 +26,7 @@ import httpx
 import json
 import logging
 import time
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Union
 from dataclasses import dataclass
 
 from ai.providers.base import BaseAIProvider, AIResponse
@@ -195,6 +195,92 @@ class CloudflareProvider(BaseAIProvider):
             "Content-Type": "application/json",
         }
 
+    async def _try_model(
+        self,
+        account: CFAccount,
+        cf_model: str,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: int,
+    ) -> Optional[AIResponse]:
+        """Try a single model on a single account. Returns AIResponse on success, None on failure."""
+        try:
+            url = self._build_url(account, cf_model)
+            headers = self._build_headers(account)
+
+            payload = {
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+            }
+
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                start_time = time.time()
+                response = await client.post(url, headers=headers, json=payload)
+                elapsed = time.time() - start_time
+
+                if response.status_code == 200:
+                    data = response.json()
+                    text = self._extract_text(data)
+
+                    if not text:
+                        logger.warning(
+                            f"CF Account {account.index}, model={cf_model}: "
+                            f"empty response, elapsed={elapsed:.1f}s"
+                        )
+                        return None  # Empty response — try next model
+
+                    account.increment()
+                    account.consecutive_empty_responses = 0
+                    logger.info(
+                        f"CF response (Account {account.index}): "
+                        f"model={cf_model}, time={elapsed:.1f}s, "
+                        f"length={len(text)}, requests_today={account.request_count}/{DAILY_REQUEST_LIMIT}"
+                    )
+
+                    return AIResponse(
+                        text=text,
+                        model=cf_model,
+                        provider=self.name,
+                    )
+
+                elif response.status_code in (401, 403):
+                    error_text = response.text[:300]
+                    logger.error(
+                        f"CF Account {account.index}: auth error {response.status_code}: {error_text}"
+                    )
+                    account.mark_depleted(f"HTTP {response.status_code}")
+                    return "account_error"  # Signal to skip remaining models for this account
+
+                elif response.status_code == 429:
+                    logger.warning(f"CF Account {account.index}: rate limited (429)")
+                    account.mark_depleted("Rate limited")
+                    return "account_error"  # Signal to skip remaining models for this account
+
+                elif response.status_code == 500:
+                    error_text = response.text[:300]
+                    logger.error(
+                        f"CF Account {account.index}, model={cf_model}: "
+                        f"server error 500: {error_text}"
+                    )
+                    return None  # Model-specific error — try next model
+
+                else:
+                    error_text = response.text[:300]
+                    logger.error(
+                        f"CF Account {account.index}, model={cf_model}: "
+                        f"HTTP {response.status_code}: {error_text}"
+                    )
+                    return None  # Try next model
+
+        except httpx.TimeoutException:
+            logger.error(f"CF Account {account.index}, model={cf_model}: request timeout (12s)")
+            return None
+
+        except Exception as e:
+            logger.error(f"CF Account {account.index}, model={cf_model}: exception: {e}")
+            return None
+
     async def chat(
         self,
         messages: List[Dict[str, str]],
@@ -205,11 +291,14 @@ class CloudflareProvider(BaseAIProvider):
     ) -> AIResponse:
         """Send a chat completion request to Cloudflare Workers AI.
 
-        Multi-model failover: For each account, tries models in order:
-          mistral-small-3.1 → llama-3.3-70b → deepseek-r1
-        Then rotates to next account and repeats.
+        Two-phase model failover:
+          Phase 1: Try primary model (mistral-small) on ALL accounts first
+          Phase 2: If primary fails on all accounts, try fallback models (llama-3.3-70b, deepseek-r1)
 
-        This gives up to 6 attempts (2 accounts × 3 models) before giving up.
+        This avoids wasting time on slow fallback models when the fast primary model
+        just needs an account rotation. Total up to 6 attempts (2 accounts × 3 models).
+
+        Timeout increased to 12s (was 7s) — larger models need more time to respond.
         """
         account = self._get_active_account()
         if not account:
@@ -221,100 +310,35 @@ class CloudflareProvider(BaseAIProvider):
                 error_message="All Cloudflare accounts depleted or unavailable",
             )
 
-        # Try each available account
-        tried_accounts = set()
-        while account and account.index not in tried_accounts:
-            tried_accounts.add(account.index)
-
-            # Try each text model with this account before rotating
-            for cf_model in CF_TEXT_MODELS:
-                try:
-                    url = self._build_url(account, cf_model)
-                    headers = self._build_headers(account)
-
-                    payload = {
-                        "messages": messages,
-                        "max_tokens": max_tokens,
-                        "temperature": temperature,
-                    }
-
-                    async with httpx.AsyncClient(timeout=7.0) as client:
-                        start_time = time.time()
-                        response = await client.post(url, headers=headers, json=payload)
-                        elapsed = time.time() - start_time
-
-                        if response.status_code == 200:
-                            data = response.json()
-                            text = self._extract_text(data)
-
-                            if not text:
-                                logger.warning(
-                                    f"CF Account {account.index}, model={cf_model}: "
-                                    f"empty response, elapsed={elapsed:.1f}s — trying next model"
-                                )
-                                # Try next model with same account before rotating
-                                continue
-
-                            account.increment()
-                            account.consecutive_empty_responses = 0
-                            logger.info(
-                                f"CF response (Account {account.index}): "
-                                f"model={cf_model}, time={elapsed:.1f}s, "
-                                f"length={len(text)}, requests_today={account.request_count}/{DAILY_REQUEST_LIMIT}"
-                            )
-
-                            return AIResponse(
-                                text=text,
-                                model=cf_model,
-                                provider=self.name,
-                            )
-
-                        elif response.status_code in (401, 403):
-                            error_text = response.text[:300]
-                            logger.error(
-                                f"CF Account {account.index}: auth error {response.status_code}: {error_text}"
-                            )
-                            account.mark_depleted(f"HTTP {response.status_code}")
-                            # Auth error = account issue, not model issue — rotate account
-                            break  # Break model loop, rotate to next account
-
-                        elif response.status_code == 429:
-                            logger.warning(f"CF Account {account.index}: rate limited (429)")
-                            account.mark_depleted("Rate limited")
-                            break  # Rate limit = account issue, not model issue — rotate account
-
-                        elif response.status_code == 500:
-                            error_text = response.text[:300]
-                            logger.error(
-                                f"CF Account {account.index}, model={cf_model}: "
-                                f"server error 500: {error_text} — trying next model"
-                            )
-                            # 500 might be model-specific — try next model
-                            continue
-
-                        else:
-                            error_text = response.text[:300]
-                            logger.error(
-                                f"CF Account {account.index}, model={cf_model}: "
-                                f"HTTP {response.status_code}: {error_text} — trying next model"
-                            )
-                            # Try next model before giving up
-                            continue
-
-                except httpx.TimeoutException:
-                    logger.error(f"CF Account {account.index}, model={cf_model}: request timeout — trying next model")
-                    # Try next model
-                    continue
-
-                except Exception as e:
-                    logger.error(f"CF Account {account.index}, model={cf_model}: exception: {e} — trying next model")
-                    continue
-
-            # All models failed for this account — rotate to next
+        # Phase 1: Try primary model (mistral-small) on all accounts first
+        primary_model = CF_TEXT_MODELS[0]  # mistral-small-3.1-24b-instruct
+        tried_accounts_phase1 = set()
+        current = account
+        while current and current.index not in tried_accounts_phase1:
+            tried_accounts_phase1.add(current.index)
+            result = await self._try_model(current, primary_model, messages, temperature, max_tokens)
+            if result is not None and result != "account_error":
+                return result  # Success!
+            # If account_error, skip to next account; if None, primary model failed — try next account
             self._rotate_account()
-            account = self._get_active_account()
+            current = self._get_active_account()
 
-        # All accounts failed
+        # Phase 2: Primary model failed on all accounts — try fallback models
+        fallback_models = CF_TEXT_MODELS[1:]  # llama-3.3-70b, deepseek-r1
+        tried_accounts_phase2 = set()
+        current = self._get_active_account()
+        while current and current.index not in tried_accounts_phase2:
+            tried_accounts_phase2.add(current.index)
+            for fb_model in fallback_models:
+                result = await self._try_model(current, fb_model, messages, temperature, max_tokens)
+                if result is not None and result != "account_error":
+                    return result  # Success!
+                if result == "account_error":
+                    break  # Skip remaining models for this account
+            self._rotate_account()
+            current = self._get_active_account()
+
+        # All accounts and models failed
         return AIResponse(
             text="",
             model=CF_MODEL,
