@@ -29,7 +29,7 @@ class BotConfig:
     POLLINATIONS_BASE_URL: str = "https://gen.pollinations.ai"
 
     # Pollinations FREE API (no auth required) — fallback when keys are depleted
-    POLLINATIONS_FREE_TEXT_URL: str = os.getenv("POLLINATIONS_FREE_TEXT_URL", "https://text.pollinations.ai")
+    POLLINATIONS_FREE_TEXT_URL: str = os.getenv("POLLINATIONS_FREE_TEXT_URL", "https://gen.pollinations.ai")
     POLLINATIONS_FREE_IMAGE_URL: str = os.getenv("POLLINATIONS_FREE_IMAGE_URL", "https://image.pollinations.ai")
 
     # Cloudflare Workers AI — Mistral Small 3.1 (2 accounts, 10K req/day each)
