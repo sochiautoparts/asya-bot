@@ -1053,6 +1053,159 @@ async def cleanup_old_fingerprints(max_age_days: int = 7) -> int:
         return cursor.rowcount
 
 
+# ═══ v5.1: Periodic DB cleanup tasks ═══════════════════════════════════════
+# Without periodic cleanup the DB grows unbounded (chat_history, ai_cache,
+# news_items, post_fingerprints, posted_urls). After 2-3 months the DB
+# balloons from 4 MB to 50+ MB and every SELECT slows down.
+#
+# Schedule: every 12 hours (called from BackgroundTasks._news_fetcher).
+# All cleanup functions are idempotent and safe to run concurrently.
+
+
+async def cleanup_old_chat_history(max_age_days: int = 30) -> int:
+    """Remove chat history older than max_age_days. Returns count removed.
+
+    Long-term chat history is not useful — the AI uses the last 6-20 turns
+    anyway (config.CHAT_HISTORY_LIMIT). Keeping 30 days of history is more
+    than enough for the rare "what did we discuss last week?" query.
+    """
+    cutoff = time.time() - (max_age_days * 86400)
+    try:
+        async with _connect_db() as db:
+            cursor = await db.execute(
+                "DELETE FROM chat_history WHERE timestamp < ?", (cutoff,)
+            )
+            await db.commit()
+            removed = cursor.rowcount
+            if removed > 0:
+                logger.info(f"Cleaned up {removed} old chat_history rows (>{max_age_days}d)")
+            return removed
+    except Exception as e:
+        logger.error(f"chat_history cleanup error: {e}")
+        return 0
+
+
+async def cleanup_old_ai_cache(max_age_days: int = 7) -> int:
+    """Remove AI cache entries older than max_age_days. Returns count removed.
+
+    Cache entries older than 7 days are unlikely to hit again (user has
+    moved on to new topics). Free up disk space and keep the cache table
+    fast.
+    """
+    cutoff = time.time() - (max_age_days * 86400)
+    try:
+        async with _connect_db() as db:
+            cursor = await db.execute(
+                "DELETE FROM ai_cache WHERE created_at < ?", (cutoff,)
+            )
+            await db.commit()
+            removed = cursor.rowcount
+            if removed > 0:
+                logger.info(f"Cleaned up {removed} old ai_cache rows (>{max_age_days}d)")
+            return removed
+    except Exception as e:
+        logger.error(f"ai_cache cleanup error: {e}")
+        return 0
+
+
+async def cleanup_old_news_items(max_age_days: int = 7) -> int:
+    """Remove posted news_items older than max_age_days. Returns count removed.
+
+    News that has already been posted and is older than 7 days has no
+    reuse value — keeps the news table small for fast unposted-item queries.
+    """
+    cutoff = time.time() - (max_age_days * 86400)
+    try:
+        async with _connect_db() as db:
+            # Only delete items that have been posted AND are old
+            cursor = await db.execute(
+                "DELETE FROM news_items WHERE is_posted = 1 AND published < ? AND fetched_at < ?",
+                (cutoff, cutoff)
+            )
+            await db.commit()
+            removed = cursor.rowcount
+            if removed > 0:
+                logger.info(f"Cleaned up {removed} old posted news_items (>{max_age_days}d)")
+            return removed
+    except Exception as e:
+        logger.error(f"news_items cleanup error: {e}")
+        return 0
+
+
+async def cleanup_old_posted_urls(max_age_days: int = 30) -> int:
+    """Remove posted_urls entries older than max_age_days. Returns count removed."""
+    cutoff = time.time() - (max_age_days * 86400)
+    try:
+        async with _connect_db() as db:
+            cursor = await db.execute(
+                "DELETE FROM posted_urls WHERE posted_at < ?", (cutoff,)
+            )
+            await db.commit()
+            removed = cursor.rowcount
+            if removed > 0:
+                logger.info(f"Cleaned up {removed} old posted_urls (>{max_age_days}d)")
+            return removed
+    except Exception as e:
+        logger.error(f"posted_urls cleanup error: {e}")
+        return 0
+
+
+async def cleanup_old_partner_posts(max_age_days: int = 60) -> int:
+    """Remove partner_posts entries older than max_age_days (just history log)."""
+    cutoff = time.time() - (max_age_days * 86400)
+    try:
+        async with _connect_db() as db:
+            cursor = await db.execute(
+                "DELETE FROM partner_posts WHERE posted_at < ?", (cutoff,)
+            )
+            await db.commit()
+            removed = cursor.rowcount
+            if removed > 0:
+                logger.info(f"Cleaned up {removed} old partner_posts (>{max_age_days}d)")
+            return removed
+    except Exception as e:
+        logger.error(f"partner_posts cleanup error: {e}")
+        return 0
+
+
+async def cleanup_old_channel_posts(max_age_days: int = 90) -> int:
+    """Remove channel_posts entries older than max_age_days (just history log)."""
+    cutoff = time.time() - (max_age_days * 86400)
+    try:
+        async with _connect_db() as db:
+            cursor = await db.execute(
+                "DELETE FROM channel_posts WHERE created_at < ?", (cutoff,)
+            )
+            await db.commit()
+            removed = cursor.rowcount
+            if removed > 0:
+                logger.info(f"Cleaned up {removed} old channel_posts (>{max_age_days}d)")
+            return removed
+    except Exception as e:
+        logger.error(f"channel_posts cleanup error: {e}")
+        return 0
+
+
+async def run_periodic_cleanup() -> Dict[str, int]:
+    """Run ALL cleanup tasks. Called every 12 hours from BackgroundTasks.
+
+    Returns dict of {table_name: rows_removed}.
+    """
+    results = {}
+    try:
+        results["chat_history"] = await cleanup_old_chat_history(max_age_days=30)
+        results["ai_cache"] = await cleanup_old_ai_cache(max_age_days=7)
+        results["news_items"] = await cleanup_old_news_items(max_age_days=7)
+        results["posted_urls"] = await cleanup_old_posted_urls(max_age_days=30)
+        results["partner_posts"] = await cleanup_old_partner_posts(max_age_days=60)
+        results["channel_posts"] = await cleanup_old_channel_posts(max_age_days=90)
+        results["post_fingerprints"] = await cleanup_old_fingerprints(max_age_days=7)
+        logger.info(f"Periodic cleanup complete: {results}")
+    except Exception as e:
+        logger.error(f"Periodic cleanup failed: {e}")
+    return results
+
+
 async def get_stats() -> Dict[str, Any]:
     """Get bot statistics."""
     async with _connect_db() as db:

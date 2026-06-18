@@ -39,6 +39,9 @@ env/
 # Image cache (downloaded original photos)
 data/image_cache/
 
+# v5.1: Partner logo disk cache (SVG→PNG converted logos)
+data/partner_logos/
+
 # Local LLM model files (too large for Git — ~2.5GB)
 models/*.gguf
 

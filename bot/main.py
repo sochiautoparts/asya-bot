@@ -31,7 +31,10 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import config
-from bot.database import init_db, cleanup_old_fingerprints, add_chat_message, load_topic_registry
+from bot.database import (
+    init_db, cleanup_old_fingerprints, add_chat_message, load_topic_registry,
+    run_periodic_cleanup,
+)
 from bot.partners import partner_manager
 from ai.router import ai_router
 from news import run_news_cycle
@@ -214,7 +217,7 @@ class BackgroundTasks:
                 if count > 0:
                     logger.info(f"News fetcher: {count} new items")
 
-                # Cleanup old fingerprints every 12 cycles (~6 hours)
+                # Cleanup old fingerprints every 12 cycles (~6 hours with 30min interval)
                 cycle_count += 1
                 if cycle_count % 12 == 0:
                     removed = await cleanup_old_fingerprints(max_age_days=7)
@@ -228,6 +231,19 @@ class BackgroundTasks:
                         await partner_manager.maybe_refresh()
                     except Exception as e:
                         logger.debug(f"Partner data refresh skipped: {e}")
+
+                # v5.1: Run full periodic DB cleanup every 24 cycles (~12 hours).
+                # Cleans up chat_history (>30d), ai_cache (>7d), news_items (>7d posted),
+                # posted_urls (>30d), partner_posts (>60d), channel_posts (>90d).
+                # Keeps the DB small and queries fast over time.
+                if cycle_count % 24 == 0:
+                    try:
+                        cleanup_results = await run_periodic_cleanup()
+                        total_removed = sum(cleanup_results.values())
+                        if total_removed > 0:
+                            logger.info(f"Periodic DB cleanup: removed {total_removed} rows total")
+                    except Exception as e:
+                        logger.warning(f"Periodic DB cleanup failed: {e}")
             except Exception as e:
                 logger.error(f"News fetcher error: {e}")
 
@@ -384,6 +400,15 @@ async def main():
         logger.info(f"Partner programs loaded: {partner_count}")
     except Exception as e:
         logger.warning(f"Could not load partner programs: {e}")
+
+    # v5.1: Preload all partner logos in parallel (network + SVG→PNG conversion).
+    # Results are cached on disk (data/partner_logos/) so subsequent restarts
+    # are instant. First partner channel post won't have to wait for download.
+    try:
+        logo_count = await partner_manager.preload_all_logos()
+        logger.info(f"Partner logos preloaded: {logo_count}/{partner_count}")
+    except Exception as e:
+        logger.debug(f"Partner logo preload skipped: {e}")
 
     # Set bot on channel manager
     channel_manager.set_bot(bot)

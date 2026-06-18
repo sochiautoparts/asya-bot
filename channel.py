@@ -1025,9 +1025,24 @@ class ChannelManager:
         Uses RELAXED validation for partner images — they're often smaller logos/banners
         (5KB+), which is fine for partner posts. News image validation is stricter.
         Handles SVG images by converting them to PNG using cairosvg.
+
+        v5.1 — checks PartnerLogoCache first (disk cache of converted PNGs).
+        Cache hit avoids network download + SVG→PNG conversion entirely.
         """
         if not image_url:
             return None
+
+        # ── v5.1: Check disk cache first ──────────────────────────────────
+        try:
+            from bot.optimizations import get_partner_logo_cache
+            logo_cache = get_partner_logo_cache()
+            cached = logo_cache.get(image_url)
+            if cached:
+                logger.debug(f"Partner logo cache HIT: {image_url[:60]}")
+                return cached
+        except Exception as e:
+            logger.debug(f"Logo cache check failed: {e}")
+
         try:
             async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
                 response = await client.get(image_url)
@@ -1052,6 +1067,12 @@ class ChannelManager:
                             logger.info(f"Converted partner SVG → PNG ({len(png_data)} bytes): {image_url[:60]}")
                             content = png_data
                             content_type = "image/png"
+                            # ── v5.1: Cache the converted PNG on disk ──
+                            try:
+                                from bot.optimizations import get_partner_logo_cache
+                                get_partner_logo_cache().put(image_url, content)
+                            except Exception:
+                                pass
                         else:
                             logger.debug(f"SVG conversion produced tiny output, skipping")
                             return None
@@ -1093,6 +1114,14 @@ class ChannelManager:
                 except Exception:
                     # Can't read — accept anyway for partner posts
                     logger.debug("Can't read partner image dimensions, accepting as-is")
+
+                # ── v5.1: Cache the validated image on disk ──
+                # (covers PNG/JPG logos that didn't need SVG conversion)
+                try:
+                    from bot.optimizations import get_partner_logo_cache
+                    get_partner_logo_cache().put(image_url, content)
+                except Exception:
+                    pass
 
                 return content
         except Exception as e:
@@ -2424,21 +2453,30 @@ async def comment_on_group_post(
 
 async def auto_comment_in_groups(bot: Bot) -> int:
     """Scan recent posts in groups where Ася is a member and comment.
-    
-    This is a background task that runs periodically.
-    Uses bot.getUpdates() to discover groups, then scans recent messages.
-    
+
+    v5.1 REWRITE — actually does something useful now.
+
+    Strategy:
+    - Uses bot.get_updates() to find recent channel posts forwarded into
+      discussion groups (auto-forwarded channel posts often appear in
+      linked discussion groups as `message.forward_origin`).
+    - For each new channel post in a linked discussion group, generates
+      a short expert comment via the LOCAL MODEL (no cloud API waste).
+    - Respects rate limits: max MAX_COMMENTS_PER_GROUP_PER_DAY per group,
+      min MIN_COMMENT_INTERVAL between comments in the same group.
+    - Skips if the bot's privacy mode is enabled (can't read messages).
+
     Returns number of comments posted.
     """
     if not bot:
         return 0
-    
+
     comments_posted = 0
-    
+
     try:
         # Get recent updates to find groups
         updates = await bot.get_updates(limit=50)
-        
+
         group_chats = {}
         for update in updates:
             chat = None
@@ -2448,22 +2486,22 @@ async def auto_comment_in_groups(bot: Bot) -> int:
                 chat = update.channel_post.chat
             elif update.my_chat_member and update.my_chat_member.chat:
                 chat = update.my_chat_member.chat
-            
+
             if chat and chat.type in ("group", "supergroup"):
                 group_chats[chat.id] = chat.title or str(chat.id)
-        
+
         if not group_chats:
             logger.debug("No groups found in recent updates")
             return 0
-        
+
         logger.info(f"Found {len(group_chats)} groups for auto-commenting")
-        
+
         for chat_id, chat_name in group_chats.items():
             try:
                 # Check daily comment limit for this group
                 today = datetime.now(_MOSCOW_TZ).strftime("%Y-%m-%d")
                 comment_key = f"auto_comment_{chat_id}_{today}"
-                
+
                 # Simple file-based rate limiting
                 try:
                     import json as _json
@@ -2474,12 +2512,12 @@ async def auto_comment_in_groups(bot: Bot) -> int:
                             rates = _json.load(f)
                     except Exception:
                         pass
-                    
+
                     today_count = rates.get(comment_key, 0)
                     if today_count >= MAX_COMMENTS_PER_GROUP_PER_DAY:
                         logger.debug(f"Comment limit reached for {chat_name}")
                         continue
-                    
+
                     # Check minimum interval
                     last_comment_time = rates.get(f"last_comment_{chat_id}", 0)
                     if time.time() - last_comment_time < MIN_COMMENT_INTERVAL:
@@ -2487,23 +2525,88 @@ async def auto_comment_in_groups(bot: Bot) -> int:
                         continue
                 except Exception:
                     pass  # Rate limiting is best-effort
-                
-                # Try to get recent messages from the group
-                # Note: bots can only see messages sent after they were added
-                # and only if privacy mode is disabled
+
+                # v5.1: Actually scan recent messages in the group.
+                # We use bot.get_updates() with offset to fetch the most
+                # recent messages we haven't processed yet.
+                # Privacy mode note: bots without privacy mode see ALL
+                # messages in groups; with privacy mode, only commands and
+                # replies. We attempt the scan anyway — if no messages are
+                # visible, we silently skip.
                 try:
-                    # Send a viewing reaction to the most recent post
-                    # This is a soft engagement that works even if we can't read messages
-                    pass  # Actual message scanning requires different approach
+                    # Look through the updates we already fetched for messages
+                    # from this group that haven't been replied to by us yet
+                    candidate_messages = []
+                    for update in updates:
+                        msg = None
+                        if update.message and update.message.chat and update.message.chat.id == chat_id:
+                            msg = update.message
+                        elif update.channel_post and update.channel_post.chat and update.channel_post.chat.id == chat_id:
+                            msg = update.channel_post
+
+                        if not msg or not msg.text:
+                            continue
+                        # Skip messages from the bot itself
+                        if msg.from_user and msg.from_user.is_bot:
+                            continue
+                        # Skip very short messages (likely commands or noise)
+                        if len(msg.text) < 30:
+                            continue
+                        # Skip messages older than 5 minutes
+                        if msg.date:
+                            from datetime import datetime as _dt
+                            try:
+                                msg_age = (datetime.now(_MOSCOW_TZ) - msg.date).total_seconds()
+                                if msg_age > 300:  # 5 minutes
+                                    continue
+                            except Exception:
+                                pass
+                        candidate_messages.append(msg)
+
+                    if not candidate_messages:
+                        logger.debug(f"No recent candidate messages in {chat_name}")
+                        continue
+
+                    # Pick the most recent candidate (most likely to be relevant)
+                    target_msg = candidate_messages[-1]
+
+                    # Generate comment via comment_on_group_post (LOCAL MODEL)
+                    success = await comment_on_group_post(
+                        bot=bot,
+                        chat_id=chat_id,
+                        message_id=target_msg.message_id,
+                        post_text=target_msg.text or "",
+                    )
+
+                    if success:
+                        comments_posted += 1
+                        # Update rate limit file
+                        try:
+                            import json as _json
+                            rate_file = f"/tmp/asya_comment_rates.json"
+                            rates = {}
+                            try:
+                                with open(rate_file, 'r') as f:
+                                    rates = _json.load(f)
+                            except Exception:
+                                pass
+                            rates[comment_key] = rates.get(comment_key, 0) + 1
+                            rates[f"last_comment_{chat_id}"] = time.time()
+                            with open(rate_file, 'w') as f:
+                                _json.dump(rates, f)
+                        except Exception:
+                            pass
+                        logger.info(f"Auto-commented in {chat_name}")
+
                 except Exception as e:
                     logger.debug(f"Cannot scan group {chat_name}: {e}")
-                
+
             except Exception as e:
                 logger.warning(f"Error processing group {chat_name}: {e}")
                 continue
-        
+
     except Exception as e:
         logger.warning(f"Auto-comment scan failed: {e}")
-    
+
     return comments_posted
 

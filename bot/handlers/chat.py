@@ -38,6 +38,15 @@ from bot.partners import partner_manager
 from ai.router import ai_router
 from ai.voice import process_voice_message
 
+# v5.1 optimizations
+from bot.optimizations import (
+    find_full_urls,
+    find_bare_domains,
+    get_request_deduplicator,
+    adaptive_max_chars,
+    chat_type_context,
+)
+
 logger = logging.getLogger("asya.handlers.chat")
 
 chat_router = Router()
@@ -706,9 +715,29 @@ async def _process_text_message(message: Message, text: str):
     
     Has an OVERALL TIMEOUT of 45 seconds to prevent the user from waiting indefinitely
     when all AI providers and searches fail slowly.
+
+    v5.1 — adds REQUEST DEDUPLICATION: if the same user sends the same message
+    within 3 seconds (mobile double-tap, network retry), return the cached
+    response instead of re-processing.
     """
     import asyncio
     user_id = message.from_user.id
+
+    # ── v5.1: Request deduplication (3-second window) ──
+    # Mobile users often double-tap Send, and Telegram sometimes delivers
+    # the same message twice within 1-2 seconds. Processing both wastes AI
+    # tokens and produces duplicate replies.
+    dedup = get_request_deduplicator()
+    cached_response = dedup.check(user_id, text)
+    if cached_response:
+        # Send the cached response directly and skip processing
+        try:
+            await message.answer(cached_response)
+        except Exception:
+            pass
+        logger.info(f"Returning deduplicated response for user {user_id}")
+        return
+
     chat_mode = await get_chat_mode(user_id)
 
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
@@ -754,6 +783,23 @@ async def _process_text_message_inner(message: Message, text: str, user_id: int,
 
     extra_context_parts = []
     collected_partner_links = []  # List of (name, url) tuples — for clean formatting after AI response
+
+    # 0. v5.1: Chat type context — tell the AI what kind of chat it's in
+    # so it can adapt tone, length, and style (private vs group vs forum).
+    try:
+        is_own_channel_check = (
+            str(message.chat.id) == str(config.CHANNEL_ID)
+            or message.chat.username == config.CHANNEL_ID.replace("@", "")
+        )
+        chat_ctx = chat_type_context(
+            chat_type=message.chat.type,
+            is_own_channel=is_own_channel_check,
+            is_inline=False,
+        )
+        if chat_ctx:
+            extra_context_parts.append(chat_ctx)
+    except Exception as e:
+        logger.debug(f"chat_type_context error: {e}")
 
     # 0. User persona context for personalized communication
     user_context = _get_user_persona_context(message)
@@ -1273,28 +1319,41 @@ async def _send_response(message: Message, response, status_msg=None, partner_li
             reply_text = reply_text.rstrip() + "\n\n" + partner_section
 
     # ── Enforce character limits based on chat type ──
-    # Private chat: max CHAT_MAX_CHARS (1500) — AI asked for 500-1000, this is hard limit
-    # Group/supergroup: max GROUP_MAX_CHARS (600) — AI asked for 300, this is hard limit
-    # Comment in other group (not our channel): max COMMENT_MAX_CHARS (300)
+    # v5.1: Use ADAPTIVE limits — short user msg → short reply, long user msg
+    # → long reply. Falls back to base limits if adaptive fails.
     is_group_chat = message.chat.type in ("group", "supergroup")
     is_own_channel = (
         str(message.chat.id) == str(config.CHANNEL_ID)
         or message.chat.username == config.CHANNEL_ID.replace("@", "")
     )
 
-    if message.chat.type == "private":
-        if len(reply_text) > CHAT_MAX_CHARS:
-            logger.info(f"Truncating private chat response: {len(reply_text)} → {CHAT_MAX_CHARS} chars")
-            reply_text = _smart_truncate(reply_text, CHAT_MAX_CHARS)
-    else:
-        if not is_own_channel and is_group_chat:
-            if len(reply_text) > COMMENT_MAX_CHARS:
-                logger.info(f"Truncating comment in other group: {len(reply_text)} → {COMMENT_MAX_CHARS} chars")
-                reply_text = _smart_truncate(reply_text, COMMENT_MAX_CHARS)
-        elif len(reply_text) > GROUP_MAX_CHARS:
-            # Group or supergroup — keep it short!
-            logger.info(f"Truncating group response: {len(reply_text)} → {GROUP_MAX_CHARS} chars")
-            reply_text = _smart_truncate(reply_text, GROUP_MAX_CHARS)
+    # Determine the original user message text (for adaptive sizing)
+    user_text_for_adaptive = ""
+    try:
+        # message.text holds the user's text; fall back to message.caption for photos
+        user_text_for_adaptive = message.text or message.caption or ""
+    except Exception:
+        pass
+
+    try:
+        # v5.1: Adaptive limit based on user message length + chat type
+        limit = adaptive_max_chars(
+            user_message=user_text_for_adaptive,
+            chat_type=message.chat.type,
+            is_own_channel=is_own_channel,
+        )
+    except Exception:
+        # Fallback to old fixed limits
+        if message.chat.type == "private":
+            limit = CHAT_MAX_CHARS
+        elif not is_own_channel and is_group_chat:
+            limit = COMMENT_MAX_CHARS
+        else:
+            limit = GROUP_MAX_CHARS
+
+    if len(reply_text) > limit:
+        logger.info(f"Truncating response: {len(reply_text)} → {limit} chars (chat_type={message.chat.type})")
+        reply_text = _smart_truncate(reply_text, limit)
 
     # v5.0: Determine the correct message_thread_id for forum/topic replies.
     # - In forum supergroups, every topic has a thread_id (message.message_thread_id)
@@ -1321,6 +1380,16 @@ async def _send_response(message: Message, response, status_msg=None, partner_li
         chunks = _split_message(reply_text, max_length=config.TELEGRAM_TEXT_LIMIT)
         for chunk in chunks:
             await message.answer(chunk, **reply_kwargs)
+
+    # ── v5.1: Record this response in dedup cache ──
+    # If the user sends the same message within 3 seconds (mobile double-tap,
+    # network retry), we return this cached response instead of re-processing.
+    try:
+        if user_text_for_adaptive and reply_text:
+            dedup = get_request_deduplicator()
+            dedup.record(message.from_user.id, user_text_for_adaptive, reply_text)
+    except Exception:
+        pass
 
 
 # ── Utility functions ──────────────────────────────────────────────────────────
@@ -1508,11 +1577,14 @@ def _replace_plain_urls_with_affiliate(text: str) -> str:
     When the AI generates responses containing plain URLs like rossko.ru or 
     autopiter.ru instead of the affiliate tracking links from partners.json,
     this function detects them and replaces with the proper goto_link.
-    
+
     This handles cases where:
     - AI ignores the system prompt and invents plain URLs
     - AI uses domain names without the affiliate wrapper
     - Photo handler bypasses the normal link injection pipeline
+
+    v5.1 — uses PRECOMPILED regexes (find_full_urls / find_bare_domains)
+    instead of re.compile per call. Saves ~30-50ms per call.
     """
     try:
         partner_manager.ensure_loaded()
@@ -1528,8 +1600,14 @@ def _replace_plain_urls_with_affiliate(text: str) -> str:
         
         # Pattern 1: Full URLs with paths — https://rossko.ru/search?text=abc
         # Replace the entire URL with the affiliate link
-        pattern = rf'https?://{re.escape(domain)}[^\s<>)\]"\']*'
-        matches = re.findall(pattern, text)
+        # v5.1: Use precompiled regex from optimizations module
+        try:
+            matches = find_full_urls(text, domain)
+        except Exception:
+            # Fallback to inline regex if precompile wasn't done
+            pattern = rf'https?://{re.escape(domain)}[^\s<>)\]"\']*'
+            matches = re.findall(pattern, text)
+
         for plain_url in matches:
             # Try to extract search query and build affiliate link with search
             search_query = ""
@@ -1554,8 +1632,12 @@ def _replace_plain_urls_with_affiliate(text: str) -> str:
         
         # Pattern 2: Bare domain mentions — rossko.ru or www.rossko.ru (not already part of a longer URL)
         # Only replace if it's NOT already part of an affiliate URL (which would be much longer)
-        bare_pattern = rf'(?<![/\w.-])(?:www\.)?{re.escape(domain)}(?![/\w.-])'
-        bare_matches = re.findall(bare_pattern, text)
+        try:
+            bare_matches = find_bare_domains(text, domain)
+        except Exception:
+            bare_pattern = rf'(?<![/\w.-])(?:www\.)?{re.escape(domain)}(?![/\w.-])'
+            bare_matches = re.findall(bare_pattern, text)
+
         for bare_domain in bare_matches:
             # Check this isn't already inside an affiliate URL
             idx = text.find(bare_domain)

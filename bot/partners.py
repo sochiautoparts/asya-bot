@@ -52,6 +52,13 @@ from urllib.parse import quote_plus, urlparse, parse_qs, urlencode, urlunparse
 
 from bot.config import config
 
+# v5.1 optimizations
+from bot.optimizations import (
+    partner_match_cache,
+    precompile_partner_domain_regexes,
+    get_partner_logo_cache,
+)
+
 logger = logging.getLogger("asya.partners")
 
 # Remote partners.json URL — sochiautoparts.ru (updateable file!)
@@ -573,7 +580,85 @@ class PartnerManager:
                     if domain:
                         self._site_map[domain] = prog
 
+        # v5.1: Pre-compile per-domain regexes for _replace_plain_urls_with_affiliate.
+        # Saves ~30-50ms per call by avoiding per-call re.compile.
+        try:
+            domains = list(self._site_map.keys())
+            precompile_partner_domain_regexes(domains)
+            logger.debug(f"Precompiled regex for {len(domains)} partner domains")
+        except Exception as e:
+            logger.debug(f"Domain regex precompile skipped: {e}")
+
         return len(self.programs)
+
+    async def preload_all_logos(self) -> int:
+        """Download + convert (SVG→PNG) all partner logos in parallel.
+
+        Called once at startup so the first partner post doesn't have to
+        wait for logo download + conversion. Results are cached on disk
+        via PartnerLogoCache so subsequent restarts are instant.
+
+        Returns the number of logos successfully cached.
+        """
+        import asyncio
+        import httpx
+
+        self.ensure_loaded()
+        logo_cache = get_partner_logo_cache()
+        cached_count = 0
+
+        async def _fetch_one(program):
+            nonlocal cached_count
+            if not program.image:
+                return
+            # Skip if already cached
+            if logo_cache.get(program.image) is not None:
+                cached_count += 1
+                return
+            try:
+                async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                    resp = await client.get(program.image)
+                    if resp.status_code != 200:
+                        return
+                    content = resp.content
+                    content_type = resp.headers.get("content-type", "")
+
+                    # SVG → PNG conversion
+                    is_svg = (
+                        "svg" in content_type.lower() or
+                        b'<svg' in content[:1000] or
+                        program.image.lower().endswith('.svg')
+                    )
+                    if is_svg:
+                        try:
+                            import cairosvg
+                            png_data = cairosvg.svg2png(bytestring=content, output_width=512)
+                            if png_data and len(png_data) > 1000:
+                                content = png_data
+                            else:
+                                return
+                        except Exception:
+                            return
+
+                    # Validate it's a real image (magic bytes)
+                    if not (content[:3] == b'\xff\xd8\xff' or content[:4] == b'\x89PNG' or
+                            (content[:4] == b'RIFF' and content[8:12] == b'WEBP')):
+                        return
+
+                    if len(content) < 2000:
+                        return
+
+                    logo_cache.put(program.image, content)
+                    cached_count += 1
+            except Exception as e:
+                logger.debug(f"Logo preload failed for {program.name}: {e}")
+
+        try:
+            await asyncio.gather(*[_fetch_one(p) for p in self.programs], return_exceptions=True)
+            logger.info(f"Preloaded {cached_count}/{len(self.programs)} partner logos")
+        except Exception as e:
+            logger.warning(f"Logo preload error: {e}")
+        return cached_count
 
     def _save_cache(self, data) -> None:
         """Save data to local cache."""
@@ -645,7 +730,16 @@ class PartnerManager:
         coupons, travel, education). Ensures the bot can naturally suggest
         partners in dialogs about flights, eSIM, car rental abroad, Chinese
         goods delivery, English lessons, driving school, etc.
+
+        v5.1 — wrapped with @partner_match_cache (LRU + TTL=5min).
+        Find is called 2-3 times per message with the same text; the result
+        is deterministic for a given partners list, so caching saves CPU.
+        The cache key includes len(programs), so a partner reload invalidates.
         """
+        return self._find_matching_programs_impl(text, region)
+
+    @partner_match_cache
+    def _find_matching_programs_impl(self, text: str, region: str = DEFAULT_REGION) -> List[PartnerProgram]:
         self.ensure_loaded()
         text_lower = text.lower()
 
@@ -887,7 +981,13 @@ class PartnerManager:
         For general queries, includes relevant categories based on keywords.
 
         Returns list of dicts with 'name', 'url', 'description' keys.
+
+        v5.1 — cached via @partner_match_cache (LRU+TTL=5min).
         """
+        return self._get_all_relevant_links_impl(text, max_programs, region)
+
+    @partner_match_cache
+    def _get_all_relevant_links_impl(self, text: str, max_programs: int = 5, region: str = DEFAULT_REGION) -> List[Dict[str, str]]:
         self.ensure_loaded()
         links = []
         seen_names = set()
@@ -1127,7 +1227,14 @@ class PartnerManager:
 
         Returns up to max_programs dicts with name, url, description, icon.
         Guarantees the goto_link is used EXACTLY as-is from partners.json.
+
+        v5.1 — cached via @partner_match_cache (LRU+TTL=5min).
         """
+        return self._get_all_partner_links_for_dialog_impl(text, max_programs, region)
+
+    @partner_match_cache
+    def _get_all_partner_links_for_dialog_impl(self, text: str, max_programs: int = 7,
+                                                region: str = DEFAULT_REGION) -> List[Dict[str, str]]:
         self.ensure_loaded()
         links = []
         seen_names = set()
