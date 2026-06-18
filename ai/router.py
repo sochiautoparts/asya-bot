@@ -99,7 +99,9 @@ FALLBACK_RESPONSES = [
 COMMENT_MODELS = ["mistral", "openai", "nova-fast", "mistral-small", "nova-micro"]
 
 # Best quality models for function routes — accuracy matters
-FUNCTION_MODELS = ["openai-large", "deepseek-pro", "deepseek"]
+# v6.0: mistral-4 first (reliable, fast), then deepseek (strong reasoning)
+# openai-large/deepseek-pro are premium and return 402 — moved to end
+FUNCTION_MODELS = ["mistral-4", "deepseek", "openai-large", "deepseek-pro"]
 
 
 class AIRouter:
@@ -242,7 +244,7 @@ class AIRouter:
         if route_type == "comment":
             model = model or "mistral"
         elif route_type == "function":
-            model = model or "openai-large"
+            model = model or "mistral-4"  # v6.0: was openai-large (returns 402, premium model)
         else:
             model = model or ""
 
@@ -1025,21 +1027,25 @@ class AIRouter:
         # v5.2: Use model blacklist — if a specific model has failed 2+ times
         # recently, skip it and try a known-good alternative directly.
         # This avoids the ~10s timeout cascade when openai-large is down.
-        post_model = model or "openai-large"
+        post_model = model or "mistral-4"
         model_blacklist = get_model_blacklist()
 
         # Build a smart fallback chain — skip blacklisted models immediately
-        # v5.2 ORDER: prioritize models that demonstrably work in production.
-        # Based on log analysis: mistral-4 / deepseek / nova-fast work reliably,
-        # while openai-large / gpt-5.5 frequently timeout or 402.
+        # v6.0 ORDER: prioritize models that demonstrably work in production.
+        # Based on log analysis (June 2026):
+        #   - mistral-4: Fast & reliable (1.6-4.7s in production logs, consistently works)
+        #   - deepseek: Strong reasoning, 1M context, works on both keys
+        #   - nova-fast: Fast, rarely fails
+        #   - openai-large: Premium model, returns 402 without paid balance,
+        #     depletes KEY1 on timeout — moved to LAST priority
         _CHANNEL_POST_MODELS = [
-            "openai-large",   # Primary — best quality when available
-            "mistral-4",      # v5.2: Fast & reliable (1.6s in production logs)
+            "mistral-4",      # v6.0: PRIMARY — fast & reliable (1.6-4.7s), works on both keys
             "deepseek",       # Strong reasoning, 1M context
             "nova-fast",      # Fast, rarely fails
             "mistral",        # Mistral Small — fast fallback
             "gemma",          # Gemma 4 — fast MoE
-            "openai",         # GPT-5.4 Nano — last resort on Pollinations key
+            "openai",         # GPT-5.4 Nano — general purpose
+            "openai-large",   # Premium — 402 without paid balance, tried LAST
         ]
 
         # Filter out blacklisted models
