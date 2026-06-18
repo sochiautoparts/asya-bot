@@ -4,7 +4,7 @@ AI Router v8.0 — LOCAL-FIRST MULTI-PROVIDER FAILOVER with MODEL TIERING.
 FAILOVER CHAIN (4 levels before static fallback):
   Level 0: Local Model (RuadaptQwen3-4B GGUF, CPU) — CHAT & COMMENT routes only
   Level 1: Pollinations (with API key) → KEY1 → KEY2
-  Level 2: Pollinations FREE API (text.pollinations.ai, no auth)
+  Level 2: Pollinations FREE API (gen.pollinations.ai, no auth — legacy text.pollinations.ai deprecated)
   Level 3: Cloudflare Workers AI (@cf/mistralai/mistral-small-3.1-24b-instruct)
   Last resort: Static fallback responses
 
@@ -539,7 +539,13 @@ class AIRouter:
             is_key_error = any(code in (response.error_message or "")
                               for code in ["All API keys depleted", "401", "402", "unavailable", "cooldown"])
 
-            if is_key_error:
+            # v5.3: If ALL keys are depleted, don't try fallback models with the same depleted keys.
+            # This prevents the cascade where every model returns "All API keys depleted"
+            # and wastes time while the concurrent Cloudflare task could respond instead.
+            fallback_models = []
+            if "All API keys depleted" in (response.error_message or ""):
+                logger.warning("All Pollinations keys depleted — skipping fallback models, letting Cloudflare handle it")
+            elif is_key_error:
                 # v5.2: prioritize reliable models that demonstrably work in production
                 fallback_candidates = ["mistral-4", "deepseek", "nova-fast", "mistral", "gemma", "openai"]
                 fallback_models = [m for m in fallback_candidates
@@ -586,7 +592,7 @@ class AIRouter:
     async def _try_pollinations_free(self, user_id: int, message: str, history: list,
                                       sys_prompt: str, temperature: float, max_tokens: int,
                                       model: str) -> AIResponse:
-        """Level 2: Try Pollinations FREE API (no auth, text.pollinations.ai).
+        """Level 2: Try Pollinations FREE API (no auth, gen.pollinations.ai).
 
         v5.1 — protected by CircuitBreaker.
         """
