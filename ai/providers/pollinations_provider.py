@@ -606,12 +606,17 @@ class PollinationsProvider(BaseAIProvider):
                 self._get_model_circuit(model).record_failure()
                 self._gen_fail_count += 1
                 last_error = f"Timeout from KEY{tier_index}"
-                # Mark the key as potentially depleted on timeout too —
-                # if it times out, trying the same key again is unlikely to help
-                if tier_index == 1 and self._key1_depleted_at == 0:
-                    self._key1_depleted_at = time.time() - KEY_COOLDOWN + 60  # Retry in 60s instead of 600s
-                elif tier_index == 2 and self._key2_depleted_at == 0:
-                    self._key2_depleted_at = time.time() - KEY_COOLDOWN + 60
+                # v6.0: For paid-only/premium models, timeout doesn't mean key is depleted —
+                # the model might just be slow or overloaded. Only deplete key for
+                # non-premium models where timeout likely means key-level issue.
+                if model not in PAID_ONLY_MODELS:
+                    # Mark the key as potentially depleted on timeout —
+                    # if it times out, trying the same key again is unlikely to help
+                    if tier_index == 1 and self._key1_depleted_at == 0:
+                        self._key1_depleted_at = time.time() - KEY_COOLDOWN + 60  # Retry in 60s instead of 600s
+                    elif tier_index == 2 and self._key2_depleted_at == 0:
+                        self._key2_depleted_at = time.time() - KEY_COOLDOWN + 60
+                # For paid-only models: just circuit-break the model, don't deplete key
                 continue  # Try next key tier
 
             except Exception as e:
