@@ -130,6 +130,26 @@ class ProviderManager:
 
         # ── FUNCTION route: Cloud FIRST, Local as fallback ──
         # Also used as cloud fallback for CHAT/COMMENT routes
+
+        # Smart fallback: if gen API has been failing, try free API first
+        if hasattr(self.pollinations, '_should_try_legacy_first') and self.pollinations._should_try_legacy_first():
+            logger.info("Gen API failing (%d consecutive failures), trying free API first",
+                        getattr(self.pollinations, '_gen_fail_count', 0))
+            # Try free API first
+            if hasattr(self.pollinations, 'chat_free'):
+                try:
+                    result = await self.pollinations.chat_free(
+                        messages=messages,
+                        model=model or "openai",
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                    )
+                    if result.ok:
+                        self._last_provider = result.provider or "pollinations-free"
+                        return result
+                except Exception as exc:
+                    logger.debug("Free API (priority) exception: %s", exc)
+
         # Level 1: Try Pollinations
         try:
             result = await self.pollinations.chat(
@@ -210,6 +230,90 @@ class ProviderManager:
             provider="none",
             error="All AI providers failed (Local + Pollinations + Cloudflare)",
         )
+
+    async def chat_local_only(
+        self,
+        messages: List[Dict[str, str]],
+        max_tokens: int = 2048,
+        temperature: float = 0.8,
+    ) -> AIResponse:
+        """Chat using ONLY the local model — bypasses all cloud providers.
+
+        Used as a last-resort fallback when ALL cloud providers are unavailable
+        or have exhausted their rate limits. This ensures the bot can ALWAYS
+        generate content for the channel, even if quality is lower.
+
+        The local model (Qwen3-4B) is less creative than cloud models but
+        can produce acceptable short posts with simplified prompts.
+
+        Args:
+            messages: Chat messages (should use simplified prompts for 4B model)
+            max_tokens: Max tokens to generate (capped at 2048 for CPU speed)
+            temperature: Sampling temperature (0.8 default for some creativity)
+
+        Returns:
+            AIResponse from local model, or error if local model is unavailable
+        """
+        if not self.local:
+            return AIResponse(
+                text="",
+                model="local-qwen3-4b",
+                provider="none",
+                error="Local model not configured",
+            )
+
+        # Check if local model is available
+        try:
+            local_avail = await self.local.is_available()
+        except Exception:
+            local_avail = False
+
+        if not local_avail:
+            # Try loading it one more time
+            try:
+                if hasattr(self.local, '_load_model'):
+                    loaded = self.local._load_model()
+                    if not loaded:
+                        return AIResponse(
+                            text="",
+                            model="local-qwen3-4b",
+                            provider="none",
+                            error="Local model not available (load failed)",
+                        )
+            except Exception as e:
+                return AIResponse(
+                    text="",
+                    model="local-qwen3-4b",
+                    provider="none",
+                    error=f"Local model load error: {e}",
+                )
+
+        # Cap at 2048 tokens for CPU inference speed
+        actual_max = min(max_tokens, 2048)
+
+        try:
+            result = await self.local.chat(
+                messages=messages,
+                model="local-qwen3-4b",
+                temperature=temperature,
+                max_tokens=actual_max,
+            )
+            if result.ok:
+                self._last_provider = "local-only"
+                self._local_fallback_count += 1
+                logger.info(
+                    "Local-ONLY model responded (%d chars, %d tokens requested)",
+                    len(result.text), actual_max,
+                )
+            return result
+        except Exception as exc:
+            logger.error("Local-only chat exception: %s", exc)
+            return AIResponse(
+                text="",
+                model="local-qwen3-4b",
+                provider="local",
+                error=f"Local-only chat failed: {exc}",
+            )
 
     async def _chat_cloud_only(
         self,
@@ -346,7 +450,16 @@ class ProviderManager:
         )
 
     def _map_model_to_cf(self, model: str) -> Optional[str]:
-        """Map Pollinations model names to Cloudflare equivalents."""
+        """Map Pollinations model names to Cloudflare equivalents.
+
+        Expanded mapping from masha-bot optimization:
+          - "openai" / "openai-large" → "mistral" (CF's strongest text model)
+          - "deepseek" → "deepseek" (CF has deepseek-r1-distill)
+          - "llama" → "llama" (CF has llama-3.3-70b)
+          - "qwen-coder" → "mistral" (CF has no qwen-coder, use mistral)
+          - "mistral" / "mistral-large" → "mistral" (CF has mistral-small)
+          - "searchgpt" → "mistral" (no search on CF, use strongest text)
+        """
         if not model:
             return None
 
@@ -359,6 +472,7 @@ class ProviderManager:
             "deepseek-r1": "deepseek",
             "llama": "llama",
             "qwen-coder": "mistral",
+            "searchgpt": "mistral",
         }
         return mapping.get(model)
 
