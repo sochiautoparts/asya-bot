@@ -47,6 +47,7 @@ class CFAccount:
     last_reset: float = 0.0  # Timestamp of last daily reset
     depleted_at: float = 0.0  # Timestamp when daily limit hit
     last_error: str = ""
+    consecutive_empty_responses: int = 0  # Track empty responses before marking depleted
 
     def reset_if_new_day(self) -> None:
         """Reset daily request count if it's a new day."""
@@ -69,8 +70,9 @@ class CFAccount:
             if elapsed >= ACCOUNT_COOLDOWN:
                 self.depleted_at = 0.0
                 logger.info(f"CF Account {self.index}: cooldown expired, retrying")
-                return True
-            return False
+                # Fall through to request_count check — don't return True blindly
+            else:
+                return False
 
         return self.request_count < DAILY_REQUEST_LIMIT
 
@@ -230,12 +232,22 @@ class CloudflareProvider(BaseAIProvider):
                                 f"CF Account {account.index}: empty response, "
                                 f"elapsed={elapsed:.1f}s"
                             )
-                            account.mark_depleted("Empty response")
+                            # Don't mark depleted for a single empty response —
+                            # it could be a model glitch, not an account issue.
+                            # Only mark depleted after 3 consecutive empty responses.
+                            account.consecutive_empty_responses += 1
+                            if account.consecutive_empty_responses >= 3:
+                                logger.warning(
+                                    f"CF Account {account.index}: {account.consecutive_empty_responses} "
+                                    f"consecutive empty responses — marking depleted"
+                                )
+                                account.mark_depleted("3+ consecutive empty responses")
                             self._rotate_account()
                             account = self._get_active_account()
                             continue
 
                         account.increment()
+                        account.consecutive_empty_responses = 0  # Reset on successful response
                         logger.info(
                             f"CF response (Account {account.index}): "
                             f"model={CF_MODEL}, time={elapsed:.1f}s, "
