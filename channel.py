@@ -1906,8 +1906,33 @@ class ChannelManager:
         # Get the last posted partner program name to avoid duplicates
         last_partner_name = getattr(self, '_last_partner_name', '')
 
-        # Try to get a DIFFERENT program than the last one
-        program = partner_manager.get_random_program()
+        # v5.0 SMART PARTNER SELECTION — choose a partner based on the most
+        # recent news titles in the channel (so a tyre-news day surfaces a
+        # tyre partner, an EV-news day surfaces a marketplace partner, etc.).
+        # Falls back to random when no recent news context is available.
+        program = None
+        try:
+            recent_titles = await get_recent_post_titles(hours=12, limit=5)
+            if recent_titles:
+                # Build a context string from the most recent titles
+                context_text = " ".join(recent_titles)
+                # Find matching programs (uses keyword + category detection)
+                matches = partner_manager.find_matching_programs(context_text)
+                # Filter out the last-posted partner + dedup check
+                fresh_matches = [
+                    p for p in matches
+                    if p.name != last_partner_name
+                    and not await is_duplicate_post(f"Партнёр: {p.name}", hours=12)
+                ]
+                if fresh_matches:
+                    program = random.choice(fresh_matches[:5])
+                    logger.info(f"Smart partner selection: {program.name} matched recent news context")
+        except Exception as e:
+            logger.debug(f"Smart partner selection skipped: {e}")
+
+        # Fallback: random selection if smart selection didn't yield a candidate
+        if not program:
+            program = partner_manager.get_random_program()
         if not program:
             logger.info("No partner programs available")
             return False

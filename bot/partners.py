@@ -86,6 +86,18 @@ class PartnerProgram:
 
     # site_url/name substring → internal category key (order matters: most
     # specific first, e.g. tyres are checked before generic autoparts).
+    #
+    # v5.0 EXPANDED — covers ALL 25 partners from partners.json:
+    #   - Auto parts: Rossko, Autopiter (RU/KZ), AvtoALL, Globaldrive, Mirdvornikov,
+    #     Hyperauto, Lukoil Shop, Xistore BY
+    #   - Tires & wheels: Euro-diski, BS-Tyres, Koleso
+    #   - Car rental: DiscoverCars, Localrent
+    #   - Insurance / fuel: Petrolplus
+    #   - Check auto: Avtocod
+    #   - Marketplaces: AliExpress (RU&CIS, WW), Alibaba, Geekbuying, RAKETA
+    #   - Travel: Aviasales (flights)
+    #   - Telecom/eSIM: Global YO
+    #   - Education: Skyeng, Автошкола РЕАЛ
     _SITE_CATEGORY_MAP: List[Tuple[str, str]] = [
         # Tires & wheels (checked first — they also carry "Товары для авто")
         ("euro-diski.ru", "tires"),
@@ -107,12 +119,24 @@ class PartnerProgram:
         ("mirdvornikov.ru", "autoparts"),
         ("hyperauto.ru", "autoparts"),
         ("lukoil-shop", "autoparts"),
-        # Marketplaces / coupons
+        ("xistore.by", "autoparts"),
+        # Marketplaces / coupons / Chinese goods delivery
         ("aliexpress", "coupons"),
         ("alibaba", "coupons"),
         ("geekbuying", "coupons"),
         ("raketacn.ru", "coupons"),
         ("raketa", "coupons"),
+        # Travel — flights
+        ("aviasales.ru", "travel"),
+        ("aviasales", "travel"),
+        # Telecom — travel eSIM
+        ("globalyo.com", "travel"),
+        ("globalyo", "travel"),
+        # Education — online English
+        ("skyeng", "education"),
+        # Driving school
+        ("real-avto", "education"),
+        ("автошкола", "education"),
     ]
 
     # internal category key → human-readable label (RU)
@@ -124,6 +148,8 @@ class PartnerProgram:
         "checkauto": "Проверка авто",
         "autorent": "Аренда авто",
         "coupons": "Маркетплейсы и скидки",
+        "travel": "Путешествия и связь",
+        "education": "Обучение",
         "other": "Полезный сервис",
     }
 
@@ -223,19 +249,28 @@ class PartnerProgram:
         return False
 
     def matches_text(self, text: str) -> bool:
-        """Check if text contains keywords related to this program."""
+        """Check if text contains keywords related to this program.
+
+        v5.0 — stricter matching to avoid false positives:
+        - The bare word 'авто' alone is NOT enough (it appears in many
+          unrelated contexts like 'автошкола', 'автоответчик'). Require
+          at least one longer/stronger signal (site_url domain, name
+          fragment, or a category word longer than 4 chars).
+        """
         text_lower = text.lower()
-        # Check program name words
-        name_words = [w.lower() for w in self.name.split() if len(w) > 3]
+        # Check program name words (must be longer than 4 chars to qualify)
+        name_words = [w.lower() for w in self.name.split() if len(w) > 4]
         for word in name_words:
             if word in text_lower:
                 return True
-        # Check category name words
-        cat_words = [w.lower() for w in self.category_name.split() if len(w) > 3]
+        # Check category name words — only if longer than 4 chars
+        # (this skips generic words like "авто", "шины", "диски" which are
+        #  too broad and cause false positives)
+        cat_words = [w.lower() for w in self.category_name.split() if len(w) > 4]
         for word in cat_words:
             if word in text_lower:
                 return True
-        # Check site_url domain
+        # Check site_url domain (always reliable)
         if self.site_url:
             domain = urlparse(self.site_url).netloc.replace("www.", "")
             if domain and domain in text_lower:
@@ -386,6 +421,8 @@ class PartnerProgram:
             "checkauto": "проверка авто",
             "autorent": "аренда авто",
             "coupons": "скидки и промокоды",
+            "travel": "путешествия и связь за рубежом",
+            "education": "обучение и курсы",
             "other": "рекомендую",
         }
         return descriptions.get(self.category, self.category_name or "рекомендую")
@@ -601,46 +638,81 @@ class PartnerManager:
         return sorted(cats)
 
     def find_matching_programs(self, text: str, region: str = DEFAULT_REGION) -> List[PartnerProgram]:
-        """Find programs that match keywords in the text."""
+        """Find programs that match keywords in the text.
+
+        v5.0 EXPANDED — keyword coverage for ALL 25 partners across ALL
+        categories (autoparts, tires, autorent, insurance, checkauto,
+        coupons, travel, education). Ensures the bot can naturally suggest
+        partners in dialogs about flights, eSIM, car rental abroad, Chinese
+        goods delivery, English lessons, driving school, etc.
+        """
         self.ensure_loaded()
         text_lower = text.lower()
 
         matches = []
-        # 1. Direct text matching
+        # 1. Direct text matching (partner name, category_name, site_url domain)
         for p in self.programs:
             if p.has_region(region) and p.matches_text(text):
                 matches.append(p)
 
-        # 2. Category keyword matching
-        if not matches:
-            category_keywords = {
-                "autoparts": ["запчаст", "деталь", "артикул", "купить запчас", "купить детал",
+        # 2. Category keyword matching — covers ALL categories.
+        # v5.0: Always run (not gated on `if not matches:`) so multi-category
+        # queries get full coverage. Direct matches above are merged with
+        # keyword matches below, then deduplicated.
+        # Keywords use STEM forms (e.g. "резин", "аренд") so all Russian
+        # case inflections are matched (резина/резину/резиной,
+        # аренда/аренду/арендовать etc.).
+        category_keywords = {
+                "autoparts": ["запчаст", "детал", "артикул", "купить запчас", "купить детал",
                               "оригинал", "аналог", "замена", "подбор", "номер детал",
                               "oem", "оригинальн", "поиск запчас", "найти запчас",
-                              "фильтр", "колодки", "свечи", "ремень", "прокладк",
+                              "фильтр", "колодк", "свеч", "ремн", "прокладк",
                               "сальник", "подшипник", "амортизатор", "реле", "датчик",
-                              "масло", "антифриз", "тормозн", "где купить",
-                              "росско", "rossko", "autopiter", "автопитер"],
-                "tires": ["шины", "диски", "резина", "колёса", "зимняя", "летняя",
-                          "шипованные", "euro-diski", "bs-tyres"],
-                "tools": ["инструмент", "ключ", "набор", "гараж", "домкрат", "avtoall"],
-                "autoinsurance": ["страховка", "осаго", "каско", "страхование", "полис",
-                                  "petrolplus", "avtocod"],
-                "checkauto": ["проверка", "вин", "vin", "история", "автокод", "пробить",
-                              "hyperauto"],
-                "autorent": ["аренда", "прокат", "рент", "арендовать", "напрокат",
-                             "discovercars", "localrent"],
-                "coupons": ["промокод", "скидк", "купон", "акция", "aliexpress",
-                            "globaldrive", "koleso", "mirdvornikov", "raketa"],
-            }
+                              "масл", "антифриз", "тормозн", "где купить",
+                              "росско", "rossko", "autopiter", "автопитер",
+                              "avtoall", "exist", "emex", "autodoc",
+                              "globaldrive", "mirdvornikov", "hyperauto",
+                              "lukoil", "xistore"],
+                "tires": ["шин", "диск", "резин", "колёс", "колес", "зимн", "летн",
+                          "шипован", "шиповк", "покрышк", "euro-diski", "bs-tyres",
+                          "сезонн", "переобув", "koleso"],
+                "tools": ["инструмент", "ключ", "набор", "гараж", "домкрат", "avtoall",
+                          "подъёмник", "станок"],
+                "autoinsurance": ["страховк", "осаго", "каско", "страх", "полис",
+                                  "petrolplus", "автострахов", "топливн"],
+                "checkauto": ["проверк", "вин", "vin", "истори", "автокод", "пробить",
+                              "avtocod", "проверить авто", "история автомобил"],
+                "autorent": ["аренд", "прокат", "рент", "арендова", "напрокат",
+                             "discovercars", "localrent", "в аренду", "hire car"],
+                "coupons": ["промокод", "скидк", "купон", "акци", "aliexpress",
+                            "alibaba", "geekbuying", "raketa", "raketacn",
+                            "китай", "таобао", "маркетплейс", "доставка из китая"],
+                "travel": ["авиа", "авиабилет", "билет на самолёт", "рейс", "перелёт",
+                           "aviasales", "авиасейлс", "самолёт", "самолет", "flight",
+                           "esim", "e-sim", "сим-карта за рубежом", "связь за границей",
+                           "роуминг", "globalyo", "global yo", "интернет за рубежом",
+                           "путешеств", "travel", "trip", "отпуск"],
+                "education": ["английск", "english", "язык", "skyeng", "скинг",
+                              "репетитор", "урок", "автошкол", "вожден",
+                              "права", "категори", "инструктор", "real-avto",
+                              "учить", "курс"],
+        }
 
-            for cat, keywords in category_keywords.items():
-                if any(kw in text_lower for kw in keywords):
-                    cat_programs = self.get_by_category(cat, region)
-                    matches.extend(cat_programs)
-                    break
+        for cat, keywords in category_keywords.items():
+            if any(kw in text_lower for kw in keywords):
+                cat_programs = self.get_by_category(cat, region)
+                matches.extend(cat_programs)
+                # Continue scanning — a query may match multiple categories
+                # (e.g., "аренда машины в сочи и страховка" → autorent + insurance)
 
-        return matches
+        # Deduplicate while preserving order
+        seen = set()
+        deduped = []
+        for p in matches:
+            if p.name not in seen:
+                seen.add(p.name)
+                deduped.append(p)
+        return deduped
 
     def get_random_program(self, category: str = "", region: str = DEFAULT_REGION) -> Optional[PartnerProgram]:
         """Get a random partner program, optionally filtered by category."""
@@ -824,38 +896,38 @@ class PartnerManager:
         # Detect ALL relevant categories based on keywords
         relevant_categories = set()
 
-        # Always include autoparts for car-related queries
+        # Always include autoparts for car-related queries (v5.0 stems)
         auto_keywords = [
-            "запчаст", "деталь", "артикул", "купить запчас", "купить детал",
+            "запчаст", "детал", "артикул", "купить запчас", "купить детал",
             "оригинал", "аналог", "замена", "подбор", "номер детал",
             "oem", "оригинальн", "поиск запчас", "найти запчас",
-            "фильтр", "колодки", "свечи", "ремень", "прокладк",
+            "фильтр", "колодк", "свеч", "ремн", "прокладк",
             "сальник", "подшипник", "амортизатор", "реле", "датчик",
-            "масло", "антифриз", "тормозн", "где купить",
+            "масл", "антифриз", "тормозн", "где купить",
             "росско", "rossko", "autopiter", "автопитер",
             "vin", "вин", "машина", "машин", "авто", "мотор", "двигатель",
             "ремонт", "поломк", "стучит", "диагност",
             "avtoall", "exist", "emex", "autodoc",
         ]
         tire_keywords = [
-            "шины", "диски", "резина", "колёса", "зимняя", "летняя",
-            "шипованные", "шиповк", "покрышк", "euro-diski", "bs-tyres",
-            "сезонная смен", "переобув",
+            "шин", "диск", "резин", "колёс", "колес", "зимн", "летн",
+            "шипован", "шиповк", "покрышк", "euro-diski", "bs-tyres",
+            "сезонн", "переобув",
         ]
         tools_keywords = [
             "инструмент", "ключ", "набор", "гараж", "домкрат",
             "avtoall", "подъёмник", "станок",
         ]
         insurance_keywords = [
-            "страховка", "осаго", "каско", "страхование", "полис",
-            "petrolplus", "автострахов",
+            "страховк", "осаго", "каско", "страх", "полис",
+            "petrolplus", "автострахов", "топливн",
         ]
         checkauto_keywords = [
-            "проверка", "вин", "vin", "история", "автокод", "пробить",
-            "hyperauto", "проверить авто", "история автомобил",
+            "проверк", "вин", "vin", "истори", "автокод", "пробить",
+            "avtocod", "проверить авто", "история автомобил",
         ]
         rent_keywords = [
-            "аренда", "прокат", "рент", "арендовать", "напрокат",
+            "аренд", "прокат", "рент", "арендова", "напрокат",
             "discovercars", "localrent",
         ]
 
@@ -871,6 +943,33 @@ class PartnerManager:
             relevant_categories.add("checkauto")
         if any(kw in text_lower for kw in rent_keywords):
             relevant_categories.add("autorent")
+
+        # v5.0: Travel (flights, eSIM abroad) + Education (English, driving school)
+        # + Marketplaces (Chinese goods) — full coverage of all 25 partners
+        travel_keywords = [
+            "авиа", "авиабилет", "билет на самолёт", "рейс", "перелёт",
+            "aviasales", "авиасейлс", "самолёт", "самолет", "flight",
+            "esim", "e-sim", "сим-карта за рубежом", "связь за границей",
+            "роуминг", "globalyo", "global yo", "интернет за рубежом",
+            "путешеств", "travel", "trip", "отпуск",
+        ]
+        education_keywords = [
+            "английск", "english", "язык", "skyeng", "скинг",
+            "репетитор", "урок", "автошкол", "вожден",
+            "права", "категори", "инструктор", "real-avto",
+            "учить", "курс",
+        ]
+        coupons_keywords = [
+            "промокод", "скидк", "купон", "акци", "aliexpress",
+            "alibaba", "geekbuying", "raketa", "raketacn",
+            "китай", "таобао", "маркетплейс", "доставка из китая",
+        ]
+        if any(kw in text_lower for kw in travel_keywords):
+            relevant_categories.add("travel")
+        if any(kw in text_lower for kw in education_keywords):
+            relevant_categories.add("education")
+        if any(kw in text_lower for kw in coupons_keywords):
+            relevant_categories.add("coupons")
 
         # If no specific category detected, default to autoparts for car queries
         if not relevant_categories:
@@ -928,6 +1027,145 @@ class PartnerManager:
             return False
 
         return True
+
+    # ── v5.0 NEW METHODS — partner link extraction and lookup ─────────────
+
+    def extract_urls_from_text(self, text: str) -> List[str]:
+        """Extract all HTTP(S) URLs from a text string.
+
+        Used to detect when a user pastes a partner site URL (e.g.
+        'rossko.ru/article/123') so we can replace it with the proper
+        affiliate goto_link in our response.
+        """
+        if not text:
+            return []
+        # Match http(s)://... or bare domain.tld/path patterns
+        url_pattern = re.compile(
+            r'(?:https?://)?(?:www\.)?([a-z0-9\-]+\.[a-z]{2,}(?:\.[a-z]{2,})?(?:/[^\s<>"]*)?)',
+            re.IGNORECASE
+        )
+        urls = []
+        for m in url_pattern.finditer(text):
+            urls.append(m.group(0).rstrip('.,);'))
+        return urls
+
+    def find_partner_by_url_in_text(self, text: str) -> List[PartnerProgram]:
+        """Find partner programs whose site_url/domain appears in the text.
+
+        Example: if user text contains 'aviasales.ru' or 'discovercars.com',
+        we return the matching PartnerProgram so the bot can substitute
+        the proper affiliate goto_link.
+        """
+        self.ensure_loaded()
+        if not self.programs:
+            return []
+        text_lower = text.lower()
+        found = []
+        for p in self.programs:
+            if not p.site_url:
+                continue
+            domain = urlparse(p.site_url).netloc.replace("www.", "").lower()
+            if not domain:
+                continue
+            # Match either the bare domain or with path
+            if domain in text_lower:
+                found.append(p)
+                continue
+            # Also check site_url root path (e.g. "aliexpress.ru" without www)
+            site_root = p.site_url.replace("https://", "").replace("http://", "").rstrip("/").lower()
+            if site_root in text_lower:
+                found.append(p)
+        return found
+
+    def get_image_for_partner(self, name_or_site: str) -> str:
+        """Get the logo URL for a partner program by name or site_url.
+
+        Used by channel posts and group comments to attach the proper
+        partner image (from the 'logo' field in partners.json).
+        """
+        self.ensure_loaded()
+        # Try by site domain first
+        if "." in name_or_site:
+            prog = self.get_by_site(name_or_site)
+            if prog:
+                return prog.image or ""
+        # Try by name substring
+        name_lower = name_or_site.lower()
+        for p in self.programs:
+            if name_lower in p.name.lower() or p.name.lower() in name_lower:
+                return p.image or ""
+        return ""
+
+    def get_partner_icon(self, program: 'PartnerProgram') -> str:
+        """Get an emoji icon for a partner program based on its category.
+
+        Used by chat/inline/comment formatting functions to give each
+        category a visually distinct prefix.
+        """
+        icon_map = {
+            "autoparts": "🔧",
+            "tires": "🛞",
+            "tools": "🛠️",
+            "autoinsurance": "🛡️",
+            "checkauto": "🔍",
+            "autorent": "🚗",
+            "coupons": "🛒",
+            "travel": "✈️",
+            "education": "🎓",
+            "other": "🔗",
+        }
+        return icon_map.get(program.category, "🔗")
+
+    def get_all_partner_links_for_dialog(self, text: str, max_programs: int = 7,
+                                          region: str = DEFAULT_REGION) -> List[Dict[str, str]]:
+        """Get all relevant partner links for a dialog message.
+
+        v5.0 — combines THREE signals:
+        1. Keyword-based category detection (find_matching_programs)
+        2. URL-based partner detection (find_partner_by_url_in_text)
+        3. Cross-category coverage (get_all_relevant_links)
+
+        Returns up to max_programs dicts with name, url, description, icon.
+        Guarantees the goto_link is used EXACTLY as-is from partners.json.
+        """
+        self.ensure_loaded()
+        links = []
+        seen_names = set()
+
+        # 1. URL-based detection (highest priority — user explicitly mentioned a partner)
+        url_matches = self.find_partner_by_url_in_text(text)
+        for p in url_matches:
+            if p.name not in seen_names and p.goto_link:
+                seen_names.add(p.name)
+                links.append({
+                    "name": p.name,
+                    "url": p.goto_link,
+                    "description": p._get_category_description(),
+                    "icon": self.get_partner_icon(p),
+                    "category": p.category,
+                })
+
+        # 2. Cross-category keyword detection
+        all_relevant = self.get_all_relevant_links(text, max_programs=max_programs, region=region)
+        for pl in all_relevant:
+            if pl['name'] not in seen_names:
+                seen_names.add(pl['name'])
+                # Find the program to get the icon
+                prog = None
+                for p in self.programs:
+                    if p.name == pl['name']:
+                        prog = p
+                        break
+                icon = self.get_partner_icon(prog) if prog else "🔗"
+                links.append({
+                    "name": pl['name'],
+                    "url": pl['url'],
+                    "description": pl['description'],
+                    "icon": icon,
+                    "category": prog.category if prog else "other",
+                })
+
+        return links[:max_programs]
 
     def mark_posted(self) -> None:
         """Mark that a partner post was just made."""

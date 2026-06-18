@@ -1078,12 +1078,34 @@ async def _process_text_message_inner(message: Message, text: str, user_id: int,
         )
     elif is_group_chat and not is_own_channel:
         # GROUP/SUPERGROUP (not our channel) → LOCAL MODEL PREFERRED, CLOUD FALLBACK
+        # v5.0: Also collect partner links based on the message text — so even
+        # in group comments Ася can naturally suggest relevant partners
+        # (autoparts, tires, rental, insurance, etc.) using the proper
+        # goto_link from partners.json.
+        try:
+            group_partner_links_data = partner_manager.get_all_partner_links_for_dialog(
+                text, max_programs=3
+            )
+            for pl in group_partner_links_data:
+                collected_partner_links.append((pl['name'], pl['url']))
+        except Exception as e:
+            logger.debug(f"Group partner links collection error: {e}")
+
         from ai.router import ai_router as _ar
         local_provider = _ar._local
         if local_provider and await local_provider.is_available():
+            # Build group comment prompt — include partner context if available
+            group_user_content = text[:500]
+            if collected_partner_links:
+                partner_hint = "\n\nПартнёрские ссылки (используй КАК ЕСТЬ, если уместно):\n"
+                for name, url in collected_partner_links[:3]:
+                    partner_hint += f"- {name}: {url}\n"
+                partner_hint += "Вставь ОДНУ ссылку естественно, если это к месту. Не перечисляй все."
+                group_user_content = group_user_content + partner_hint
+
             group_messages = [
                 {"role": "system", "content": "Ты Ася — автоэксперт. Пиши короткие комментарии до 300 символов. Живо и естественно. Без markdown. Без политики. Без рекламы канала."},
-                {"role": "user", "content": text[:500]},
+                {"role": "user", "content": group_user_content},
             ]
             try:
                 local_response = await local_provider.chat(
@@ -1212,6 +1234,10 @@ async def _send_response(message: Message, response, status_msg=None, partner_li
     
     If partner_links is provided (list of (name, url) tuples), appends a cleanly
     formatted section with named links after the AI response text.
+
+    v5.0: For forum supergroups (topics), replies are sent in the same
+    message_thread_id so the bot's response stays in the correct topic.
+    For comment threads on a channel post, replies go to the same thread.
     """
     # Delete the "thinking" status message
     if status_msg:
@@ -1250,17 +1276,18 @@ async def _send_response(message: Message, response, status_msg=None, partner_li
     # Private chat: max CHAT_MAX_CHARS (1500) — AI asked for 500-1000, this is hard limit
     # Group/supergroup: max GROUP_MAX_CHARS (600) — AI asked for 300, this is hard limit
     # Comment in other group (not our channel): max COMMENT_MAX_CHARS (300)
+    is_group_chat = message.chat.type in ("group", "supergroup")
+    is_own_channel = (
+        str(message.chat.id) == str(config.CHANNEL_ID)
+        or message.chat.username == config.CHANNEL_ID.replace("@", "")
+    )
+
     if message.chat.type == "private":
         if len(reply_text) > CHAT_MAX_CHARS:
             logger.info(f"Truncating private chat response: {len(reply_text)} → {CHAT_MAX_CHARS} chars")
             reply_text = _smart_truncate(reply_text, CHAT_MAX_CHARS)
     else:
-        # Check if this is a comment in another group (not our channel)
-        is_own_channel = (
-            str(message.chat.id) == str(config.CHANNEL_ID)
-            or message.chat.username == config.CHANNEL_ID.replace("@", "")
-        )
-        if not is_own_channel and message.chat.type in ("group", "supergroup"):
+        if not is_own_channel and is_group_chat:
             if len(reply_text) > COMMENT_MAX_CHARS:
                 logger.info(f"Truncating comment in other group: {len(reply_text)} → {COMMENT_MAX_CHARS} chars")
                 reply_text = _smart_truncate(reply_text, COMMENT_MAX_CHARS)
@@ -1269,19 +1296,36 @@ async def _send_response(message: Message, response, status_msg=None, partner_li
             logger.info(f"Truncating group response: {len(reply_text)} → {GROUP_MAX_CHARS} chars")
             reply_text = _smart_truncate(reply_text, GROUP_MAX_CHARS)
 
+    # v5.0: Determine the correct message_thread_id for forum/topic replies.
+    # - In forum supergroups, every topic has a thread_id (message.message_thread_id)
+    # - In channel comment threads, the thread_id is also set
+    # - reply_to_message_id is kept when the user replied to a specific message
+    #   (so the bot's reply is properly nested in the comment thread)
+    reply_kwargs = {}
+    if hasattr(message, "message_thread_id") and message.message_thread_id:
+        reply_kwargs["message_thread_id"] = message.message_thread_id
+    # If the user's message was itself a reply in a thread, reply TO that message
+    # so the bot's response is nested under the same parent in Telegram's UI.
+    if (getattr(message, "reply_to_message", None) and
+            getattr(message.reply_to_message, "message_id", None)):
+        # Only set reply_to_message_id if we're in a forum/group/channel — never in private
+        # (in private chats it's just noise).
+        if message.chat.type != "private":
+            reply_kwargs["reply_to_message_id"] = message.reply_to_message.message_id
+
     # Split long messages (Telegram limit 4096 chars)
     # Plain text — no HTML parse mode needed since partner links are plain text
     if len(reply_text) <= config.TELEGRAM_TEXT_LIMIT:
-        await message.answer(reply_text)
+        await message.answer(reply_text, **reply_kwargs)
     else:
         chunks = _split_message(reply_text, max_length=config.TELEGRAM_TEXT_LIMIT)
         for chunk in chunks:
-            await message.answer(chunk)
+            await message.answer(chunk, **reply_kwargs)
 
 
 # ── Utility functions ──────────────────────────────────────────────────────────
 
-# Shop icon mapping for clean link formatting
+# Shop icon mapping for clean link formatting (v5.0 — expanded)
 _SHOP_ICONS = {
     "rossko": "🔧",
     "autopiter": "🔍",
@@ -1291,30 +1335,75 @@ _SHOP_ICONS = {
     "autodoc": "🚗",
     "zzap": "💰",
     "ixora": "⚙️",
+    # Tires
+    "bs-tyres": "🛞",
+    "euro-diski": "🛞",
+    "koleso": "🛞",
+    "колесо": "🛞",
+    # Insurance
+    "petrolplus": "🛡️",
+    # Check auto
+    "avtocod": "🔍",
+    # Car rental
+    "discovercars": "🚗",
+    "localrent": "🚗",
+    # Marketplaces
+    "aliexpress": "🛒",
+    "alibaba": "🛒",
+    "geekbuying": "🛒",
+    "raketa": "🛒",
+    # Travel
+    "aviasales": "✈️",
+    "авиасейлс": "✈️",
+    "globalyo": "📱",
+    "global yo": "📱",
+    # Education
+    "skyeng": "🎓",
+    "real-avto": "🎓",
+    "автошкола": "🎓",
+    # Misc
+    "globaldrive": "🔧",
+    "mirdvornikov": "🔧",
+    "hyperauto": "🔧",
+    "lukoil": "🔧",
+    "xistore": "🔧",
 }
 _DEFAULT_SHOP_ICON = "🔗"
+
+
+def _get_icon_for_partner_name(name: str) -> str:
+    """Get the right emoji icon for a partner based on its name (v5.0)."""
+    name_lower = name.lower()
+    for key, icon in _SHOP_ICONS.items():
+        if key in name_lower:
+            return icon
+    return _DEFAULT_SHOP_ICON
 
 
 def _format_partner_links_section(partner_links: list) -> str:
     """Format partner links as a clean, readable section with plain text URLs.
     
+    v5.0 — uses per-category icons (🔧 parts, 🛞 tires, 🛡️ insurance,
+    🚗 rental, 🛒 marketplaces, ✈️ travel, 🎓 education) so each link
+    visually communicates its category.
+
     Takes a list of (name, url) tuples and returns a nicely formatted
-    string with 🔧 prefix + name + raw URL.
+    string. The icon is picked based on the partner name.
     
     Result looks like:
     
     Где купить:
     🔧 Росско — https://ujhjj.com/g/...
-    🔧 Autopiter — https://rcpsj.com/g/...
-    🔧 AvtoALL — https://sgkaa.com/g/...
+    🔍 Autopiter — https://rcpsj.com/g/...
+    🛒 AvtoALL — https://sgkaa.com/g/...
     """
     if not partner_links:
         return ""
     
     lines = ["Где купить:"]
     for name, url in partner_links[:5]:
-        # Simple format: 🔧 Name — URL (consistent, no HTML, as user requested)
-        lines.append(f'🔧 {name} — {url}')
+        icon = _get_icon_for_partner_name(name)
+        lines.append(f'{icon} {name} — {url}')
     
     return "\n".join(lines)
 
@@ -1369,25 +1458,47 @@ def _clean_raw_partner_urls(text: str, partner_links: list) -> str:
 
 
 # Known partner domains that MUST use affiliate links, not plain URLs
+# v5.0 EXPANDED — covers ALL 25 partners from partners.json
 _PARTNER_DOMAINS_MAP = {
+    # Auto parts
     "rossko.ru": "Росско",
     "autopiter.ru": "Autopiter",
     "autopiter.kz": "Autopiter KZ",
     "avtoall.ru": "AvtoALL",
+    "globaldrive.ru": "Globaldrive",
+    "mirdvornikov.ru": "МирДворников",
+    "hyperauto.ru": "Hyperauto",
+    "lukoil-shop.com": "Лукойл",
+    "lukoil-shop.ru": "Лукойл",
+    "xistore.by": "Xistore",
+    # Tires
+    "bs-tyres.ru": "BS-Tyres",
+    "euro-diski.ru": "Euro-diski",
+    "koleso.ru": "Колесо",
+    # Insurance
+    "petrolplus.ru": "PetrolPlus",
+    # Check auto
+    "avtocod.ru": "Avtocod",
+    # Car rental
+    "discovercars.com": "DiscoverCars",
+    "localrent.com": "Localrent",
+    # Marketplaces
+    "aliexpress.ru": "AliExpress RU",
+    "aliexpress.com": "AliExpress WW",
+    "alibaba.com": "Alibaba",
+    "geekbuying.com": "Geekbuying",
+    "raketacn.ru": "RAKETA",
+    # Travel
+    "aviasales.ru": "Авиасейлс",
+    "globalyo.com": "Global YO",
+    # Education
+    "skyeng.ru": "Skyeng",
+    "real-avto.com": "Автошкола РЕАЛ",
+    # Legacy (kept for backward compat)
     "exist.ru": "Exist",
     "emex.ru": "Emex",
     "autodoc.ru": "Autodoc",
     "zzap.ru": "Zzap",
-    "aliexpress.ru": "AliExpress",
-    "avtocod.ru": "Avtocod",
-    "petrolplus.ru": "PetrolPlus",
-    "bs-tyres.ru": "BS-Tyres",
-    "euro-diski.ru": "Euro-diski",
-    "koleso.ru": "Колесо",
-    "hyperauto.ru": "Hyperauto",
-    "mirdvornikov.ru": "МирДворников",
-    "globaldrive.ru": "Globaldrive",
-    "lukoil-shop.com": "Лукойл",
 }
 
 
@@ -1451,7 +1562,17 @@ def _replace_plain_urls_with_affiliate(text: str) -> str:
             if idx > 0:
                 # Look back — if there's a tracking domain prefix, skip
                 before = text[max(0, idx-50):idx]
-                if any(tracking_domain in before for tracking_domain in ["ad.admitad.com", ".com/g/", "xmknb.com", "ujhjj.com", "rcpsj.com", "sgkaa.com"]):
+                # v5.0 EXPANDED — covers ALL admitad tracking domains used by the 25 partners
+                tracking_domains = [
+                    "ad.admitad.com", ".com/g/",
+                    # Specific tracking domains from partners.json
+                    "xmknb.com", "twnfz.com", "zmgig.com", "uuwgc.com",
+                    "fxxag.com", "ficca2021.com", "bywiola.com", "rzekl.com",
+                    "naiawork.com", "ali.click", "yyczo.com", "ujhjj.com",
+                    "rcpsj.com", "kdbov.com", "sgkaa.com", "uhtkc.com",
+                    "gndrz.com", "hvjjg.com", "dhwnh.com", "thevospad.com",
+                ]
+                if any(td in before for td in tracking_domains):
                     continue
             text = text.replace(bare_domain, affiliate_url, 1)
     

@@ -179,23 +179,61 @@ async def _generate_inline_response(query: str, query_type: str, user_id: int = 
     Uses a unique negative user_id for inline queries to avoid cache conflicts
     with real users. This prevents inline queries from polluting real user
     chat history and vice versa.
+
+    v5.0: For ALL query types (vin, diagnostic, parts, general), appends
+    a 'Где купить' section with relevant partner links from partners.json
+    — so even inline VIN decodes and diagnostic tips end with the proper
+    goto_link suggestions.
     """
     # Use negative user_id to avoid conflicts with real users
     # user_id 0 could collide with actual user_id 0 (unlikely but possible)
     inline_user_id = -(hash(query) % 100000) - 1  # Always negative, unique per query
 
+    # ── Collect relevant partner links for ALL query types ──
+    partner_links_section = ""
+    try:
+        partner_manager.ensure_loaded()
+        # For parts queries, use the article as the search key;
+        # for everything else, use the query text.
+        if query_type == "parts":
+            search_text = query.strip()
+        elif query_type == "vin":
+            search_text = f"запчасти VIN {query.strip()}"
+        elif query_type == "diagnostic":
+            search_text = f"запчасти ремонт {query.strip()}"
+        else:
+            search_text = query.strip()
+
+        all_links = partner_manager.get_all_partner_links_for_dialog(
+            search_text, max_programs=4
+        )
+        if all_links:
+            lines = ["", "Где купить:"]
+            for pl in all_links:
+                lines.append(f"{pl['icon']} {pl['name']} — {pl['url']}")
+            partner_links_section = "\n".join(lines)
+    except Exception as e:
+        logger.debug(f"Inline partner links error: {e}")
+
     if query_type == "vin":
         vin_code = _detect_vin_inline(query) or query.strip()
-        return await ai_router.decode_vin(
+        response = await ai_router.decode_vin(
             user_id=inline_user_id,
             vin_code=vin_code,
         )
+        # v5.0: append partner links for VIN decodes too
+        if response and response.text and partner_links_section:
+            response.text = response.text.rstrip() + "\n" + partner_links_section
+        return response
 
     elif query_type == "diagnostic":
-        return await ai_router.diagnose_car(
+        response = await ai_router.diagnose_car(
             user_id=inline_user_id,
             symptoms=query,
         )
+        if response and response.text and partner_links_section:
+            response.text = response.text.rstrip() + "\n" + partner_links_section
+        return response
 
     elif query_type == "parts":
         response = await ai_router.find_spare_part(
@@ -204,25 +242,33 @@ async def _generate_inline_response(query: str, query_type: str, user_id: int = 
         )
         # Add partner links to inline parts response
         if response and response.text:
-            try:
-                primary_links = partner_manager.get_primary_parts_links()
-                if primary_links:
-                    links_section = "\n\nГде купить:"
-                    for link in primary_links[:3]:
-                        links_section += f"\n{link['name']} — {link['url']}"
-                    response.text += links_section
-            except Exception:
-                pass
+            if partner_links_section:
+                response.text = response.text.rstrip() + "\n" + partner_links_section
+            else:
+                # Fallback to primary parts links only
+                try:
+                    primary_links = partner_manager.get_primary_parts_links()
+                    if primary_links:
+                        links_section = "\n\nГде купить:"
+                        for link in primary_links[:3]:
+                            links_section += f"\n{link['name']} — {link['url']}"
+                        response.text += links_section
+                except Exception:
+                    pass
         return response
 
     else:
         # General chat
-        return await ai_router.chat(
+        response = await ai_router.chat(
             user_id=inline_user_id,
             message=query,
             use_cache=True,
             save_history=False,
         )
+        # v5.0: append partner links for general queries too (when relevant)
+        if response and response.text and partner_links_section:
+            response.text = response.text.rstrip() + "\n" + partner_links_section
+        return response
 
 
 def _build_inline_results(query: str, reply_text: str, query_type: str) -> List:
