@@ -1,5 +1,5 @@
 """
-News Engine v3.0 — Single-Source JSON Fetcher
+News Engine v3.1 — Single-Source JSON Fetcher
 Fetches pre-parsed automotive news from sochiautoparts/nws repository.
 No RSS parsing, no image extraction — all done by the external parser.
 
@@ -15,13 +15,18 @@ The external parser runs hourly via GitHub Actions and produces:
 
 This module just fetches and stores — fast, reliable, no heavy lifting.
 
-v3.0 CHANGES:
-  - Changed news source to sochiautoparts/nws/data/auto-news.json
-  - New JSON format: items under "items" key in wrapper object with metadata
-  - Single "image" field instead of "images" array (already supported by normalizer)
-  - No "lang" field — language detected from title by _detect_language()
-  - Added "id" and "source_url" field support from new format
-  - Removed separate ru-news.json source (auto-news.json contains all auto news)
+v3.1 CHANGES (audit pass):
+  - SINGLE SOURCE: removed legacy fallback URL list.
+    The only news source is now sochiautoparts/nws/data/auto-news.json
+    as the user requires.
+  - Increased FETCH_TIMEOUT from 30s to 60s — the auto-news.json file
+    is ~450 KB (500 items × 61 sources) and sometimes takes 30-50s to
+    download from raw.githubusercontent.com.
+  - Added a single retry on timeout (1 attempt after 5s wait).
+  - Robust handling of "image" (string) AND "images" (array) fields —
+    the source provides both. _normalize_news_item merges them and
+    deduplicates by base URL (without query params).
+  - Better logging: per-source attempt, size, item count.
 """
 import httpx
 import json
@@ -38,16 +43,15 @@ from bot.database import add_news_item, get_unposted_news, mark_news_posted, is_
 
 logger = logging.getLogger("asya.news")
 
-# ── Source JSON URLs ────────────────────────────────────────────────────────────
-# sochiautoparts/nws repository — auto news from 14+ curated RSS sources
+# ── Source JSON URL (SINGLE SOURCE — sochiautoparts/nws) ──────────────────────
+# v3.1: The ONLY news source. The legacy fallback URL list was removed.
+# If the primary source fails, we log and retry next cycle (every 15 min).
 NEWS_JSON_URL = "https://raw.githubusercontent.com/sochiautoparts/nws/main/data/auto-news.json"
 
-NEWS_JSON_FALLBACK_URLS = [
-    NEWS_JSON_URL,
-    # Legacy fallback — creastudioai-beep/news (deprecated, may be unavailable)
-    "https://raw.githubusercontent.com/creastudioai-beep/news/refs/heads/main/data/news.json",
-]
-FETCH_TIMEOUT = 30.0
+# v3.1: No fallback URLs — single source as required.
+# If the fetch fails, returns None and the caller logs + retries next cycle.
+FETCH_TIMEOUT = 60.0  # v3.1: was 30s — file is ~450KB, sometimes slow from GitHub
+FETCH_RETRY_DELAY = 5.0  # seconds to wait before retry on timeout
 MAX_NEWS_PER_CYCLE = 2000  # Process ALL items — user wants selection from FULL array
 
 # ── Fingerprint-based deduplication ────────────────────────────────────────────
@@ -98,34 +102,57 @@ def _detect_language(title: str) -> str:
 
 
 async def fetch_news_json() -> Optional[List[Dict]]:
-    """Fetch news JSON from the sochiautoparts/nws repository.
+    """Fetch news JSON from the sochiautoparts/nws repository (SINGLE SOURCE).
     
-    Returns a list of news items from all sources, deduplicated by URL.
-    Each item has: title, summary, url, source, image, published
+    v3.1: Single source — no fallbacks. If the fetch fails, returns None
+    and the caller logs + retries next cycle.
     
-    Supported JSON formats:
-    - New format: {"kind": "auto", "items": [...], "total_items": N, ...}
-    - Old format: [{...}, {...}] (flat list)
-    - Legacy format: {"news": [...]} (dict with news key)
+    Returns a list of news items, deduplicated by URL.
+    Each item has: id, title, summary, url, image, images, source, source_url, published
+    
+    Source JSON format:
+        {
+          "kind": "auto",
+          "generated_at": "2026-...",
+          "total_items": 500,
+          "sources_count": 61,
+          "items": [
+            {
+              "id": "...",
+              "title": "...",
+              "summary": "...",
+              "url": "https://...",
+              "image": "https://...",   # single image (string)
+              "images": ["https://..."],  # array of images
+              "source": "Car and Driver",
+              "source_url": "https://...",
+              "published": "2026-06-18T09:06:35+00:00"
+            }
+          ]
+        }
     """
     all_items = []
     seen_urls = set()
     
-    for url in NEWS_JSON_FALLBACK_URLS:
+    # v3.1: Single source with one retry on timeout
+    for attempt in range(2):
         try:
             async with httpx.AsyncClient(
                 timeout=FETCH_TIMEOUT,
                 follow_redirects=True,
                 headers={
-                    "User-Agent": "AsyaBot/2.1 NewsFetcher",
+                    "User-Agent": "AsyaBot/3.1 NewsFetcher",
                     "Accept": "application/json",
+                    "Cache-Control": "no-cache",
                 },
             ) as client:
-                response = await client.get(url)
+                logger.info(f"Fetching news JSON from {NEWS_JSON_URL} (attempt {attempt+1}/2)")
+                response = await client.get(NEWS_JSON_URL)
                 if response.status_code == 200:
                     data = response.json()
                     items = []
                     if isinstance(data, list):
+                        # Flat list format (older format)
                         items = data
                     elif isinstance(data, dict):
                         # New sochiautoparts/nws format: items under "items" key
@@ -134,64 +161,90 @@ async def fetch_news_json() -> Optional[List[Dict]]:
                             meta_total = data.get("total_items", len(items))
                             generated_at = data.get("generated_at", "")
                             sources_count = data.get("sources_count", 0)
+                            multi_photo = data.get("multi_photo_items", 0)
                             logger.info(
                                 f"Metadata: {meta_total} items, generated at {generated_at}, "
-                                f"{sources_count} sources"
+                                f"{sources_count} sources, {multi_photo} multi-photo items"
                             )
-                        # Legacy format: items under "news" key
+                        # Legacy dict format: items under "news" key
                         elif "news" in data:
                             items = data["news"]
+                            logger.info(f"Legacy dict format: {len(items)} items")
                     
-                    # Deduplicate by URL across sources
+                    # Deduplicate by URL within this batch
                     for item in items:
                         item_url = item.get("url", "")
                         if item_url and item_url not in seen_urls:
                             seen_urls.add(item_url)
                             all_items.append(item)
                     
-                    logger.info(f"Fetched {len(items)} items from {url[:60]}... ({len(all_items)} total merged)")
+                    logger.info(
+                        f"Fetched {len(items)} items from sochiautoparts/nws "
+                        f"({len(all_items)} unique after URL dedup)"
+                    )
+                    # Success — break out of retry loop
+                    break
                 else:
-                    logger.warning(f"HTTP {response.status_code} from {url[:60]}")
+                    logger.warning(
+                        f"HTTP {response.status_code} from {NEWS_JSON_URL} "
+                        f"(attempt {attempt+1}/2)"
+                    )
+                    if attempt == 0:
+                        await asyncio_sleep(FETCH_RETRY_DELAY)
+                        continue
         except httpx.TimeoutException:
-            logger.warning(f"Timeout fetching from {url[:60]}")
+            logger.warning(
+                f"Timeout fetching from {NEWS_JSON_URL} (attempt {attempt+1}/2, "
+                f"timeout={FETCH_TIMEOUT}s)"
+            )
+            if attempt == 0:
+                await asyncio_sleep(FETCH_RETRY_DELAY)
+                continue
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON from {NEWS_JSON_URL}: {e}")
+            # Don't retry — bad JSON won't fix itself
+            return None
         except Exception as e:
-            logger.error(f"Error fetching from {url[:60]}: {e}")
-
+            logger.error(f"Error fetching from {NEWS_JSON_URL}: {e}")
+            if attempt == 0:
+                await asyncio_sleep(FETCH_RETRY_DELAY)
+                continue
+    
     if not all_items:
-        logger.error("All news JSON sources failed")
+        logger.error(
+            "News fetch failed (single source sochiautoparts/nws unavailable). "
+            "Will retry next cycle (every 15 min)."
+        )
         return None
     
-    logger.info(f"Merged {len(all_items)} unique news items from all sources")
+    logger.info(f"Returning {len(all_items)} unique news items")
     return all_items
+
+
+async def asyncio_sleep(seconds: float) -> None:
+    """Helper to avoid importing asyncio at module top."""
+    import asyncio
+    await asyncio.sleep(seconds)
 
 
 def _normalize_news_item(item: Dict) -> Optional[Dict]:
     """Normalize a news item from the external JSON format.
     
-    Sochiautoparts/nws format (current):
+    Sochiautoparts/nws format (v3.1 — current source):
     {
         "id": "bb7defca8f5cbcbe",
         "title": "...",
         "summary": "...",
         "url": "https://...",
         "image": "https://...",     # Single image (string)
+        "images": ["https://..."],  # Array of images (may have multiple)
         "source": "Car and Driver",
         "source_url": "https://...",
         "published": "2026-06-16T19:44:00+00:00"
     }
     
-    Legacy creastudioai-beep/news format (fallback):
-    {
-        "title": "...",
-        "summary": "...",
-        "url": "https://...",
-        "source": "Motor1",
-        "images": ["https://...", "https://..."],
-        "published": "2026-06-14T10:00:00Z",
-        "lang": "en"
-    }
-    
     We normalize to the internal format expected by the bot.
+    Both "image" and "images" fields are merged and deduplicated.
     """
     title = item.get("title", "").strip()
     if not title or len(title) < 10:
@@ -270,6 +323,9 @@ def _normalize_news_item(item: Dict) -> Optional[Dict]:
     # Published timestamp
     published = item.get("published", "") or item.get("date", "") or item.get("pub_date", "")
 
+    # v3.1: Preserve id from source for better tracking (optional)
+    item_id = item.get("id", "") or item.get("source_url", "")
+
     return {
         "title": title,
         "url": url,
@@ -280,6 +336,7 @@ def _normalize_news_item(item: Dict) -> Optional[Dict]:
         "image_urls": unique_images[:10],  # Max 10 images per item
         "published": published,
         "full_text": item.get("full_text", "") or item.get("content", ""),
+        "id": item_id,
     }
 
 
@@ -288,17 +345,15 @@ async def run_news_cycle() -> int:
     
     Returns the number of NEW items added.
     
-    v2.1 CHANGES:
-    - Reduced is_duplicate_post window from 168h (7d) to 72h (3d)
-    - Removed redundant semantic dedup check (already done in channel.py)
-    - Increased MAX_NEWS_PER_CYCLE to 50
+    v3.1: Single source (sochiautoparts/nws). On fetch failure, returns 0
+    and logs an error — next cycle (15 min) will retry.
     """
-    logger.info("Starting news cycle — fetching from external JSON sources")
+    logger.info("Starting news cycle — fetching from sochiautoparts/nws (single source)")
 
     # Fetch JSON
     raw_items = await fetch_news_json()
     if not raw_items:
-        logger.warning("No news items fetched — will retry next cycle")
+        logger.warning("No news items fetched — will retry next cycle (15 min)")
         return 0
 
     new_count = 0

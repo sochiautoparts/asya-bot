@@ -206,7 +206,7 @@ class BackgroundTasks:
             logger.debug(f"Morning greeting error: {e}")
 
     async def _news_fetcher(self) -> None:
-        """Periodically fetch news from RSS sources and cleanup old data."""
+        """Periodically fetch news from sochiautoparts/nws (single source) and cleanup old data."""
         # Initial fetch shortly after startup
         await asyncio.sleep(30)
 
