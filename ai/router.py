@@ -99,7 +99,7 @@ FALLBACK_RESPONSES = [
 COMMENT_MODELS = ["mistral", "openai", "nova-fast", "mistral-small", "nova-micro"]
 
 # Best quality models for function routes — accuracy matters
-FUNCTION_MODELS = ["openai-large", "gpt-5.5", "deepseek"]
+FUNCTION_MODELS = ["openai-large", "deepseek-pro", "deepseek"]
 
 
 class AIRouter:
@@ -329,6 +329,11 @@ class AIRouter:
         if self._cloudflare and self._cloudflare._accounts:
             concurrent_tasks.append(("cloudflare", _safe_try_cloudflare()))
 
+        # Always include free Pollinations API as a concurrent task
+        # (not just as a sequential fallback after paid providers fail)
+        if self._primary and self._primary._is_free_api_available():
+            concurrent_tasks.append(("pollinations_free", _safe_try_pollinations_free()))
+
         # For function routes, also try local model as concurrent fallback
         if route_type == "function" and config.ENABLE_LOCAL_MODEL and self._local and self._local._model_loaded:
             concurrent_tasks.append(("local_fallback", _safe_try_local_fallback()))
@@ -405,7 +410,7 @@ class AIRouter:
                         return await self._save_response(user_id, message, response, sys_prompt, use_cache, save_history)
 
             # All concurrent tasks failed — try Pollinations free as sequential fallback
-            # (we didn't include it in concurrent tasks if we had paid keys)
+            # (only if it wasn't already in concurrent tasks, e.g. it was on cooldown)
             if not any(n == "pollinations_free" for n in task_names):
                 logger.warning(f"All concurrent providers failed (route={route_type}), trying free API sequentially")
                 response = await self._try_pollinations_free(
