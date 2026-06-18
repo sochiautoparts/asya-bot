@@ -49,7 +49,6 @@ KEY_COOLDOWN: float = 600.0  # 10 minutes before retrying a depleted key
 # DO NOT remove models when temporarily unavailable — Pollinations rotates availability!
 CHAT_MODELS = [
     "openai",              # GPT-5.4 Nano — PRIMARY, fast, 400K context, tools, text+image
-    "gpt-5.4-mini",        # GPT-5.4 mini, 400K context, tools — balanced
     "mistral",             # Mistral Small, 128K context, tools, text+image — fast vision
     "mistral-4",           # Mistral 4, 262K context, tools, reasoning — better vision+reasoning
     "deepseek",            # DeepSeek V4, 1M context, tools, reasoning — fast reasoning
@@ -75,11 +74,9 @@ CHAT_MODELS = [
     "qwen-large",          # Qwen Large, 1M context, reasoning+vision (may return empty)
     # Premium / quality models
     "mistral-large",       # Mistral Large, 256K context, tools — premium multilingual
-    "gpt-5.5",             # GPT-5.5, 1M context — flagship
     "openai-large",        # GPT-5.4 reasoning, 400K context — best reasoning
     "deepseek-pro",        # DeepSeek V4 Pro, 1M context — best reasoning
     "grok-large",          # Grok 4 Large, 262K context — powerful reasoning
-    "grok-4.3",            # Grok 4.3, 262K context — latest Grok
     "qwen-coder",          # Qwen Coder, 262K context, tools — structured content
     # Additional models
     "nova-micro",          # Amazon Nova Micro — ultra fast, cheapest
@@ -96,23 +93,16 @@ CHAT_MODELS = [
     "qwen-safety",         # Qwen Safety — content moderation
     "perplexity-reasoning",# Sonar Reasoning Pro — search+reasoning
     "minimax",             # MiniMax M2, 200K context, tools, reasoning — good chat
-    # PAID-ONLY models (return 402 without paid balance) — kept for paid users
-    "claude",              # Claude — premium, needs paid balance
-    "gemini",              # Gemini — needs paid balance
-    "gemini-large",        # Gemini Large — needs paid balance
-    "llama-maverick",      # Llama Maverick — needs paid balance
-    # Models needing special handling
-    "openai-audio",        # OpenAI Audio — needs audio input, empty for text-only
+    # NOTE: Paid-only and audio-only models moved to separate lists below.
+    # They are NOT in CHAT_MODELS to avoid 402 errors and empty responses.
 ]
 
 # Reasoning models — for complex analysis and diagnostics (17 models)
 REASONING_MODELS = [
     "openai-large",        # GPT-5.4 reasoning — best reasoning
-    "gpt-5.5",             # GPT-5.5 — flagship
     "deepseek-pro",        # DeepSeek V4 Pro — best reasoning
     "deepseek",            # DeepSeek V4 — fast reasoning
     "grok-large",          # Grok Large — powerful reasoning
-    "grok-4.3",            # Grok 4.3 — latest Grok reasoning
     "kimi",                # Kimi K2.5 — reasoning+vision
     "kimi-k2.6",           # Kimi K2.6 — latest reasoning
     "mistral-large",       # Mistral Large — premium reasoning
@@ -130,7 +120,6 @@ REASONING_MODELS = [
 VISION_MODELS = [
     "openai",              # Primary vision model
     "openai-large",        # Vision + reasoning
-    "gpt-5.5",             # GPT-5.5 vision
     "mistral",             # Vision capable — fast
     "mistral-4",           # Vision + reasoning
     "mistral-small",       # Vision capable — fast
@@ -144,7 +133,6 @@ VISION_MODELS = [
     "minimax-m3",          # Vision capable — multilingual
     "gemma",               # Vision capable — MoE
     "grok",                # Vision capable — multilingual
-    "grok-4.3",            # Vision capable — latest
     "step-flash",          # Vision capable (may return empty)
     "kimi-k2.6",           # Vision capable — latest reasoning
     "kimi",                # Vision capable — reasoning+vision
@@ -155,14 +143,12 @@ VISION_MODELS = [
 # Content creation models — for generating channel posts (15 models)
 CONTENT_MODELS = [
     "openai-large",        # Best quality for content
-    "gpt-5.5",             # GPT-5.5 — best overall
     "deepseek",            # Good analysis
     "deepseek-pro",        # Strong reasoning for content
     "mistral-large",       # High-quality writing
     "mistral-4",           # Good writing
     "kimi",                # Reasoning+vision
     "grok-large",          # Good Russian writing
-    "grok-4.3",            # Latest Grok
     "minimax-m3",          # Detailed content
     "qwen-large",          # Reasoning+vision (may return empty)
     "perplexity",          # Web search for content
@@ -218,14 +204,27 @@ FALLBACK_MODELS = [
     "qwen-vision", "nova-2", "mistral-small", "mistral-small-3.2",
 ]
 
+# Paid-only models (return 402 without paid balance) — separate from main lists
+# These are only tried as a last resort; they will fail for free-tier users.
+PAID_ONLY_MODELS = {
+    "claude",              # Claude — premium, needs paid balance
+    "gemini",              # Gemini — needs paid balance
+    "gemini-large",        # Gemini Large — needs paid balance
+    "llama-maverick",      # Llama Maverick — needs paid balance
+}
+
+# Fictional/unverified models — not confirmed in Pollinations API, removed from main lists
+# Kept here for reference; do NOT add to CHAT_MODELS or other active lists
+FICTIONAL_MODELS = {
+    "gpt-5.4-mini",       # Not confirmed — may not exist
+    "gpt-5.5",            # Not confirmed — may not exist
+    "grok-4.3",           # Not confirmed — may not exist
+    "openai-audio",       # Needs audio input, always empty for text
+}
+
 # Models known to sometimes return empty content
 EMPTY_CONTENT_MODELS = {
     "openai-fast", "step-flash", "qwen-large", "openai-audio",
-}
-
-# Paid-only models (return 402 without paid balance)
-PAID_ONLY_MODELS = {
-    "claude", "gemini", "gemini-large", "llama-maverick",
 }
 
 # Track model failures for circuit breaking
@@ -473,6 +472,15 @@ class PollinationsProvider(BaseAIProvider):
 
                     elif response.status_code in (401, 402):
                         # Balance depleted or unauthorized → switch key
+                        # For paid-only models, don't deplete the key — it's the model that's paid, not the key
+                        if model in PAID_ONLY_MODELS:
+                            logger.warning(
+                                f"HTTP {response.status_code} from paid-only model {model} via KEY{tier_index} — "
+                                f"skipping key depletion for paid model"
+                            )
+                            _model_failures[model] = time.time()
+                            last_error = f"HTTP {response.status_code} from paid-only model {model}"
+                            continue  # Try next key tier (won't help, but consistent)
                         self._mark_key_depleted(tier_index)
                         last_error = f"HTTP {response.status_code} from KEY{tier_index}"
                         logger.warning(
@@ -538,17 +546,24 @@ class PollinationsProvider(BaseAIProvider):
             error_message=f"All API keys depleted/unavailable [{key_status}]. {last_error}",
         )
 
-    async def generate_image(self, prompt: str, model: str = "flux") -> Optional[bytes]:
+    async def generate_image(self, prompt: str, model: str = "flux", **kwargs) -> AIResponse:
         """Generate an image using Pollinations image API.
         Uses dual-key failover: KEY1 -> KEY2.
-        Returns image bytes or None on failure.
+        Returns AIResponse with image_b64 field on success.
         """
+        start_time = time.time()
+
         # Build key tier list
         tiers_to_try = self._build_key_tier_list()
 
         if not tiers_to_try:
             logger.warning("No API keys available for image generation")
-            return None
+            return AIResponse(
+                text="",
+                model=model,
+                provider=self.name,
+                error="No API keys available for image generation",
+            )
 
         for api_key, tier_index in tiers_to_try:
             try:
@@ -570,24 +585,51 @@ class PollinationsProvider(BaseAIProvider):
                         data = response.json()
                         for item in data.get("data", []):
                             if item.get("b64_json"):
-                                return base64.b64decode(item["b64_json"])
+                                image_bytes = base64.b64decode(item["b64_json"])
+                                return AIResponse(
+                                    text="",
+                                    model=model,
+                                    provider=self.name,
+                                    image_b64=base64.b64encode(image_bytes).decode('utf-8'),
+                                    tokens_used=0,
+                                    cached=False,
+                                    latency_ms=int((time.time() - start_time) * 1000),
+                                )
                             elif item.get("url"):
                                 img_resp = await client.get(item["url"])
                                 if img_resp.status_code == 200:
-                                    return img_resp.content
+                                    return AIResponse(
+                                        text="",
+                                        model=model,
+                                        provider=self.name,
+                                        image_b64=base64.b64encode(img_resp.content).decode('utf-8'),
+                                        tokens_used=0,
+                                        cached=False,
+                                        latency_ms=int((time.time() - start_time) * 1000),
+                                    )
                     elif response.status_code in (401, 402):
                         self._mark_key_depleted(tier_index)
                         logger.warning(f"Image gen HTTP {response.status_code} via KEY{tier_index}, trying next tier...")
                         continue
                     else:
                         logger.error(f"Image generation error: {response.status_code} {response.text[:300]}")
-                        return None
+                        return AIResponse(
+                            text="",
+                            model=model,
+                            provider=self.name,
+                            error=f"Image generation HTTP {response.status_code}",
+                        )
 
             except Exception as e:
                 logger.error(f"Image generation exception: {e}")
                 continue
 
-        return None
+        return AIResponse(
+            text="",
+            model=model,
+            provider=self.name,
+            error="All API keys failed for image generation",
+        )
 
     async def analyze_image(
         self,
@@ -884,14 +926,21 @@ class PollinationsProvider(BaseAIProvider):
             error_message="Free API vision failed",
         )
 
-    async def generate_image_free(self, prompt: str, model: str = "flux") -> Optional[bytes]:
+    async def generate_image_free(self, prompt: str, model: str = "flux", **kwargs) -> AIResponse:
         """Generate an image using FREE Pollinations API (no auth).
 
         Uses image.pollinations.ai/prompt/{encoded_prompt} — simple GET request.
-        Returns image bytes or None on failure.
+        Returns AIResponse with image_b64 field on success.
         """
+        start_time = time.time()
+
         if not self._free_image_url:
-            return None
+            return AIResponse(
+                text="",
+                model=model,
+                provider=f"{self.name}-free",
+                error="Free image URL not configured",
+            )
 
         try:
             import urllib.parse
@@ -906,7 +955,15 @@ class PollinationsProvider(BaseAIProvider):
                     content_type = response.headers.get("content-type", "")
                     if "image" in content_type or len(response.content) > 10000:
                         logger.info(f"Free image API: generated image ({len(response.content)} bytes)")
-                        return response.content
+                        return AIResponse(
+                            text="",
+                            model=model,
+                            provider=f"{self.name}-free",
+                            image_b64=base64.b64encode(response.content).decode('utf-8'),
+                            tokens_used=0,
+                            cached=False,
+                            latency_ms=int((time.time() - start_time) * 1000),
+                        )
                     else:
                         logger.warning(f"Free image API: unexpected content type: {content_type}")
                 else:
@@ -915,7 +972,12 @@ class PollinationsProvider(BaseAIProvider):
         except Exception as e:
             logger.error(f"Free image API exception: {e}")
 
-        return None
+        return AIResponse(
+            text="",
+            model=model,
+            provider=f"{self.name}-free",
+            error="Free image generation failed",
+        )
 
     def _is_model_in_cooldown(self, model: str) -> bool:
         """Check if a model has recently failed and is in cooldown.
