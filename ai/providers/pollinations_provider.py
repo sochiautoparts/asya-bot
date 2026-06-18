@@ -6,7 +6,7 @@ v5.0 UPDATES:
   - KEY1 (config.POLLINATIONS_API_KEY) -> KEY2 (config.POLLINATIONS_API_KEY_2) -> FREE API
   - On 402/401: mark current key as depleted, auto-switch to next
   - Depleted keys auto-retry after 600 seconds cooldown
-  - FREE API: text.pollinations.ai / image.pollinations.ai WITHOUT Authorization
+  - FREE API: gen.pollinations.ai/v1 WITHOUT Authorization (legacy text.pollinations.ai deprecated)
   - Free API is the LAST resort before router fallback to Cloudflare
   - NO hardcoded keys — all from environment/config
 
@@ -213,6 +213,10 @@ PAID_ONLY_MODELS = {
     "gemini",              # Gemini — needs paid balance
     "gemini-large",        # Gemini Large — needs paid balance
     "llama-maverick",      # Llama Maverick — needs paid balance
+    "openai-large",        # GPT-5.4 reasoning — premium, 402 means model needs paid balance, not key depletion
+    "deepseek-pro",        # DeepSeek V4 Pro — premium reasoning
+    "mistral-large",       # Mistral Large — premium multilingual
+    "grok-large",          # Grok 4 Large — premium reasoning
 }
 
 # Fictional/unverified models — not confirmed in Pollinations API, removed from main lists
@@ -835,9 +839,13 @@ class PollinationsProvider(BaseAIProvider):
     ) -> AIResponse:
         """Send a chat completion request using FREE Pollinations API.
 
-        Uses text.pollinations.ai WITHOUT Authorization header.
+        Uses gen.pollinations.ai/v1 WITHOUT Authorization header.
         This is the fallback when all API keys are depleted.
         Free API may be rate-limited and slower.
+
+        NOTE: The legacy text.pollinations.ai endpoint is DEPRECATED and returns 404
+        for many model names. We now use gen.pollinations.ai/v1 which supports
+        the full model list without authentication.
 
         Protected by a separate legacy circuit breaker (threshold=3, recovery=120s).
         """
@@ -878,7 +886,8 @@ class PollinationsProvider(BaseAIProvider):
             # User is already waiting after the paid API attempt failed.
             async with httpx.AsyncClient(timeout=8.0) as client:
                 start_time = time.time()
-                url = f"{self._free_text_url}/openai/chat/completions"
+                # Use /v1/chat/completions on gen.pollinations.ai (not deprecated /openai/chat/completions)
+                url = f"{self._free_text_url}/v1/chat/completions"
                 response = await client.post(url, headers=headers, json=payload)
                 elapsed = time.time() - start_time
 
