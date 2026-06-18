@@ -27,8 +27,10 @@ v5.0 UPDATES:
 
 import httpx
 import json
+import asyncio
 import base64
 import logging
+import random
 import time
 from typing import Optional, List, Dict, Tuple
 
@@ -227,9 +229,56 @@ EMPTY_CONTENT_MODELS = {
     "openai-fast", "step-flash", "qwen-large", "openai-audio",
 }
 
-# Track model failures for circuit breaking
-_model_failures: Dict[str, float] = {}
-_FAILURE_COOLDOWN = 300  # 5 minutes
+# ── Per-Model Circuit Breaker ──────────────────────────────────────────────
+
+class CircuitBreaker:
+    """Circuit breaker with closed → open → half-open state transitions.
+
+    Tracks failures per model/endpoint and prevents requests when
+    the failure threshold is exceeded (open state). After a recovery
+    timeout, transitions to half-open to test if the service is back.
+    """
+
+    def __init__(
+        self,
+        failure_threshold: int = 5,
+        recovery_timeout: float = 300.0,
+    ) -> None:
+        self.failure_threshold = failure_threshold
+        self.recovery_timeout = recovery_timeout
+        self.failure_count: int = 0
+        self.last_failure_time: float = 0.0
+        self.state: str = "closed"  # closed | open | half-open
+
+    @property
+    def is_open(self) -> bool:
+        """Check if the circuit breaker is open (should skip requests)."""
+        if self.state == "open":
+            if time.time() - self.last_failure_time > self.recovery_timeout:
+                self.state = "half-open"
+                return False  # Allow a test request
+            return True  # Still in cooldown
+        return False  # closed or half-open — allow request
+
+    def record_success(self) -> None:
+        """Record a successful request — reset to closed."""
+        self.failure_count = 0
+        self.state = "closed"
+
+    def record_failure(self) -> None:
+        """Record a failed request — may transition to open."""
+        self.failure_count += 1
+        self.last_failure_time = time.time()
+        if self.failure_count >= self.failure_threshold:
+            self.state = "open"
+            logger.warning(
+                "Circuit breaker OPEN after %d failures", self.failure_count
+            )
+
+
+# Per-model circuit breakers (replaces old _model_failures dict)
+_model_circuits: Dict[str, CircuitBreaker] = {}
+_FAILURE_COOLDOWN = 300  # 5 minutes (kept for compatibility)
 
 
 class PollinationsProvider(BaseAIProvider):
@@ -271,6 +320,14 @@ class PollinationsProvider(BaseAIProvider):
         self._free_image_url: str = config.POLLINATIONS_FREE_IMAGE_URL
         self._free_api_available: bool = True  # Assume available until proven otherwise
         self._free_api_cooldown_until: float = 0.0  # Timestamp when free API cooldown ends
+
+        # ── Gen API failure tracking (Optimization #3) ──
+        # When gen API has 3+ consecutive failures, invert priority and try free API first
+        self._gen_fail_count: int = 0
+
+        # ── Legacy/Free API circuit breaker (Optimization #8) ──
+        # Separate circuit breaker for free API with lower threshold
+        self._legacy_circuit = CircuitBreaker(failure_threshold=3, recovery_timeout=120.0)
 
     # ── API Key Management ──────────────────────────────────────
 
@@ -346,6 +403,24 @@ class PollinationsProvider(BaseAIProvider):
             tiers.append((self._api_key_2, 2))
         return tiers
 
+    def _should_try_legacy_first(self) -> bool:
+        """If gen API has been failing consistently, try legacy first.
+
+        When the gen API has 3+ consecutive failures, we invert the normal
+        priority and try the free/legacy API first. This avoids wasting time
+        on a failing gen API when the free API might respond immediately.
+        """
+        return self._gen_fail_count >= 3
+
+    def _get_model_circuit(self, model: str) -> CircuitBreaker:
+        """Get or create a circuit breaker for a specific model."""
+        if model not in _model_circuits:
+            _model_circuits[model] = CircuitBreaker(
+                failure_threshold=5,
+                recovery_timeout=300.0,
+            )
+        return _model_circuits[model]
+
     async def chat(
         self,
         messages: List[Dict[str, str]],
@@ -369,11 +444,12 @@ class PollinationsProvider(BaseAIProvider):
         """
         model = model or DEFAULT_MODEL
 
-        # Check if model is in cooldown from recent failures
-        if self._is_model_in_cooldown(model):
+        # Check if model is in cooldown from recent failures (circuit breaker)
+        circuit = self._get_model_circuit(model)
+        if circuit.is_open:
             alt = self._get_available_model()
             if alt:
-                logger.info(f"Model {model} in cooldown, using {alt}")
+                logger.info(f"Model {model} circuit breaker OPEN, using {alt}")
                 model = alt
 
         # Build key tier list: active keys first
@@ -381,6 +457,8 @@ class PollinationsProvider(BaseAIProvider):
 
         # If no keys available at all, check cooldown
         if not tiers_to_try:
+            # Gen API has no available keys — track failure for smart fallback
+            self._gen_fail_count += 1
             return AIResponse(
                 text="",
                 model=model,
@@ -453,7 +531,7 @@ class PollinationsProvider(BaseAIProvider):
                                     f"marking as temporary failure"
                                 )
                             # Circuit break the model, but do NOT remove it
-                            _model_failures[model] = time.time()
+                            self._get_model_circuit(model).record_failure()
                             last_error = f"Empty response from {model}"
                             continue  # Try next key tier
 
@@ -462,6 +540,10 @@ class PollinationsProvider(BaseAIProvider):
                             f"tokens={tokens_used}, time={elapsed:.1f}s, "
                             f"length={len(text)}"
                         )
+
+                        # Gen API success — reset failure counter
+                        self._gen_fail_count = 0
+                        self._get_model_circuit(model).record_success()
 
                         return AIResponse(
                             text=text,
@@ -478,10 +560,11 @@ class PollinationsProvider(BaseAIProvider):
                                 f"HTTP {response.status_code} from paid-only model {model} via KEY{tier_index} — "
                                 f"skipping key depletion for paid model"
                             )
-                            _model_failures[model] = time.time()
+                            self._get_model_circuit(model).record_failure()
                             last_error = f"HTTP {response.status_code} from paid-only model {model}"
                             continue  # Try next key tier (won't help, but consistent)
                         self._mark_key_depleted(tier_index)
+                        self._gen_fail_count += 1
                         last_error = f"HTTP {response.status_code} from KEY{tier_index}"
                         logger.warning(
                             f"HTTP {response.status_code} from {model} via KEY{tier_index} — "
@@ -492,7 +575,8 @@ class PollinationsProvider(BaseAIProvider):
                     elif response.status_code == 429:
                         # Rate limited — short cooldown
                         logger.warning(f"Rate limited (429) on KEY{tier_index}, model={model}")
-                        _model_failures[model] = time.time()
+                        self._get_model_circuit(model).record_failure()
+                        self._gen_fail_count += 1
                         # Try next key tier
                         continue
 
@@ -502,7 +586,8 @@ class PollinationsProvider(BaseAIProvider):
                             f"Pollinations error: status={response.status_code}, "
                             f"model={model}, error={error_text}"
                         )
-                        _model_failures[model] = time.time()
+                        self._get_model_circuit(model).record_failure()
+                        self._gen_fail_count += 1
 
                         return AIResponse(
                             text="",
@@ -514,7 +599,8 @@ class PollinationsProvider(BaseAIProvider):
 
             except httpx.TimeoutException:
                 logger.error(f"Pollinations timeout: model={model}, tier=KEY{tier_index}")
-                _model_failures[model] = time.time()
+                self._get_model_circuit(model).record_failure()
+                self._gen_fail_count += 1
                 last_error = f"Timeout from KEY{tier_index}"
                 # Mark the key as potentially depleted on timeout too —
                 # if it times out, trying the same key again is unlikely to help
@@ -526,12 +612,14 @@ class PollinationsProvider(BaseAIProvider):
 
             except Exception as e:
                 logger.error(f"Pollinations exception: model={model}, tier=KEY{tier_index}, error={e}")
-                _model_failures[model] = time.time()
+                self._get_model_circuit(model).record_failure()
+                self._gen_fail_count += 1
                 last_error = str(e)
                 continue
 
         # ── All key tiers failed → return error, let router decide ──
         key_status = self._get_key_status_summary()
+        self._gen_fail_count += 1
         logger.error(
             f"All API key tiers failed for model {model}. "
             f"Key status: [{key_status}]. Last error: {last_error}. "
@@ -750,7 +838,20 @@ class PollinationsProvider(BaseAIProvider):
         Uses text.pollinations.ai WITHOUT Authorization header.
         This is the fallback when all API keys are depleted.
         Free API may be rate-limited and slower.
+
+        Protected by a separate legacy circuit breaker (threshold=3, recovery=120s).
         """
+        # Check legacy circuit breaker first
+        if self._legacy_circuit.is_open:
+            logger.debug("Legacy API circuit breaker is OPEN, skipping")
+            return AIResponse(
+                text="",
+                model=model,
+                provider=f"{self.name}-free",
+                error=True,
+                error_message="Free API circuit breaker open",
+            )
+
         if not self._is_free_api_available():
             return AIResponse(
                 text="",
@@ -793,6 +894,7 @@ class PollinationsProvider(BaseAIProvider):
 
                     if not text:
                         logger.warning(f"Free API: empty response from {model}")
+                        self._legacy_circuit.record_failure()
                         return AIResponse(
                             text="",
                             model=model,
@@ -806,6 +908,8 @@ class PollinationsProvider(BaseAIProvider):
                         f"time={elapsed:.1f}s, length={len(text)}"
                     )
 
+                    self._legacy_circuit.record_success()
+
                     return AIResponse(
                         text=text,
                         model=model,
@@ -814,6 +918,7 @@ class PollinationsProvider(BaseAIProvider):
 
                 elif response.status_code == 429:
                     logger.warning(f"Free API rate limited (429)")
+                    self._legacy_circuit.record_failure()
                     self._mark_free_api_cooldown(120.0)  # 2 min cooldown
                     return AIResponse(
                         text="",
@@ -826,6 +931,7 @@ class PollinationsProvider(BaseAIProvider):
                 else:
                     error_text = response.text[:300]
                     logger.error(f"Free API error: {response.status_code}: {error_text}")
+                    self._legacy_circuit.record_failure()
                     self._mark_free_api_cooldown(60.0)
                     return AIResponse(
                         text="",
@@ -837,6 +943,7 @@ class PollinationsProvider(BaseAIProvider):
 
         except httpx.TimeoutException:
             logger.error(f"Free API timeout: model={model}")
+            self._legacy_circuit.record_failure()
             self._mark_free_api_cooldown(30.0)
             return AIResponse(
                 text="",
@@ -848,6 +955,7 @@ class PollinationsProvider(BaseAIProvider):
 
         except Exception as e:
             logger.error(f"Free API exception: {e}")
+            self._legacy_circuit.record_failure()
             self._mark_free_api_cooldown(60.0)
             return AIResponse(
                 text="",
@@ -931,8 +1039,22 @@ class PollinationsProvider(BaseAIProvider):
 
         Uses image.pollinations.ai/prompt/{encoded_prompt} — simple GET request.
         Returns AIResponse with image_b64 field on success.
+
+        Implements retry with exponential backoff because the legacy API has
+        a per-IP rate limit (1 concurrent request). Retries up to 5 times
+        with increasing delays, changing seed on each retry to avoid cache.
         """
         start_time = time.time()
+
+        # Check legacy circuit breaker
+        if self._legacy_circuit.is_open:
+            logger.debug("Legacy image API circuit breaker is OPEN, skipping")
+            return AIResponse(
+                text="",
+                model=model,
+                provider=f"{self.name}-free",
+                error="Legacy image API circuit breaker open",
+            )
 
         if not self._free_image_url:
             return AIResponse(
@@ -942,63 +1064,138 @@ class PollinationsProvider(BaseAIProvider):
                 error="Free image URL not configured",
             )
 
-        try:
-            import urllib.parse
-            encoded_prompt = urllib.parse.quote(prompt)
-            url = f"{self._free_image_url}/prompt/{encoded_prompt}"
-            # Add model and size params
-            url += f"?model={model}&width=1344&height=768&nologo=true"
+        import urllib.parse
+        encoded_prompt = urllib.parse.quote(prompt)
+        base_url = f"{self._free_image_url}/prompt/{encoded_prompt}"
 
-            async with httpx.AsyncClient(timeout=90.0) as client:
-                response = await client.get(url)
-                if response.status_code == 200:
-                    content_type = response.headers.get("content-type", "")
-                    if "image" in content_type or len(response.content) > 10000:
-                        logger.info(f"Free image API: generated image ({len(response.content)} bytes)")
+        # Retry with exponential backoff
+        max_retries = 5
+        seed = kwargs.get("seed") or random.randint(1, 999999)
+
+        for attempt in range(max_retries):
+            params = {
+                "model": model,
+                "width": kwargs.get("width", 1344),
+                "height": kwargs.get("height", 768),
+                "nologo": "true",
+                "seed": seed,
+            }
+
+            # Build URL with params
+            param_str = "&".join(f"{k}={v}" for k, v in params.items())
+            url = f"{base_url}?{param_str}"
+
+            try:
+                # NO Authorization header — free anonymous endpoint
+                async with httpx.AsyncClient(timeout=90.0) as client:
+                    response = await client.get(url)
+                    elapsed = time.time() - start_time
+
+                    if response.status_code == 200:
+                        content_type = response.headers.get("content-type", "")
+                        if ("image" in content_type or len(response.content) > 1000) and len(response.content) > 1000:
+                            logger.info(f"Free image API: generated image ({len(response.content)} bytes, {elapsed:.1f}s)")
+                            self._legacy_circuit.record_success()
+                            direct_url = url
+                            return AIResponse(
+                                text="",
+                                model=model,
+                                provider=f"{self.name}-free",
+                                image_b64=base64.b64encode(response.content).decode('utf-8'),
+                                image_url=direct_url,
+                                tokens_used=0,
+                                cached=False,
+                                latency_ms=int(elapsed * 1000),
+                            )
+                        elif len(response.content) <= 1000:
+                            logger.warning(f"Free image API: image too small ({len(response.content)} bytes)")
+                            # Try again with different seed
+                            seed = random.randint(1, 999999)
+                            if attempt < max_retries - 1:
+                                wait = 10 * (attempt + 1)
+                                logger.warning(f"Free image API: attempt {attempt+1}/{max_retries}, retrying in {wait}s")
+                                await asyncio.sleep(wait)
+                                continue
+                        else:
+                            logger.warning(f"Free image API: unexpected content type: {content_type}")
+                            seed = random.randint(1, 999999)
+                            if attempt < max_retries - 1:
+                                wait = 10 * (attempt + 1)
+                                await asyncio.sleep(wait)
+                                continue
+
+                    elif response.status_code in (402, 429):
+                        # 402 = queue full for IP, 429 = rate limited
+                        # Both are temporary — retry with backoff
+                        if attempt < max_retries - 1:
+                            wait = 10 * (attempt + 1)  # 10s, 20s, 30s, 40s, 50s
+                            logger.warning(
+                                f"Free image API rate limited (status {response.status_code}, "
+                                f"attempt {attempt+1}/{max_retries}), waiting {wait}s"
+                            )
+                            seed = random.randint(1, 999999)  # Change seed to avoid cache
+                            await asyncio.sleep(wait)
+                            continue
+                        else:
+                            logger.warning(f"Free image API rate limited after {max_retries} retries")
+                            self._legacy_circuit.record_failure()
+
+                    else:
+                        logger.error(f"Free image API error: {response.status_code}")
+                        self._legacy_circuit.record_failure()
                         return AIResponse(
                             text="",
                             model=model,
                             provider=f"{self.name}-free",
-                            image_b64=base64.b64encode(response.content).decode('utf-8'),
-                            tokens_used=0,
-                            cached=False,
-                            latency_ms=int((time.time() - start_time) * 1000),
+                            error=f"Free image API HTTP {response.status_code}",
                         )
-                    else:
-                        logger.warning(f"Free image API: unexpected content type: {content_type}")
-                else:
-                    logger.error(f"Free image API error: {response.status_code}")
 
-        except Exception as e:
-            logger.error(f"Free image API exception: {e}")
+            except httpx.TimeoutException:
+                logger.error(f"Free image API timeout (attempt {attempt+1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(5)
+                    continue
+                self._legacy_circuit.record_failure()
+
+            except Exception as e:
+                logger.error(f"Free image API exception: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2)
+                    continue
+                self._legacy_circuit.record_failure()
 
         return AIResponse(
             text="",
             model=model,
             provider=f"{self.name}-free",
-            error="Free image generation failed",
+            error="Free image generation failed after retries",
         )
 
     def _is_model_in_cooldown(self, model: str) -> bool:
         """Check if a model has recently failed and is in cooldown.
 
+        Uses the per-model CircuitBreaker with closed→open→half-open states.
+        When a circuit breaker is OPEN, the model is in cooldown.
+        When it's HALF-OPEN, we allow one test request.
+
         IMPORTANT: We do NOT remove models from lists when they fail.
         Pollinations.ai rotates model availability — a failure today
         doesn't mean the model is permanently unavailable.
         """
-        if model not in _model_failures:
-            return False
-        return time.time() - _model_failures[model] < _FAILURE_COOLDOWN
+        circuit = self._get_model_circuit(model)
+        return circuit.is_open
 
     def _get_available_model(self) -> Optional[str]:
-        """Get an available model that's not in cooldown."""
-        if not self._is_model_in_cooldown(DEFAULT_MODEL):
+        """Get an available model that's not in cooldown (circuit not open)."""
+        if not self._get_model_circuit(DEFAULT_MODEL).is_open:
             return DEFAULT_MODEL
         for model in FALLBACK_MODELS:
-            if not self._is_model_in_cooldown(model):
+            if not self._get_model_circuit(model).is_open:
                 return model
-        if _model_failures:
-            oldest = min(_model_failures, key=_model_failures.get)
+        # All models in cooldown — find the one closest to recovery
+        if _model_circuits:
+            # Return model with oldest last_failure_time (closest to recovery)
+            oldest = min(_model_circuits, key=lambda m: _model_circuits[m].last_failure_time)
             return oldest
         return DEFAULT_MODEL
 
