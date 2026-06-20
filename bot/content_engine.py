@@ -547,31 +547,46 @@ def get_editorial_team_comment() -> str:
 
 def get_editorial_aside() -> str:
     """Get a random editorial aside/joke for channel posts.
-    45% chance of returning empty for variety.
+
+    v2: Reduced frequency — jokes were taking up to half of each post.
+    Now 75% chance of returning empty (was 45%). Only ~25% of posts get an aside.
+    When an aside IS returned, 70% chance it's empty (extra reduction layer),
+    so the effective joke-injection rate is ~7.5% of posts.
     """
-    if random.random() < 0.45:
+    # First gate: 75% chance of no aside at all
+    if random.random() < 0.75:
         return ""
-    if random.random() < 0.5 and hasattr(persona, 'editorial_asides') and persona.editorial_asides:
+    # Second gate: of the 25% that pass, 70% still get nothing (extra reduction)
+    if random.random() < 0.70:
+        return ""
+    # Only ~7.5% of posts get an actual aside
+    if hasattr(persona, 'editorial_asides') and persona.editorial_asides:
         return random.choice(persona.editorial_asides)
-    return get_editorial_team_comment()
+    return ""
 
 
 def get_translation_uniquification_hint(lang: str) -> str:
     """Get a hint for the AI about translating/uniquifying content.
-    
-    Uses a 7-step transformation process to ensure unique, high-quality content.
+
+    v2: Removed forced joke step. Posts must be INFORMATIVE first, jokes optional.
+    The 6-step process focuses on facts, expertise, and context — not humor.
     """
-    _7_STEP_PROCESS = (
-        "ПРОЦЕСС ТРАНСФОРМАЦИИ (7 шагов — ОБЯЗАТЕЛЬНО):\n"
-        "Шаг 1: Извлеки факты из источника (марка, модель, цена, характеристики, событие)\n"
+    _6_STEP_PROCESS = (
+        "ПРОЦЕСС ТРАНСФОРМАЦИИ (6 шагов — ОБЯЗАТЕЛЬНО):\n"
+        "Шаг 1: Извлеки факты из источника (марка, модель, цена, характеристики, событие, дата)\n"
         "Шаг 2: Глобальная перспектива — как это влияет на водителей в России, Казахстане, ЕС, Ближнем Востоке\n"
         "Шаг 3: Экспертное мнение Аси — её личный взгляд как владелицы Alfa Romeo и автоэксперта\n"
-        "Шаг 4: Голос редакции — иногда добавь комментарий от ОДНОГО персонажа (Лёха/Димон/Марина/Кеша — выбери только одного!)\n"
-        "Шаг 5: Контекст и мировые тренды — как эта новость вписывается в глобальные тенденции\n"
-        "Шаг 6: Вовлечение аудитории — задай вопрос глобальной аудитории в конце поста\n"
-        "Шаг 7: Шутка от редакции — добавь лёгкий юмор от команды\n"
+        "Шаг 4: Контекст и мировые тренды — как эта новость вписывается в глобальные тенденции\n"
+        "Шаг 5: Вовлечение аудитории — задай ОДИН вопрос глобальной аудитории в конце поста\n"
+        "Шаг 6: Финальная проверка — пост ИНФОРМАТИВНЫЙ, факты точные, текст уникальный\n"
+        "\n"
+        "⚠️ ГЛАВНОЕ: пост должен быть ИНФОРМАТИВНЫМ и ПОЗНАВАТЕЛЬНЫМ. "
+        "Юмор и шутки от редакции — ТОЛЬКО если они ОРГАНИЧНО вписываются (примерно 1 пост из 5). "
+        "НЕ вставляй шутку ради шутки. Лучше дать больше фактов и контекста, чем лишний юмор. "
+        "Персонажей редакции (Лёха/Димон/Марина/Кеша) упоминай РЕДКО — не чаще 1 поста из 5, "
+        "и только если комментарий действительно дополняет новость.\n"
     )
-    
+
     if lang == "en":
         return (
             "ВНИМАНИЕ: Исходная новость на АНГЛИЙСКОМ. "
@@ -581,7 +596,7 @@ def get_translation_uniquification_hint(lang: str) -> str:
             "авторский текст редакции @sochiautoparts. "
             "Упомяни что 'зарубежные источники сообщают' или 'по данным иностранных СМИ' — "
             "это покажет что новость международная.\n\n"
-            + _7_STEP_PROCESS
+            + _6_STEP_PROCESS
         )
     return (
         "ПЕРЕПИШИ НОВОСТЬ ПОЛНОСТЬЮ СВОИМИ СЛОВАМИ. "
@@ -590,7 +605,7 @@ def get_translation_uniquification_hint(lang: str) -> str:
         "Добавь экспертное мнение от лица редакции, "
         "сравнение с другими марками/моделями, или контекст для аудитории. "
         "Пост должен быть уникальным авторским текстом редакции @sochiautoparts.\n\n"
-        + _7_STEP_PROCESS
+        + _6_STEP_PROCESS
     )
 
 
@@ -733,41 +748,32 @@ def _determine_tone(text: str, title: str) -> NewsTone:
     return NewsTone.ROUTINE
 
 def get_tone_specific_joke(tone: NewsTone) -> str:
-    """Get a joke appropriate for the news tone"""
+    """Get a joke appropriate for the news tone.
+
+    v2: Reduced frequency — jokes were taking up to half of each post.
+    Now ONLY the FUN tone gets a joke (and only 40% of the time).
+    SERIOUS, HYPE, ROUTINE, TECHNICAL all return empty.
+    This prevents tone_joke from being appended to most posts.
+    """
     if tone == NewsTone.SERIOUS:
         return ""
-    
+    # Only FUN tone qualifies for a tone joke — and only 40% of the time
+    if tone != NewsTone.FUN:
+        return ""
+    if random.random() > 0.40:
+        return ""
+
     joke_pools = {
-        NewsTone.HYPE: [
-            "Редакция в шоке: даже кофе не бодрит так, как эта новость! ☕",
-            "Ася чуть не уронила эспрессо, когда увидела эту новость! 😱",
-            "Лёха отложил гаечный ключ — а он его НИКОГДА не откладывает 🔧",
-            "Кеша даже перестал есть семечки — новость THAT хороша! 🦜",
-            "Сеньор Помидор ПРОСНУЛСЯ — вот это реально редкость 🐱",
-        ],
-        NewsTone.ROUTINE: [
-            "Пока варим утренний кофе, делимся новостью... ☕",
-            "Сломали очередной карандаш, составляя этот пост ✏️",
-            "Рутина — но с характером. Как утренний дедлайн ☀️",
-            "Среда, рутина, новость. Редакция работает дальше 💪",
-        ],
         NewsTone.FUN: [
             "В редакции смеялись до слез 😂",
             "Кеша танцует на жёрдочке — новость его развеселила 💃🦜",
             "Сеньор Помидор мурлычет — а он мурлычет только на хорошие новости 😻",
-            "Лёха УЛЫБНУЛСЯ. Мы это запечатлили — редкий кадр! 😁",
-        ],
-        NewsTone.TECHNICAL: [
-            "Разбираемся в цифрах, пока кофе остывает... ☕📊",
-            "Димон в восторге от спецификаций — Лёха скептичен. Классика 🤓🔧",
-            "Марина проверила расчёты — всё сходится. Редкость! 🧮",
+            "Лёха УЛЫБНУЛСЯ. Мы это запечатлели — редкий кадр! 😁",
         ],
     }
-    
+
     pool = joke_pools.get(tone, [])
     return random.choice(pool) if pool else ""
-
-
 def validate_facts_in_text(text: str, facts: ExtractedFacts) -> str:
     """Ensure key facts are preserved in generated text"""
     if facts.price and facts.price not in text:

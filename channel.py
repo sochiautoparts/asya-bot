@@ -325,6 +325,90 @@ def _clean_post_text(text: str) -> str:
     return text
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# EXCESSIVE-JOKE FILTER — keeps posts informative by trimming joke overload
+# ════════════════════════════════════════════════════════════════════════════
+# Detects when a post has too many editorial-joke lines and removes the
+# excess so the news content remains the focus. Posts should be INFORMATIVE
+# first, with at most ONE short editorial aside.
+
+# Markers that identify editorial-joke lines (vs. news content)
+_EDITORIAL_JOKE_MARKERS = [
+    # Editorial team characters
+    "Кеша", "кеша", "Лёха", "лёха", "Димон", "димон", "Марина", "марина",
+    "Сеньор Помидор", "сеньор помидор", "Помидор", "помидор",
+    # Editorial office jokes
+    "в редакции", "В редакции", "редакция в шоке", "Редакция в шоке",
+    "редакция не спит", "Редакция не спит", "редакция единоглас",
+    "Редакция единоглас", "кофе", "эспрессо", "кофемашина",
+    "карандаш", "дедлайн", "Дедлайн",
+    # Tone-joke lines (appended by get_tone_specific_joke)
+    "смеялись до слез", "танцует на жёрдочке", "мурлычет",
+    "УЛЫБНУЛСЯ", "улыбнулся",
+    # Office/food/weather jokes
+    "пицца", "суши", "роллы", "пончики", "сушки",
+    "микроволновка", "холодильник", "фикус", "плейлист",
+    "парковка", "Nurburgring", "курьер",
+]
+
+
+def _is_editorial_joke_line(line: str) -> bool:
+    """Return True if a line looks like an editorial joke/aside (not news content)."""
+    if not line or not line.strip():
+        return False
+    line_lower = line.lower()
+    # A line is a "joke line" if it contains a known editorial marker
+    # AND is relatively short (jokes are usually 1 short sentence)
+    for marker in _EDITORIAL_JOKE_MARKERS:
+        if marker.lower() in line_lower:
+            # But not if the line is long and news-like (e.g. a quote from a person named Марина)
+            # Short joke lines are typically < 150 chars
+            if len(line.strip()) < 180:
+                return True
+    return False
+
+
+def _trim_excessive_jokes(text: str) -> str:
+    """If a post has more than ONE editorial-joke line, keep only the first
+    and remove the rest. This ensures jokes never dominate the post.
+
+    Called after tone_joke injection. Posts with 0 or 1 joke line are unchanged.
+    Posts with 2+ joke lines keep only the first joke line (typically the most
+    relevant one, generated organically by the AI).
+    """
+    if not text:
+        return text
+
+    lines = text.split('\n')
+    joke_line_indices = [i for i, line in enumerate(lines) if _is_editorial_joke_line(line)]
+
+    # If 0 or 1 joke lines — no trimming needed
+    if len(joke_line_indices) <= 1:
+        return text
+
+    # Keep only the FIRST joke line, remove the rest
+    first_joke = joke_line_indices[0]
+    # Build new lines list: keep all non-joke lines + the first joke line
+    new_lines = []
+    for i, line in enumerate(lines):
+        if i == first_joke:
+            new_lines.append(line)  # keep the first joke
+        elif i in joke_line_indices:
+            # skip subsequent joke lines
+            logger.info(
+                f"Trimmed excessive joke line #{i}: {line[:60]}... "
+                f"(post had {len(joke_line_indices)} joke lines)"
+            )
+            continue
+        else:
+            new_lines.append(line)
+
+    text = '\n'.join(new_lines)
+    # Clean up any triple-newlines left by removed lines
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
 def _validate_post_text(text: str) -> bool:
     """Validate post text before sending to channel.
     
@@ -1323,10 +1407,14 @@ class ChannelManager:
             "7. Если новость НЕ про автомобили — верни пустой ответ.\n"
             "8. НЕ ДОБАВЛЯЙ никаких редакционных заметок, пометок, обсуждений. ТОЛЬКО текст для читателей.\n"
             "9. БУДЬ КОМПАКТЕН: 500-900 символов — оптимально. Пост с фото ограничен 1024 символами. "
-            "Старайся уложиться в 950 символов включая подпись. "
-            "МАКСИМУМ ОДИН персонаж редакции за пост.\n"
+            "Старайся уложиться в 950 символов включая подпись.\n"
             "10. УНИКАЛИЗАЦИЯ: измени структуру, начни с другого факта, используй другие слова. "
             "Не повторяй формулировки источника — напиши СВОИМИ словами.\n"
+            "11. ГЛАВНОЕ — ИНФОРМАТИВНОСТЬ: пост должен нести ФАКТЫ и КОНТЕКСТ. "
+            "Шутки от редакции и упоминания персонажей (Лёха/Димон/Марина/Кеша/Помидор) — "
+            "МАКСИМУМ ОДНА короткая фраза за пост, и ТОЛЬКО если органично вписывается. "
+            "В большинстве постов — НИ ОДНОЙ шутки, только экспертное мнение и факты. "
+            "НЕ РАЗДУВАЙ пост шутками — лучше дай больше полезной информации.\n"
         )
         # Channel context removed — was causing AI to discuss editorial decisions
         # in the post text instead of just picking a different topic.
@@ -1337,13 +1425,16 @@ class ChannelManager:
         if translation_hint:
             extra_instructions += f"\n{translation_hint}\n"
 
-        # ── Editorial aside / joke — adds personality ──
+        # ── Editorial aside / joke — adds personality (RARELY, ~7.5% of posts) ──
+        # v2: get_editorial_aside() now returns empty 92.5% of the time.
+        # When it DOES return a joke, instruct the AI to use it sparingly.
         editorial_aside = get_editorial_aside()
         if editorial_aside:
             extra_instructions += (
-                f"\nРЕДАКЦИОННАЯ ШУТКА (вставь её органично в текст, если уместно): "
+                f"\nРЕДАКЦИОННАЯ ШУТКА (НЕ ОБЯЗАТЕЛЬНА — вставь ТОЛЬКО если идеально подходит): "
                 f"«{editorial_aside}»\n"
-                "Не вставляй насильно — только если это естественно вписывается в текст.\n"
+                "Если шутка не вписывается органично — НЕ вставляй её. "
+                "Лучше больше фактов и контекста, чем лишний юмор.\n"
             )
 
         if news_item.get("lang") and news_item.get("lang") != "ru":
@@ -1429,6 +1520,12 @@ class ChannelManager:
                 logger.info(f"Added tone joke for {tone_value}")
             else:
                 logger.debug(f"Skipped tone joke — post already {len(post_text)} chars (limit {char_limit})")
+
+        # ── EXCESSIVE-JOKE FILTER: keep at most ONE joke line per post ──
+        # This ensures posts stay INFORMATIVE — jokes never dominate the content.
+        # Called AFTER tone_joke injection so it can trim both AI-written jokes
+        # AND the appended tone_joke if there are 2+ joke lines.
+        post_text = _trim_excessive_jokes(post_text)
 
         # Validate before posting
         if not _validate_post_text(post_text):
