@@ -2272,6 +2272,105 @@ class ChannelManager:
                 logger.error(f"Error posting partner content without formatting: {e2}")
                 return False
 
+    async def _download_shop_image(self, image_url: str) -> Optional[bytes]:
+        """Download a product image from sochiautoparts.ru shop suppliers.
+
+        Uses BROWSER-LIKE headers (User-Agent, Accept, Referer) because many
+        supplier CDNs (bs-tyres.ru, etc.) block requests with the default
+        python-httpx User-Agent from data center IPs (GitHub Actions).
+
+        This is SEPARATE from _download_partner_image (which downloads partner
+        logos from admitad CDN — those work without browser headers).
+
+        Handles:
+        - 200 OK → return image bytes
+        - 403/429/404 → log warning, return None (will trigger text-only fallback)
+        - Timeout/Network error → log warning, return None
+        - SVG → convert to PNG (if cairosvg available)
+        - Magic byte validation (skip non-image responses)
+        """
+        if not image_url:
+            return None
+
+        # Browser-like headers — critical for bypassing CDN blocks
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
+            "Referer": "https://sochiautoparts.ru/",
+            "Sec-Fetch-Dest": "image",
+            "Sec-Fetch-Mode": "no-cors",
+            "Sec-Fetch-Site": "cross-site",
+        }
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=20.0,
+                follow_redirects=True,
+                headers=headers,
+            ) as client:
+                response = await client.get(image_url)
+                if response.status_code != 200:
+                    logger.warning(
+                        f"Shop image download FAILED: HTTP {response.status_code} "
+                        f"for {image_url[:80]}"
+                    )
+                    return None
+
+                content = response.content
+                content_type = response.headers.get("content-type", "")
+
+                # ── Handle SVG → PNG conversion ──
+                is_svg = (
+                    "svg" in content_type.lower() or
+                    b"<svg" in content[:1000] or
+                    image_url.lower().endswith(".svg")
+                )
+                if is_svg:
+                    try:
+                        import cairosvg
+                        png_data = cairosvg.svg2png(bytestring=content, output_width=512)
+                        if png_data and len(png_data) > 1000:
+                            return png_data
+                        return None
+                    except Exception as e:
+                        logger.debug(f"Shop SVG conversion failed: {e}")
+                        return None
+
+                # Size check — skip tiny responses (likely error pages)
+                if len(content) < 2000:
+                    logger.debug(f"Shop image too small ({len(content)} bytes): {image_url[:60]}")
+                    return None
+
+                # Magic byte validation — verify it's actually an image
+                if not (
+                    content[:3] == b"\xff\xd8\xff" or  # JPEG
+                    content[:4] == b"\x89PNG" or         # PNG
+                    (content[:4] == b"RIFF" and content[8:12] == b"WEBP") or  # WebP
+                    content[:6] in (b"GIF87a", b"GIF89a")  # GIF
+                ):
+                    # Some servers return image/jpeg but with octet-stream content-type
+                    # — trust magic bytes over content-type
+                    if not any(ft in content_type for ft in ["image/png", "image/jpeg", "image/gif", "image/webp"]):
+                        logger.debug(
+                            f"Shop image not a valid image (content-type={content_type}, "
+                            f"magic={content[:4]!r}): {image_url[:60]}"
+                        )
+                        return None
+
+                return content
+
+        except httpx.TimeoutException:
+            logger.warning(f"Shop image download TIMEOUT: {image_url[:80]}")
+            return None
+        except Exception as e:
+            logger.warning(f"Shop image download error: {e} — {image_url[:60]}")
+            return None
+
     async def post_product_selection(
         self,
         category_label: Optional[str] = None,
@@ -2416,39 +2515,59 @@ class ChannelManager:
         caption = "\n".join(lines)
         caption = _enforce_char_limit(caption, has_media=True)
 
-        # ── Download product images ──
-        # Use the existing _download_partner_image pattern (httpx + bytes)
+        # ── Download product images IN PARALLEL ──
+        # Use _download_shop_image (browser-like headers) — NOT _download_partner_image,
+        # because supplier CDNs (bs-tyres.ru, etc.) block default python-httpx UA.
+        # Parallel download: all images at once (bounded by len(products), max 10).
+        # This is 5-10x faster than sequential for 5+ images.
+        image_urls = [p["image_url"] for p in products if p.get("image_url")]
+        image_results = await asyncio.gather(
+            *[self._download_shop_image(url) for url in image_urls],
+            return_exceptions=True,
+        )
+
         media_group: List[InputMediaPhoto] = []
         first_photo = True
         downloaded_count = 0
-        for p in products:
-            img_url = p["image_url"]
-            if not img_url:
+        download_failures = 0
+        for i, result in enumerate(image_results):
+            if isinstance(result, Exception):
+                logger.warning(f"Shop selection: image download exception: {result}")
+                download_failures += 1
                 continue
-            try:
-                img_bytes = await self._download_partner_image(img_url)
-                if not img_bytes:
-                    continue
-                if first_photo:
-                    media_group.append(InputMediaPhoto(
-                        media=img_bytes,
-                        caption=caption,
-                        parse_mode=ParseMode.HTML,
-                    ))
-                    first_photo = False
-                else:
-                    media_group.append(InputMediaPhoto(media=img_bytes))
-                downloaded_count += 1
-            except Exception as e:
-                logger.debug(f"Shop selection: image download failed for {p['sku']}: {e}")
+            if not result:
+                download_failures += 1
                 continue
+            if first_photo:
+                media_group.append(InputMediaPhoto(
+                    media=result,
+                    caption=caption,
+                    parse_mode=ParseMode.HTML,
+                ))
+                first_photo = False
+            else:
+                media_group.append(InputMediaPhoto(media=result))
+            downloaded_count += 1
 
+        logger.info(
+            f"Shop selection: {downloaded_count} images downloaded, "
+            f"{download_failures} failed, {len(products)} total products"
+        )
+
+        # ── FALLBACK: text-only post if all images failed ──
+        # Even without photos, the selection is still valuable (product list + affiliate links).
+        # We build a longer text post with clickable links to each product.
         if downloaded_count < 2:
             logger.warning(
-                f"Shop selection: only {downloaded_count} images downloaded, "
-                f"need at least 2 for an album — skipping"
+                f"Shop selection: only {downloaded_count} images downloaded "
+                f"({download_failures} failed) — falling back to TEXT-ONLY post"
             )
-            return False
+            return await self._post_selection_text_only(
+                products=products,
+                intro=intro,
+                category_label=category_label,
+                trigger_reason=trigger_reason,
+            )
 
         # ── Send the album ──
         # Apply manual rate-limiting (same pattern as _rate_limited_send but for send_media_group)
@@ -2471,7 +2590,13 @@ class ChannelManager:
             first_msg_id = messages[0].message_id if hasattr(messages[0], "message_id") else 0
         except Exception as e:
             logger.error(f"Shop selection: send_media_group failed: {e}")
-            return False
+            # Last resort: try text-only
+            return await self._post_selection_text_only(
+                products=products,
+                intro=intro,
+                category_label=category_label,
+                trigger_reason=trigger_reason,
+            )
 
         # ── Add reaction ──
         try:
@@ -2481,6 +2606,7 @@ class ChannelManager:
 
         # ── Record in DB ──
         try:
+            # Mark ALL selected products as posted (even those whose images failed)
             for p in products:
                 await mark_shop_product_posted(p["sku"])
             await add_shop_selection(
@@ -2500,6 +2626,102 @@ class ChannelManager:
 
         logger.info(
             f"Shop selection posted: '{category_label}' × {downloaded_count} products "
+            f"(msg_id={first_msg_id}, reason={trigger_reason})"
+        )
+        return True
+
+    async def _post_selection_text_only(
+        self,
+        products: List[Dict],
+        intro: str,
+        category_label: str,
+        trigger_reason: str,
+    ) -> bool:
+        """Fallback: post a text-only product selection with clickable affiliate links.
+
+        Used when image downloads fail (CDN blocks, timeouts, etc.).
+        Builds a longer text post (up to 4096 chars) with:
+        - AI intro
+        - Numbered product list with brand, name, price, and SHORTENED affiliate URL
+        - Shop catalog link
+        - Footer
+
+        Each product line includes a clickable link (Telegram auto-links URLs).
+        """
+        if not self._bot or not products:
+            return False
+
+        # Build text-only content (4096 char limit, no media)
+        footer = "\n\nАвтор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
+        shop_link = "\n🛒 Весь каталог: sochiautoparts.ru/shop"
+
+        lines = [intro, ""]
+        for i, p in enumerate(products, 1):
+            price_int = int(p["price"]) if p["price"] else 0
+            brand = (p["brand"] + " ") if p["brand"] else ""
+            name = p["name"] or "Товар"
+            if len(name) > 45:
+                name = _smart_truncate(name, 45)
+            # Use the product page URL (shorter + cleaner than admitad URL)
+            # If product_url is missing, fall back to affiliate_url
+            link = p.get("product_url") or p.get("affiliate_url") or ""
+            if link:
+                lines.append(f"{i}. {brand}{name} — {price_int} ₽\n   {link}")
+            else:
+                lines.append(f"{i}. {brand}{name} — {price_int} ₽")
+
+        lines.append(shop_link)
+        lines.append(footer.lstrip("\n"))
+        text = "\n".join(lines)
+        text = _enforce_char_limit(text, has_media=False)
+
+        try:
+            chat_id_int = int(config.CHANNEL_ID)
+            now = time.time()
+            last_sent = self._last_message_times.get(chat_id_int, 0)
+            gap = now - last_sent
+            if gap < self._MIN_MESSAGE_GAP:
+                await asyncio.sleep(self._MIN_MESSAGE_GAP - gap)
+
+            sent = await self._bot.send_message(
+                chat_id=chat_id_int,
+                text=text,
+                parse_mode=ParseMode.HTML,
+                disable_notification=True,
+            )
+            self._last_message_times[chat_id_int] = time.time()
+            first_msg_id = sent.message_id
+        except Exception as e:
+            logger.error(f"Shop selection text-only fallback failed: {e}")
+            return False
+
+        # Add reaction
+        try:
+            await self._add_reaction(config.CHANNEL_ID, first_msg_id)
+        except Exception:
+            pass
+
+        # Record in DB
+        try:
+            for p in products:
+                await mark_shop_product_posted(p["sku"])
+            await add_shop_selection(
+                message_id=first_msg_id,
+                category=category_label,
+                product_count=len(products),
+                caption=text[:500],
+                trigger_reason=f"{trigger_reason}_text_only",
+            )
+            await add_channel_post(
+                content=text,
+                message_id=first_msg_id,
+                post_type="shop_selection_text",
+            )
+        except Exception as e:
+            logger.debug(f"Shop selection text-only DB record error: {e}")
+
+        logger.info(
+            f"Shop selection (TEXT-ONLY) posted: '{category_label}' × {len(products)} products "
             f"(msg_id={first_msg_id}, reason={trigger_reason})"
         )
         return True
