@@ -2447,7 +2447,8 @@ class ChannelManager:
         # Cap to 10 (Telegram media group limit)
         products = products[:10]
 
-        # ── Generate AI intro for the selection ──
+        # ── Generate AI intro for the selection (with HARD TIMEOUT) ──
+        t_intro_start = time.time()
         product_lines = []
         for i, p in enumerate(products, 1):
             price_int = int(p["price"]) if p["price"] else 0
@@ -2455,6 +2456,12 @@ class ChannelManager:
             name = p["name"] or ""
             product_lines.append(f"{i}. {brand} {name} — {price_int} ₽".strip())
         products_block = "\n".join(product_lines)
+
+        # Static fallback intro — used if AI is busy/unavailable/times out
+        static_intro = (
+            f"Подобрала {len(products)} товаров из категории «{category_label}» — "
+            f"посмотри, может пригодится."
+        )
 
         intro_prompt = (
             f"Ты Ася — автоэксперт канала @sochiautoparts. "
@@ -2470,22 +2477,36 @@ class ChannelManager:
             f"- Твой ответ — ТОЛЬКО текст вступления, без заголовков и пояснений\n"
         )
 
+        # AI intro with HARD TIMEOUT — 15 seconds max.
+        # If local model is busy and cloud is on cooldown, the call can hang
+        # for 30+ seconds (local model wait + cloud retry). We use asyncio.wait_for
+        # to enforce a strict 15s deadline and fall back to static intro.
+        intro = static_intro
         try:
-            response = await ai_router.generate_channel_post(
-                topic=f"Подборка товаров: {category_label}",
-                source_text=products_block,
-                extra_instructions=intro_prompt,
-                has_media=True,
-                media_count=len(products),
+            response = await asyncio.wait_for(
+                ai_router.generate_channel_post(
+                    topic=f"Подборка товаров: {category_label}",
+                    source_text=products_block,
+                    extra_instructions=intro_prompt,
+                    has_media=True,
+                    media_count=len(products),
+                ),
+                timeout=15.0,
             )
             if response and not response.error and response.text:
                 intro = response.text.strip()
+                logger.info(f"Shop selection: AI intro OK in {time.time()-t_intro_start:.1f}s")
             else:
-                intro = f"Подобрала {len(products)} товаров из категории «{category_label}» — посмотри, может пригодится."
+                logger.warning(
+                    f"Shop selection: AI intro returned empty/error in "
+                    f"{time.time()-t_intro_start:.1f}s — using static intro"
+                )
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"Shop selection: AI intro TIMEOUT after 15s — using static intro"
+            )
         except Exception as e:
-            logger.warning(f"Shop selection AI intro failed: {e}")
-            intro = f"Подобрала {len(products)} товаров из категории «{category_label}» — посмотри, может пригодиться."
-
+            logger.warning(f"Shop selection: AI intro failed ({e}) — using static intro")
         # Clean intro
         intro = re.sub(r"<[^>]+>", "", intro)
         intro = re.sub(r"\*\*.*?\*\*", "", intro)
@@ -2520,6 +2541,7 @@ class ChannelManager:
         # because supplier CDNs (bs-tyres.ru, etc.) block default python-httpx UA.
         # Parallel download: all images at once (bounded by len(products), max 10).
         # This is 5-10x faster than sequential for 5+ images.
+        t_img_start = time.time()
         image_urls = [p["image_url"] for p in products if p.get("image_url")]
         image_results = await asyncio.gather(
             *[self._download_shop_image(url) for url in image_urls],
@@ -2551,7 +2573,8 @@ class ChannelManager:
 
         logger.info(
             f"Shop selection: {downloaded_count} images downloaded, "
-            f"{download_failures} failed, {len(products)} total products"
+            f"{download_failures} failed, {len(products)} total products "
+            f"(took {time.time()-t_img_start:.1f}s)"
         )
 
         # ── FALLBACK: text-only post if all images failed ──

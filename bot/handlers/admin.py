@@ -548,22 +548,33 @@ async def cmd_selection(message: Message):
     )
 
     from channel import channel_manager
-    posted = await channel_manager.post_product_selection(
-        category_label=category_label,
-        max_price=max_price,
-        count=5,
-        trigger_reason="manual",
-    )
+    try:
+        posted = await channel_manager.post_product_selection(
+            category_label=category_label,
+            max_price=max_price,
+            count=5,
+            trigger_reason="manual",
+        )
 
-    if posted:
-        await message.answer("✅ Подборка опубликована в канале!")
-    else:
+        if posted:
+            await message.answer("✅ Подборка опубликована в канале!")
+        else:
+            await message.answer(
+                "❌ Не получилось. Возможные причины:\n"
+                "• Нет свежих товаров в этой категории (запусти /shop_refresh)\n"
+                "• Достигнут дневной лимит подборок (8/день)\n"
+                "• Не удалось скачать картинки товаров\n"
+                "Посмотри /shop_status для диагностики."
+            )
+    except Exception as e:
+        import logging
+        logging.getLogger("asya.handlers.admin").error(
+            f"cmd_selection crashed: {e}", exc_info=True
+        )
         await message.answer(
-            "❌ Не получилось. Возможные причины:\n"
-            "• Нет свежих товаров в этой категории (запусти /shop_refresh)\n"
-            "• Достигнут дневной лимит подборок\n"
-            "• Не удалось скачать картинки товаров\n"
-            "Посмотри /shop_status для диагностики."
+            f"❌ Ошибка при публикации подборки: {e}\n\n"
+            f"Попробуй /shop_refresh чтобы обновить каталог, "
+            f"затем /selection снова."
         )
 
 
