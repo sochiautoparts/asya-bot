@@ -620,14 +620,23 @@ async def main():
 
     # Include all handler routers — include EACH sub-router individually
     # to avoid "Router object is not iterable" error in some aiogram versions
+    #
+    # CRITICAL: admin_router MUST be registered BEFORE chat_router.
+    # In aiogram 3.x routers are checked in registration order. chat_router
+    # has a catch-all `@chat_router.message(F.text)` handler that would
+    # swallow admin commands (/shop_status, /selection, /shop_refresh,
+    # /admin, /post, /partner_post, /news, /search, /status, /models, /switch,
+    # /reload_partners) and route them to the AI chat handler — which then
+    # generates a generic AI response instead of executing the command.
+    # Putting admin_router first ensures Command() filters run before F.text.
     try:
         from bot.handlers.chat import chat_router
         from bot.handlers.admin import admin_router
         from bot.handlers.inline import inline_router
-        dp.include_router(chat_router)
-        dp.include_router(admin_router)
-        dp.include_router(inline_router)
-        logger.info("Handler routers included successfully")
+        dp.include_router(admin_router)   # ← FIRST (Command() filters)
+        dp.include_router(chat_router)    # ← SECOND (F.text catch-all)
+        dp.include_router(inline_router)  # ← THIRD (inline queries)
+        logger.info("Handler routers included (admin → chat → inline)")
     except Exception as e:
         logger.critical(f"Failed to include handler routers: {e}")
         raise

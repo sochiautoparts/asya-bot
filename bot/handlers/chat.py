@@ -707,6 +707,28 @@ async def handle_text(message: Message):
     if not text:
         return
 
+    # ── Guard: unknown commands should NOT be routed to AI ──
+    # If a message starts with '/' but no admin/chat handler matched it,
+    # it means the command is either unknown or the user is not admin.
+    # Sending it to the AI would produce a confusing AI-generated response
+    # (e.g. "/shop_status" → "Лёха поставил машину на ремонт...").
+    # Instead, show a brief help message.
+    if text.startswith("/"):
+        # Extract command name (first word, strip @bot_mention suffix)
+        cmd = text.split()[0].lower().split("@")[0]
+        # List of known commands that SHOULD have been handled by now
+        known_cmds = {
+            "/start", "/help", "/app", "/clear", "/diagnostic", "/parts",
+            "/normal", "/mycar", "/delcar", "/mileage",
+        }
+        if cmd not in known_cmds:
+            # Unknown command — don't send to AI, show help instead
+            await message.answer(
+                f"Не знаю команду {cmd}. Напиши /help — покажу что умею. "
+                f"Если нужна подборка товаров — /selection"
+            )
+            return
+
     await _process_text_message(message, text)
 
 
