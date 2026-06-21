@@ -108,8 +108,10 @@ class BackgroundTasks:
             asyncio.create_task(self._morning_greeting(), name="morning_greeting"),
             asyncio.create_task(self._news_fetcher(), name="news_fetcher"),
             asyncio.create_task(self._channel_poster(), name="channel_poster"),
+            asyncio.create_task(self._shop_poster(), name="shop_poster"),
+            asyncio.create_task(self._shop_refresher(), name="shop_refresher"),
         ]
-        logger.info("Background tasks started")
+        logger.info("Background tasks started (news + posts + shop selections + shop refresh)")
 
     async def stop(self) -> None:
         """Stop all background tasks."""
@@ -342,6 +344,199 @@ class BackgroundTasks:
                     break
                 await asyncio.sleep(1)
 
+    # ── Shop selection poster — 4 times per day at fixed Moscow times ──
+    # Schedule (Europe/Moscow):
+    #   09:00, 13:00, 17:00, 21:00
+    # Bot may restart every ~5h (GitHub Actions workflow), so we check every 5 min
+    # and fire if we're within 30 min of a slot AND haven't posted that slot today.
+    # Uses /tmp file markers keyed by date+slot to dedup across restarts.
+
+    SHOP_SELECTION_SLOTS = [
+        (9, 0),    # 09:00 Moscow
+        (13, 0),   # 13:00 Moscow
+        (17, 0),   # 17:00 Moscow
+        (21, 0),   # 21:00 Moscow
+    ]
+    SHOP_SLOT_WINDOW_MIN = 30  # Fire if within ±30 min of slot time
+    SHOP_CHECK_INTERVAL = 300  # Check every 5 minutes
+
+    async def _shop_poster(self) -> None:
+        """Post product selections 4 times per day at fixed Moscow times.
+
+        Strategy:
+          - Loop forever, checking every 5 min if we're near a scheduled slot
+          - For each slot, mark a /tmp file when fired so we don't fire twice
+            (even across bot restarts within the same day)
+          - On startup, fire any missed slot from the last 2 hours (catch-up)
+        """
+        await asyncio.sleep(60)  # Wait for other systems to warm up
+        logger.info(
+            f"Shop poster started — 4 selections/day at "
+            f"{', '.join(f'{h:02d}:{m:02d}' for h, m in self.SHOP_SELECTION_SLOTS)} Moscow"
+        )
+
+        while self._running:
+            try:
+                await self._check_and_post_shop_selection()
+            except Exception as e:
+                logger.error(f"Shop poster error: {e}", exc_info=True)
+
+            # Wait until next check
+            for _ in range(self.SHOP_CHECK_INTERVAL):
+                if not self._running:
+                    break
+                await asyncio.sleep(1)
+
+    async def _check_and_post_shop_selection(self) -> None:
+        """Check if we should fire a shop selection now, and fire if so."""
+        import os
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        from bot.database import get_last_shop_selection_time
+        from channel import channel_manager
+
+        now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
+        now_minutes = now_msk.hour * 60 + now_msk.minute
+        today_str = now_msk.strftime("%Y-%m-%d")
+
+        # Find the closest slot we should fire
+        slot_to_fire = None
+        for slot_idx, (h, m) in enumerate(self.SHOP_SELECTION_SLOTS):
+            slot_minutes = h * 60 + m
+            diff = now_minutes - slot_minutes
+            # Fire if we're 0..30 min AFTER the slot time (don't fire BEFORE)
+            if 0 <= diff <= self.SHOP_SLOT_WINDOW_MIN:
+                marker_file = f"/tmp/asya_shop_slot_{today_str}_{slot_idx}"
+                if os.path.exists(marker_file):
+                    # Already fired this slot today
+                    continue
+                slot_to_fire = (slot_idx, marker_file)
+                break
+
+        if slot_to_fire is None:
+            return
+
+        slot_idx, marker_file = slot_to_fire
+
+        # ── Catch-up: if the DB shows no selection in last 2h, fire even if we're
+        # past the 30-min window (e.g. bot was offline at slot time) ──
+        # We already check above; if we're here, we're within the window.
+
+        # Don't fire if a selection was posted in the last 90 min (avoid bursts
+        # when the 30-min window overlaps with a recent post)
+        last_post_time = await get_last_shop_selection_time()
+        if last_post_time > 0:
+            import time as _time
+            elapsed = _time.time() - last_post_time
+            if elapsed < 5400:  # 90 min
+                logger.debug(
+                    f"Shop selection: last post was {int(elapsed/60)} min ago, "
+                    f"skipping slot {slot_idx} (too soon)"
+                )
+                # Mark the slot as fired so we don't keep retrying
+                try:
+                    with open(marker_file, "w") as f:
+                        f.write(str(_time.time()))
+                except Exception:
+                    pass
+                return
+
+        # Mark BEFORE firing (so a crash mid-fire doesn't cause a retry storm)
+        import time as _time
+        try:
+            with open(marker_file, "w") as f:
+                f.write(str(_time.time()))
+        except Exception:
+            pass
+
+        # Make sure we have at least some products in the DB
+        from bot.database import get_shop_stats
+        stats = await get_shop_stats()
+        if stats["total_products"] < 10:
+            logger.warning(
+                f"Shop selection: only {stats['total_products']} products in DB, "
+                f"refreshing catalog first..."
+            )
+            try:
+                from bot.shop import refresh_all_categories_light
+                await refresh_all_categories_light(max_per_category=8)
+            except Exception as e:
+                logger.error(f"Shop catalog refresh failed: {e}")
+
+        # Fire!
+        logger.info(f"Shop selection slot {slot_idx} firing (Moscow {now_msk.strftime('%H:%M')})")
+        try:
+            posted = await channel_manager.post_product_selection(
+                category_label=None,  # Random category
+                count=5,
+                trigger_reason="scheduled",
+            )
+            if posted:
+                logger.info(f"Shop selection slot {slot_idx} posted successfully")
+            else:
+                logger.warning(f"Shop selection slot {slot_idx} did not post (no products?)")
+                # Don't unmark — try again next slot
+        except Exception as e:
+            logger.error(f"Shop selection slot {slot_idx} failed: {e}", exc_info=True)
+
+    async def _shop_refresher(self) -> None:
+        """Periodically refresh the shop catalog.
+
+        Schedule:
+          - Initial refresh 5 min after startup (if DB is empty or stale)
+          - Then every 6 hours, refresh one random category (rotating)
+          - Every 24 cycles (~6 days), cleanup old products
+        """
+        await asyncio.sleep(300)  # 5 min after startup
+
+        from bot.shop import refresh_random_category, refresh_all_categories_light
+        from bot.database import get_shop_stats, cleanup_old_shop_products
+
+        # Initial check: if DB has fewer than 50 products, do a light refresh of all categories
+        try:
+            stats = await get_shop_stats()
+            if stats["total_products"] < 50:
+                logger.info(
+                    f"Shop refresher: DB has only {stats['total_products']} products, "
+                    f"doing initial light refresh of all categories"
+                )
+                try:
+                    results = await refresh_all_categories_light(max_per_category=8)
+                    total_new = sum(results.values())
+                    logger.info(
+                        f"Shop refresher: initial refresh done — {total_new} new products "
+                        f"across {len(results)} categories"
+                    )
+                except Exception as e:
+                    logger.error(f"Shop refresher: initial refresh failed: {e}")
+        except Exception as e:
+            logger.warning(f"Shop refresher: initial check failed: {e}")
+
+        cycle_count = 0
+        while self._running:
+            cycle_count += 1
+            try:
+                slug, new_count = await refresh_random_category()
+                logger.info(f"Shop refresher: cycle {cycle_count} refreshed '{slug}' (+{new_count} new)")
+            except Exception as e:
+                logger.warning(f"Shop refresher: cycle {cycle_count} failed: {e}")
+
+            # Every 24 cycles (~6 days at 6h interval), cleanup old products
+            if cycle_count % 24 == 0:
+                try:
+                    removed = await cleanup_old_shop_products(max_age_days=14)
+                    if removed > 0:
+                        logger.info(f"Shop refresher: cleaned up {removed} stale products")
+                except Exception as e:
+                    logger.debug(f"Shop refresher: cleanup failed: {e}")
+
+            # Wait 6 hours
+            interval = 6 * 3600
+            for _ in range(interval):
+                if not self._running:
+                    break
+                await asyncio.sleep(1)
+
 
 # ── Main Entry Point ──────────────────────────────────────────────────────────
 
@@ -436,6 +631,16 @@ async def main():
     except Exception as e:
         logger.critical(f"Failed to include handler routers: {e}")
         raise
+
+    # ── Attach Guest Mode middleware (Bot API 10.0 — May 2026) ──
+    # Lets the bot receive and reply to messages in chats it is NOT a member of.
+    # Implemented via raw HTTP because aiogram 3.15 doesn't natively support
+    # the new guest_message field on Update.
+    try:
+        from bot.guest_mode import attach_guest_mode
+        attach_guest_mode(dp, bot)
+    except Exception as e:
+        logger.warning(f"Guest Mode attachment failed (non-fatal): {e}")
 
     # Start background tasks
     bg_tasks = BackgroundTasks(bot)

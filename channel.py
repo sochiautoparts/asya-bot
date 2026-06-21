@@ -34,9 +34,12 @@ from bot.database import (
     is_duplicate_post, add_post_fingerprint, cleanup_old_fingerprints,
     get_recent_post_titles, DB_PATH,
     is_url_already_posted, save_posted_url,
+    get_unposted_shop_products, mark_shop_product_posted, add_shop_selection,
+    get_today_shop_selection_count,
 )
 from ai.router import ai_router
 from bot.partners import partner_manager
+from bot.shop import SHOP_CATEGORIES, category_for_text
 from bot.content_engine import (
     get_best_news_item, get_date_context,
     _is_topic_covered, _extract_entities, _score_interest,
@@ -2269,6 +2272,238 @@ class ChannelManager:
                 logger.error(f"Error posting partner content without formatting: {e2}")
                 return False
 
+    async def post_product_selection(
+        self,
+        category_label: Optional[str] = None,
+        max_price: Optional[float] = None,
+        count: int = 5,
+        trigger_reason: str = "scheduled",
+    ) -> bool:
+        """Post a product selection to the channel as an album with photos.
+
+        Picks `count` fresh (unposted) products from the shop DB, downloads
+        their images, builds a single send_media_group album with a shared
+        caption (intro + numbered list of products with prices + footer),
+        and posts to the channel.
+
+        Args:
+            category_label: Russian category name (e.g. "Зимние шины"). If None,
+                a random category is picked from SHOP_CATEGORIES.
+            max_price: Optional maximum price filter (in RUR).
+            count: Number of products to include (1-10, Telegram limit).
+            trigger_reason: 'scheduled' | 'comment' | 'manual' (for DB record).
+
+        Returns True if a selection was posted successfully.
+        """
+        if not self._bot:
+            logger.error("ChannelManager: bot not set, cannot post selection")
+            return False
+
+        # Daily cap — 4 scheduled + some margin for manual/comment
+        today_count = await get_today_shop_selection_count()
+        if today_count >= 8:
+            logger.info(f"Shop selection: daily limit reached ({today_count})")
+            return False
+
+        # Pick a category if none specified
+        chosen_cat = None
+        if not category_label:
+            # Try each category in random order, pick the first one with enough products
+            cats = list(SHOP_CATEGORIES)
+            random.shuffle(cats)
+            for cat in cats:
+                products = await get_unposted_shop_products(
+                    category_label=cat["label"],
+                    limit=count,
+                    max_price=max_price,
+                    randomize=True,
+                )
+                if len(products) >= min(count, 3):
+                    chosen_cat = cat
+                    break
+            if not chosen_cat:
+                logger.info("Shop selection: no category has enough fresh products")
+                return False
+            category_label = chosen_cat["label"]
+        else:
+            # Find the matching SHOP_CATEGORIES entry
+            for cat in SHOP_CATEGORIES:
+                if cat["label"] == category_label:
+                    chosen_cat = cat
+                    break
+            if not chosen_cat:
+                chosen_cat = {"slug": "", "label": category_label}
+
+        # Fetch products
+        products = await get_unposted_shop_products(
+            category_label=category_label,
+            limit=count,
+            max_price=max_price,
+            randomize=True,
+        )
+        if len(products) < 2:
+            logger.info(f"Shop selection: only {len(products)} fresh products in '{category_label}', skipping")
+            return False
+
+        # Cap to 10 (Telegram media group limit)
+        products = products[:10]
+
+        # ── Generate AI intro for the selection ──
+        product_lines = []
+        for i, p in enumerate(products, 1):
+            price_int = int(p["price"]) if p["price"] else 0
+            brand = p["brand"] or ""
+            name = p["name"] or ""
+            product_lines.append(f"{i}. {brand} {name} — {price_int} ₽".strip())
+        products_block = "\n".join(product_lines)
+
+        intro_prompt = (
+            f"Ты Ася — автоэксперт канала @sochiautoparts. "
+            f"Сейчас готовишь подборку товаров для канала.\n\n"
+            f"Категория: {category_label}\n"
+            f"Товаров в подборке: {len(products)}\n"
+            f"Список товаров (название — цена):\n{products_block}\n\n"
+            f"Напиши КРАТКОЕ живое вступление к подборке (200-400 символов):\n"
+            f"- Почему именно эта категория сейчас актуальна\n"
+            f"- На что обратить внимание при выборе\n"
+            f"- Без markdown, без буллетов, обычный текст\n"
+            f"- Без рекламы конкретного бренда\n"
+            f"- Твой ответ — ТОЛЬКО текст вступления, без заголовков и пояснений\n"
+        )
+
+        try:
+            response = await ai_router.generate_channel_post(
+                topic=f"Подборка товаров: {category_label}",
+                source_text=products_block,
+                extra_instructions=intro_prompt,
+                has_media=True,
+                media_count=len(products),
+            )
+            if response and not response.error and response.text:
+                intro = response.text.strip()
+            else:
+                intro = f"Подобрала {len(products)} товаров из категории «{category_label}» — посмотри, может пригодится."
+        except Exception as e:
+            logger.warning(f"Shop selection AI intro failed: {e}")
+            intro = f"Подобрала {len(products)} товаров из категории «{category_label}» — посмотри, может пригодиться."
+
+        # Clean intro
+        intro = re.sub(r"<[^>]+>", "", intro)
+        intro = re.sub(r"\*\*.*?\*\*", "", intro)
+        if len(intro) > 400:
+            intro = _smart_truncate(intro, 400)
+
+        # ── Build the caption ──
+        # Telegram caption limit for media groups is 1024 chars (only first photo
+        # caption is shown, but we put everything in the first one).
+        footer = "\n\nАвтор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
+        shop_link = "\n🛒 Весь каталог: sochiautoparts.ru/shop"
+
+        # Format each product line compactly: "1. Brand Name — 4130 ₽"
+        # Plus a short link to the affiliate URL (only first 5 to fit in caption)
+        lines = [intro, ""]
+        for i, p in enumerate(products, 1):
+            price_int = int(p["price"]) if p["price"] else 0
+            brand = (p["brand"] + " ") if p["brand"] else ""
+            name = p["name"] or ""
+            # Truncate name to keep caption short
+            if len(name) > 50:
+                name = _smart_truncate(name, 50)
+            lines.append(f"{i}. {brand}{name} — {price_int} ₽")
+
+        lines.append(shop_link)
+        lines.append(footer.lstrip("\n"))
+        caption = "\n".join(lines)
+        caption = _enforce_char_limit(caption, has_media=True)
+
+        # ── Download product images ──
+        # Use the existing _download_partner_image pattern (httpx + bytes)
+        media_group: List[InputMediaPhoto] = []
+        first_photo = True
+        downloaded_count = 0
+        for p in products:
+            img_url = p["image_url"]
+            if not img_url:
+                continue
+            try:
+                img_bytes = await self._download_partner_image(img_url)
+                if not img_bytes:
+                    continue
+                if first_photo:
+                    media_group.append(InputMediaPhoto(
+                        media=img_bytes,
+                        caption=caption,
+                        parse_mode=ParseMode.HTML,
+                    ))
+                    first_photo = False
+                else:
+                    media_group.append(InputMediaPhoto(media=img_bytes))
+                downloaded_count += 1
+            except Exception as e:
+                logger.debug(f"Shop selection: image download failed for {p['sku']}: {e}")
+                continue
+
+        if downloaded_count < 2:
+            logger.warning(
+                f"Shop selection: only {downloaded_count} images downloaded, "
+                f"need at least 2 for an album — skipping"
+            )
+            return False
+
+        # ── Send the album ──
+        # Apply manual rate-limiting (same pattern as _rate_limited_send but for send_media_group)
+        try:
+            chat_id_int = int(config.CHANNEL_ID)
+            now = time.time()
+            last_sent = self._last_message_times.get(chat_id_int, 0)
+            gap = now - last_sent
+            if gap < self._MIN_MESSAGE_GAP:
+                await asyncio.sleep(self._MIN_MESSAGE_GAP - gap)
+            messages = await self._bot.send_media_group(
+                chat_id=chat_id_int,
+                media=media_group,
+                disable_notification=True,
+            )
+            self._last_message_times[chat_id_int] = time.time()
+            if not messages:
+                logger.error("Shop selection: send_media_group returned no messages")
+                return False
+            first_msg_id = messages[0].message_id if hasattr(messages[0], "message_id") else 0
+        except Exception as e:
+            logger.error(f"Shop selection: send_media_group failed: {e}")
+            return False
+
+        # ── Add reaction ──
+        try:
+            await self._add_reaction(config.CHANNEL_ID, first_msg_id)
+        except Exception:
+            pass
+
+        # ── Record in DB ──
+        try:
+            for p in products:
+                await mark_shop_product_posted(p["sku"])
+            await add_shop_selection(
+                message_id=first_msg_id,
+                category=category_label,
+                product_count=downloaded_count,
+                caption=caption[:500],
+                trigger_reason=trigger_reason,
+            )
+            await add_channel_post(
+                content=caption,
+                message_id=first_msg_id,
+                post_type="shop_selection",
+            )
+        except Exception as e:
+            logger.debug(f"Shop selection DB record error: {e}")
+
+        logger.info(
+            f"Shop selection posted: '{category_label}' × {downloaded_count} products "
+            f"(msg_id={first_msg_id}, reason={trigger_reason})"
+        )
+        return True
+
     async def run_scheduled_post(self) -> bool:
         """
         Run a scheduled post — tries up to 3 different news items per cycle.
@@ -2449,29 +2684,39 @@ async def comment_on_group_post(
     chat_id: int,
     message_id: int,
     post_text: str,
+    message_thread_id: Optional[int] = None,
+    attach_shop_selection: bool = True,
 ) -> bool:
     """Comment on a post in a Telegram group as Ася.
-    
+
     Generates a short, lively comment in Ася's voice that adds value
     (expert opinion, question, or reaction) — not spam.
-    
+
+    v2.0 — TOPIC-AWARE SHOP SELECTIONS:
+      If attach_shop_selection=True and the original post mentions a product
+      category (tyres, oils, motorcycles, etc.), the comment will include an
+      inline keyboard with up to 4 relevant product cards from the shop.
+      Each button opens the affiliate URL directly.
+
     Args:
         bot: Bot instance
         chat_id: Group/chat ID
         message_id: Message ID to reply to
-        post_text: Original post text (for context)
-    
+        post_text: Original post text (for context + topic detection)
+        message_thread_id: Forum topic thread ID (for forum supergroups)
+        attach_shop_selection: If True, try to attach product cards (default True)
+
     Returns True if comment was posted successfully.
     """
     if not bot:
         return False
-    
+
     try:
         # Generate comment using LOCAL MODEL ONLY — no cloud API waste on group comments!
         # User requirement: comments in groups MUST use local model only.
         # Use singleton from ai_router — no reloading the model every time!
         from ai.router import ai_router
-        
+
         comment_prompt = (
             "Ты Ася — автоэксперт, главред канала @sochiautoparts. "
             "Ты видишь пост в автомобильной группе и хочешь оставить КОРОТКИЙ комментарий. "
@@ -2487,36 +2732,36 @@ async def comment_on_group_post(
             f"Пост в группе:\n{post_text[:500]}\n\n"
             "Напиши короткий живой комментарий:"
         )
-        
+
         # LOCAL MODEL ONLY — no cloud fallback for group comments
         # Use singleton from ai_router (model loaded once, not every call!)
         local_provider = ai_router._local
         if not await local_provider.is_available():
             logger.info("Local model not available for comment — skipping (no cloud)")
             return False
-        
+
         messages = [
             {"role": "system", "content": "Ты Ася — автоэксперт. Пиши короткие живые комментарии до 300 символов. Без markdown. Без политики."},
             {"role": "user", "content": comment_prompt},
         ]
-        
+
         response = await local_provider.chat(
             messages=messages,
             temperature=0.8,
             max_tokens=150,
         )
-        
+
         if not response or response.error or not response.text:
             logger.debug(f"Local model comment failed: {getattr(response, 'error_message', 'empty')}")
             return False
-        
+
         comment = response.text.strip()
-        
+
         # Clean up comment
         comment = re.sub(r'<[^>]+>', '', comment)  # Remove HTML tags
         comment = re.sub(r'\*\*.*?\*\*', '', comment)  # Remove markdown bold
         comment = re.sub(r'__.*?__', '', comment)  # Remove markdown italic
-        
+
         # Truncate to limit
         if len(comment) > MAX_COMMENT_LENGTH:
             # Find natural break point
@@ -2526,26 +2771,87 @@ async def comment_on_group_post(
                 comment = cut[:last_space] + '...'
             else:
                 comment = cut + '...'
-        
+
         # Skip if comment is too short (low quality)
         if len(comment) < 15:
             logger.debug("Comment too short, skipping")
             return False
-        
+
+        # ── v2.0: TOPIC-AWARE SHOP SELECTION INLINE KEYBOARD ──
+        # Detect if the post mentions a product category, then attach up to 4
+        # relevant product cards as inline keyboard buttons.
+        reply_markup = None
+        if attach_shop_selection:
+            try:
+                reply_markup = await _build_topic_shop_keyboard(post_text)
+            except Exception as e:
+                logger.debug(f"Shop keyboard build failed (non-critical): {e}")
+                reply_markup = None
+
         # Post comment as reply to the original message
-        await bot.send_message(
+        send_kwargs = dict(
             chat_id=chat_id,
             text=comment,
             reply_to_message_id=message_id,
             parse_mode=ParseMode.HTML,
         )
-        
-        logger.info(f"Posted comment in group {chat_id}: {comment[:50]}...")
+        if reply_markup is not None:
+            send_kwargs["reply_markup"] = reply_markup
+        if message_thread_id is not None:
+            send_kwargs["message_thread_id"] = message_thread_id
+
+        await bot.send_message(**send_kwargs)
+
+        logger.info(f"Posted comment in group {chat_id}: {comment[:50]}... (shop_cards={'yes' if reply_markup else 'no'})")
         return True
-        
+
     except Exception as e:
         logger.warning(f"Failed to comment in group {chat_id}: {e}")
         return False
+
+
+async def _build_topic_shop_keyboard(post_text: str):
+    """Build an inline keyboard with up to 4 product cards relevant to a post.
+
+    Returns an InlineKeyboardMarkup, or None if no relevant products found.
+
+    Detection: uses bot.shop.category_for_text() to find a matching category
+    from the post text, then queries the DB for fresh products in that category.
+    Each button shows "🛒 Name — Price ₽" and opens the affiliate URL.
+    """
+    cat = category_for_text(post_text)
+    if not cat:
+        return None
+
+    products = await get_unposted_shop_products(
+        category_label=cat["label"],
+        limit=4,
+        randomize=True,
+    )
+    if len(products) < 2:
+        # Need at least 2 cards to make it useful
+        return None
+
+    builder = InlineKeyboardBuilder()
+    for p in products:
+        price_int = int(p["price"]) if p["price"] else 0
+        name = p["name"] or "Товар"
+        if len(name) > 40:
+            name = _smart_truncate(name, 40)
+        brand = p["brand"] or ""
+        label = f"🛒 {brand} {name} — {price_int}₽".strip()
+        if len(label) > 60:
+            label = label[:57] + "..."
+        url = p["affiliate_url"] or p["product_url"]
+        if not url:
+            continue
+        builder.button(text=label, url=url)
+
+    # Add a footer button linking to the full shop category
+    builder.button(text=f"🛍️ Все товары: {cat['label']}", url="https://sochiautoparts.ru/shop")
+
+    builder.adjust(1)  # One button per row for readability on mobile
+    return builder.as_markup()
 
 
 async def auto_comment_in_groups(bot: Bot) -> int:
@@ -2668,11 +2974,16 @@ async def auto_comment_in_groups(bot: Bot) -> int:
                     target_msg = candidate_messages[-1]
 
                     # Generate comment via comment_on_group_post (LOCAL MODEL)
+                    # Pass message_thread_id so the comment stays in the correct
+                    # forum topic if the group uses topics (Bot API 9.3+).
+                    thread_id = getattr(target_msg, "message_thread_id", None)
                     success = await comment_on_group_post(
                         bot=bot,
                         chat_id=chat_id,
                         message_id=target_msg.message_id,
                         post_text=target_msg.text or "",
+                        message_thread_id=thread_id,
+                        attach_shop_selection=True,
                     )
 
                     if success:

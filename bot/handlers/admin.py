@@ -69,7 +69,12 @@ async def cmd_admin(message: Message):
         f"/unblock <user_id> — разблокировать\n"
         f"/models — список AI моделей\n"
         f"/switch <модель> — переключить AI модель\n"
-        f"/reload_partners — перезагрузить партнёров"
+        f"/reload_partners — перезагрузить партнёров\n\n"
+        f"🛒 Магазин:\n"
+        f"/shop_status — статистика магазина\n"
+        f"/selection — подборка товаров (5 шт)\n"
+        f"/selection <категория> [цена] — подборка с фильтром\n"
+        f"/shop_refresh [категория] — обновить каталог"
     )
     await message.answer(text)
 
@@ -443,3 +448,171 @@ async def cmd_reload_partners(message: Message):
 
     count = partner_manager.load()
     await message.answer(f"✅ Загружено {count} партнёрских программ.")
+
+
+# ── /shop_status command ──────────────────────────────────────────────────────
+
+@admin_router.message(Command("shop_status"))
+async def cmd_shop_status(message: Message):
+    """Show shop catalog DB statistics."""
+    if not await _is_admin(message):
+        return
+
+    from bot.database import get_shop_stats, get_last_shop_selection_time
+    import time as _time
+
+    stats = await get_shop_stats()
+    last_sel = await get_last_shop_selection_time()
+    last_sel_str = "никогда"
+    if last_sel > 0:
+        elapsed_min = int((_time.time() - last_sel) / 60)
+        if elapsed_min < 60:
+            last_sel_str = f"{elapsed_min} мин назад"
+        else:
+            last_sel_str = f"{elapsed_min // 60} ч {elapsed_min % 60} мин назад"
+
+    top_cats = stats.get("top_categories", [])[:5]
+    top_cats_str = "\n".join(
+        f"  • {c['category']}: {c['count']} шт"
+        for c in top_cats
+    ) or "  (пусто)"
+
+    text = (
+        f"🛒 Статус магазина\n\n"
+        f"📦 Всего товаров в БД: {stats['total_products']}\n"
+        f"🆕 Непостилишихся: {stats['unposted_products']}\n"
+        f"🏷️ Категорий: {stats['categories']}\n"
+        f"📊 Всего подборок: {stats['total_selections']}\n"
+        f"📅 Подборок сегодня: {stats['selections_today']}\n"
+        f"⏰ Последняя подборка: {last_sel_str}\n\n"
+        f"Топ категорий:\n{top_cats_str}\n\n"
+        f"Команды:\n"
+        f"/selection — случайная подборка (5 товаров)\n"
+        f"/selection &lt;категория&gt; — подборка в категории\n"
+        f"/shop_refresh &lt;категория&gt; — обновить категорию в БД"
+    )
+    await message.answer(text)
+
+
+# ── /selection command ────────────────────────────────────────────────────────
+
+@admin_router.message(Command("selection"))
+async def cmd_selection(message: Message):
+    """Post a product selection to the channel immediately (manual trigger).
+
+    Usage:
+        /selection          — random category, 5 products
+        /selection Зимние шины
+        /selection Зимние шины 8000   — with max price filter
+    """
+    if not await _is_admin(message):
+        return
+
+    args = message.text.split(maxsplit=1)
+    category_arg = args[1].strip() if len(args) > 1 else ""
+
+    # Try to parse "Category Name [max_price]" pattern
+    category_label = None
+    max_price = None
+    if category_arg:
+        # Check if the last token is a number (max price)
+        tokens = category_arg.rsplit(maxsplit=1)
+        if len(tokens) == 2 and tokens[1].isdigit():
+            category_label = tokens[0]
+            max_price = float(tokens[1])
+        else:
+            category_label = category_arg
+
+    # Match category label against SHOP_CATEGORIES
+    if category_label:
+        from bot.shop import SHOP_CATEGORIES
+        matched = None
+        for cat in SHOP_CATEGORIES:
+            if category_label.lower() in cat["label"].lower():
+                matched = cat["label"]
+                break
+        if matched:
+            category_label = matched
+        else:
+            await message.answer(
+                f"⚠️ Категория «{category_label}» не найдена. "
+                f"Доступные: {', '.join(c['label'] for c in SHOP_CATEGORIES[:8])}..."
+            )
+            return
+
+    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    await message.answer(
+        f"🛒 Готовлю подборку: {category_label or 'случайная категория'}"
+        + (f" (до {int(max_price)} ₽)" if max_price else "")
+        + "..."
+    )
+
+    from channel import channel_manager
+    posted = await channel_manager.post_product_selection(
+        category_label=category_label,
+        max_price=max_price,
+        count=5,
+        trigger_reason="manual",
+    )
+
+    if posted:
+        await message.answer("✅ Подборка опубликована в канале!")
+    else:
+        await message.answer(
+            "❌ Не получилось. Возможные причины:\n"
+            "• Нет свежих товаров в этой категории (запусти /shop_refresh)\n"
+            "• Достигнут дневной лимит подборок\n"
+            "• Не удалось скачать картинки товаров\n"
+            "Посмотри /shop_status для диагностики."
+        )
+
+
+# ── /shop_refresh command ─────────────────────────────────────────────────────
+
+@admin_router.message(Command("shop_refresh"))
+async def cmd_shop_refresh(message: Message):
+    """Force-refresh a shop category in the DB.
+
+    Usage:
+        /shop_refresh          — refresh a random category
+        /shop_refresh зимние   — refresh the 'зимние' category
+    """
+    if not await _is_admin(message):
+        return
+
+    args = message.text.split(maxsplit=1)
+    slug_arg = args[1].strip().lower() if len(args) > 1 else ""
+
+    from bot.shop import SHOP_CATEGORIES, refresh_category
+
+    if slug_arg:
+        # Find matching category by slug or label
+        target = None
+        for cat in SHOP_CATEGORIES:
+            if slug_arg in cat["slug"].lower() or slug_arg in cat["label"].lower():
+                target = cat
+                break
+        if not target:
+            await message.answer(
+                f"⚠️ Категория «{slug_arg}» не найдена. "
+                f"Slugs: {', '.join(c['slug'] for c in SHOP_CATEGORIES[:8])}..."
+            )
+            return
+        slug = target["slug"]
+        label = target["label"]
+    else:
+        import random
+        target = random.choice(SHOP_CATEGORIES)
+        slug = target["slug"]
+        label = target["label"]
+
+    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    await message.answer(f"🔄 Обновляю категорию «{label}»...")
+
+    try:
+        new_count = await refresh_category(slug, max_products=25)
+        await message.answer(
+            f"✅ Готово: «{label}» — добавлено {new_count} новых товаров"
+        )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка обновления: {e}")

@@ -173,6 +173,40 @@ CREATE TABLE IF NOT EXISTS posted_urls (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_posted_urls_fingerprint ON posted_urls(url_fingerprint);
 CREATE INDEX IF NOT EXISTS idx_posted_urls_time ON posted_urls(posted_at);
+
+CREATE TABLE IF NOT EXISTS shop_products (
+    sku TEXT PRIMARY KEY,
+    slug TEXT DEFAULT '',
+    supplier TEXT DEFAULT '',
+    name TEXT NOT NULL,
+    brand TEXT DEFAULT '',
+    category TEXT DEFAULT '',
+    price REAL DEFAULT 0,
+    currency TEXT DEFAULT 'RUR',
+    image_url TEXT DEFAULT '',
+    product_url TEXT DEFAULT '',
+    affiliate_url TEXT DEFAULT '',
+    description TEXT DEFAULT '',
+    availability TEXT DEFAULT 'InStock',
+    fetched_at REAL DEFAULT 0,
+    posted_at REAL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_shop_category ON shop_products(category, price);
+CREATE INDEX IF NOT EXISTS idx_shop_posted ON shop_products(posted_at);
+CREATE INDEX IF NOT EXISTS idx_shop_brand ON shop_products(brand, price);
+
+CREATE TABLE IF NOT EXISTS shop_selections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    posted_at REAL DEFAULT 0,
+    message_id INTEGER DEFAULT 0,
+    category TEXT DEFAULT '',
+    product_count INTEGER DEFAULT 0,
+    caption TEXT DEFAULT '',
+    trigger_reason TEXT DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_shop_selections_time ON shop_selections(posted_at);
 """
 
 
@@ -1392,6 +1426,260 @@ async def cleanup_posted_urls(max_age_days: int = 30) -> int:
         async with _connect_db() as db:
             cursor = await db.execute(
                 "DELETE FROM posted_urls WHERE posted_at < ?", (cutoff,)
+            )
+            await db.commit()
+            return cursor.rowcount
+    except Exception:
+        return 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SHOP PRODUCTS — for daily product selections and topic-aware comment cards
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def upsert_shop_product(product) -> bool:
+    """Insert or update a shop product in the DB.
+
+    Args:
+        product: bot.shop.Product instance (duck-typed; needs .sku, .name, .price, etc.)
+
+    Returns True if a NEW row was inserted, False if updated.
+    """
+    now = time.time()
+    try:
+        async with _connect_db() as db:
+            # Check if exists
+            async with db.execute(
+                "SELECT sku FROM shop_products WHERE sku = ?", (product.sku,)
+            ) as cursor:
+                exists = await cursor.fetchone()
+
+            await db.execute(
+                """INSERT INTO shop_products
+                   (sku, slug, supplier, name, brand, category, price, currency,
+                    image_url, product_url, affiliate_url, description, availability,
+                    fetched_at, posted_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(sku) DO UPDATE SET
+                     slug=excluded.slug,
+                     supplier=excluded.supplier,
+                     name=excluded.name,
+                     brand=excluded.brand,
+                     category=excluded.category,
+                     price=excluded.price,
+                     currency=excluded.currency,
+                     image_url=excluded.image_url,
+                     product_url=excluded.product_url,
+                     affiliate_url=excluded.affiliate_url,
+                     description=excluded.description,
+                     availability=excluded.availability,
+                     fetched_at=excluded.fetched_at""",
+                (
+                    str(product.sku),
+                    getattr(product, "slug", ""),
+                    getattr(product, "supplier", "") or (getattr(product, "brand", "") or ""),
+                    product.name,
+                    product.brand,
+                    product.category,
+                    float(product.price),
+                    product.currency,
+                    product.image_url,
+                    product.product_url,
+                    product.affiliate_url,
+                    product.description,
+                    product.availability,
+                    now,
+                    0,
+                ),
+            )
+            await db.commit()
+            return exists is None
+    except Exception as e:
+        logger.debug(f"upsert_shop_product error: {e}")
+        return False
+
+
+async def get_shop_product_count_in_category(category: str) -> int:
+    """Count products in a category (by Russian category label like "Всесезонные")."""
+    try:
+        async with _connect_db() as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM shop_products WHERE category = ?",
+                (category,),
+            ) as cursor:
+                row = await cursor.fetchone()
+                return int(row[0]) if row else 0
+    except Exception:
+        return 0
+
+
+async def get_unposted_shop_products(
+    category_label: Optional[str] = None,
+    limit: int = 5,
+    max_price: Optional[float] = None,
+    min_price: Optional[float] = None,
+    randomize: bool = True,
+) -> List[Dict[str, Any]]:
+    """Get products not yet posted (posted_at = 0).
+
+    Args:
+        category_label: Russian category label like "Всесезонные шины". If None, any category.
+        limit: Max products to return.
+        max_price: Optional max price filter.
+        min_price: Optional min price filter (skip 0-price products).
+        randomize: If True, pick random products. If False, sort by price ascending.
+
+    Returns list of dicts with all shop_products columns.
+    """
+    query = """SELECT * FROM shop_products
+               WHERE posted_at = 0 AND affiliate_url != '' AND image_url != ''"""
+    params: list = []
+    if category_label:
+        query += " AND category = ?"
+        params.append(category_label)
+    if min_price is not None:
+        query += " AND price >= ?"
+        params.append(float(min_price))
+    else:
+        # Skip 0-price products by default (likely missing data)
+        query += " AND price > 0"
+    if max_price is not None:
+        query += " AND price <= ?"
+        params.append(float(max_price))
+
+    if randomize:
+        query += " ORDER BY RANDOM() LIMIT ?"
+    else:
+        query += " ORDER BY price ASC LIMIT ?"
+    params.append(int(limit))
+
+    try:
+        async with _connect_db() as db:
+            async with db.execute(query, params) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+    except Exception as e:
+        logger.debug(f"get_unposted_shop_products error: {e}")
+        return []
+
+
+async def mark_shop_product_posted(sku: str) -> None:
+    """Mark a product as posted (sets posted_at = now)."""
+    now = time.time()
+    try:
+        async with _connect_db() as db:
+            await db.execute(
+                "UPDATE shop_products SET posted_at = ? WHERE sku = ?",
+                (now, sku),
+            )
+            await db.commit()
+    except Exception as e:
+        logger.debug(f"mark_shop_product_posted error: {e}")
+
+
+async def add_shop_selection(
+    message_id: int,
+    category: str,
+    product_count: int,
+    caption: str = "",
+    trigger_reason: str = "scheduled",
+) -> None:
+    """Record that a shop selection was posted."""
+    now = time.time()
+    try:
+        async with _connect_db() as db:
+            await db.execute(
+                """INSERT INTO shop_selections
+                   (posted_at, message_id, category, product_count, caption, trigger_reason)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (now, message_id, category, product_count, caption[:500], trigger_reason),
+            )
+            await db.commit()
+    except Exception as e:
+        logger.debug(f"add_shop_selection error: {e}")
+
+
+async def get_today_shop_selection_count() -> int:
+    """Count shop selections posted in the last 24 hours."""
+    cutoff = time.time() - 86400
+    try:
+        async with _connect_db() as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM shop_selections WHERE posted_at >= ?",
+                (cutoff,),
+            ) as cursor:
+                row = await cursor.fetchone()
+                return int(row[0]) if row else 0
+    except Exception:
+        return 0
+
+
+async def get_last_shop_selection_time() -> float:
+    """Return the timestamp of the last shop selection, or 0 if never."""
+    try:
+        async with _connect_db() as db:
+            async with db.execute(
+                "SELECT MAX(posted_at) FROM shop_selections"
+            ) as cursor:
+                row = await cursor.fetchone()
+                return float(row[0]) if row and row[0] else 0.0
+    except Exception:
+        return 0.0
+
+
+async def get_shop_stats() -> Dict[str, Any]:
+    """Get shop DB stats for admin /shop_status command."""
+    try:
+        async with _connect_db() as db:
+            stats = {}
+            async with db.execute("SELECT COUNT(*) FROM shop_products") as cursor:
+                stats["total_products"] = int((await cursor.fetchone())[0])
+            async with db.execute(
+                "SELECT COUNT(*) FROM shop_products WHERE posted_at = 0"
+            ) as cursor:
+                stats["unposted_products"] = int((await cursor.fetchone())[0])
+            async with db.execute(
+                "SELECT COUNT(DISTINCT category) FROM shop_products WHERE category != ''"
+            ) as cursor:
+                stats["categories"] = int((await cursor.fetchone())[0])
+            async with db.execute("SELECT COUNT(*) FROM shop_selections") as cursor:
+                stats["total_selections"] = int((await cursor.fetchone())[0])
+            async with db.execute(
+                "SELECT COUNT(*) FROM shop_selections WHERE posted_at >= ?",
+                (time.time() - 86400,),
+            ) as cursor:
+                stats["selections_today"] = int((await cursor.fetchone())[0])
+            async with db.execute(
+                "SELECT category, COUNT(*) as c FROM shop_products "
+                "WHERE category != '' GROUP BY category ORDER BY c DESC LIMIT 10"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                stats["top_categories"] = [
+                    {"category": r[0], "count": int(r[1])} for r in rows
+                ]
+            return stats
+    except Exception as e:
+        logger.debug(f"get_shop_stats error: {e}")
+        return {
+            "total_products": 0,
+            "unposted_products": 0,
+            "categories": 0,
+            "total_selections": 0,
+            "selections_today": 0,
+            "top_categories": [],
+        }
+
+
+async def cleanup_old_shop_products(max_age_days: int = 14) -> int:
+    """Remove products not refreshed in max_age_days (stale catalog).
+    Keeps posted_at > 0 products (history).
+    """
+    cutoff = time.time() - (max_age_days * 86400)
+    try:
+        async with _connect_db() as db:
+            cursor = await db.execute(
+                "DELETE FROM shop_products WHERE fetched_at < ? AND posted_at = 0",
+                (cutoff,),
             )
             await db.commit()
             return cursor.rowcount
