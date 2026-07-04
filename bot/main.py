@@ -191,6 +191,10 @@ class AsyaBot:
                 summary = news_item.get("summary", "")
                 url = news_item.get("url", "")
                 image_url = news_item.get("image", "")
+                images_list = news_item.get("images", []) or []
+                # Use up to 10 images (Telegram media group limit)
+                all_images = list(dict.fromkeys([image_url] + images_list))[:10] if image_url else images_list[:10]
+                all_images = [u for u in all_images if u][:10]
                 source = news_item.get("source", "")
                 news_id = news_item.get("id", "")
 
@@ -227,7 +231,7 @@ class AsyaBot:
                 post_text = ai_commentary.strip()[:3000]
                 # Footer: 🚗 @sochiautoparts (no source link — matches old format)
                 if not post_text.endswith("@sochiautoparts"):
-                    post_text += "\n\n🚗 @sochiautoparts"
+                    post_text += "\n\nАвтор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
 
                 # 5. Download image and post with photo
                 posted = False
