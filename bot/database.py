@@ -26,6 +26,11 @@ CREATE TABLE IF NOT EXISTS donations (
     created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_donations_user ON donations(user_id);
+CREATE TABLE IF NOT EXISTS posted_news (
+    news_id TEXT PRIMARY KEY,
+    title TEXT,
+    posted_at INTEGER NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS chat_summaries (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL, summary TEXT NOT NULL, topics TEXT DEFAULT '', ts INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_cs_chat ON chat_summaries(chat_id, id DESC);
@@ -190,6 +195,14 @@ async def get_total_donated(user_id):
     row = await cur.fetchone()
     return int(row[0]) if row else 0
 
+
+async def is_news_posted(news_id: str) -> bool:
+    cur = await _conn().execute("SELECT 1 FROM posted_news WHERE news_id=?", (news_id,))
+    return await cur.fetchone() is not None
+
+async def mark_news_posted(news_id: str, title: str = "") -> None:
+    await _conn().execute("INSERT OR IGNORE INTO posted_news(news_id, title, posted_at) VALUES(?,?,?)", (news_id, title[:200], int(time.time())))
+    await _conn().commit()
 
 async def run_periodic_cleanup():
     import asyncio
