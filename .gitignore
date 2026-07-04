@@ -1,73 +1,14 @@
-# Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
 *.egg-info/
-dist/
-build/
-*.egg
-
-# Virtual environments
-venv/
 .venv/
-env/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Environment
-.env
-.env.local
-.env.production
-
-# Database (preserve asya_bot.db for persistence across workflow runs)
-*.sqlite3
+data/*.db
+*.db
 *.db-journal
-# Only ignore other .db files, NOT asya_bot.db which is the main database
-/*.db
-!asya_bot.db
-
-# Cache
-.cache/
-*.log
-
-# Image cache (downloaded original photos)
-data/image_cache/
-
-# v5.1: Partner logo disk cache (SVG→PNG converted logos)
-data/partner_logos/
-
-# Local LLM model files (too large for Git — ~2.5GB)
-models/*.gguf
-
-# Partner data (contains affiliate links)
-admitad_ads.json
-
-# Lock file
-/tmp/asya_bot.lock
-
-# Node / skills (from other workspace)
-skills/
-node_modules/
-
-# OS
+*.db-wal
+.openclaw-state/
+logs/
+.env
+*.secret
 .DS_Store
 Thumbs.db
-
-# Temp files
-tmp/
-temp/
-
-# Phantom file created by pip install '>=0.3.0' parsing
-=0.3.0
-
-# Tool results from AI sessions
-tool-results/
-upload/
-download/
-worklog.md
