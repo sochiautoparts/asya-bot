@@ -137,15 +137,27 @@ class AsyaBot:
         except: pass
 
     async def _channel_scheduler(self):
-        """Background task: periodically post auto content to @sochiautoparts."""
+        """Background task: periodically post auto content to @sochiautoparts.
+        Alternates between RSS auto news (with AI commentary) and AI-generated posts.
+        """
         from bot.persona import CHANNEL_POST_PROMPT
         await asyncio.sleep(120)
         post_interval = 1200  # 20 min
+        cycle = 0
         while True:
             try:
                 channel_id = int(config.CHANNEL_ID)
                 mood = await current_mood_descriptor()
-                # Auto-focused topics for channel posts
+                cycle += 1
+
+                # Every 3rd cycle: try to fetch and post real RSS auto news
+                if cycle % 3 == 0:
+                    news_posted = await self._fetch_and_post_news(channel_id, mood)
+                    if news_posted:
+                        await asyncio.sleep(post_interval)
+                        continue
+
+                # Otherwise: AI-generated post on auto topic
                 topics = [
                     "новые авто-новости недели — главные события",
                     "обзор популярной модели — плюсы и минусы",
@@ -175,6 +187,80 @@ class AsyaBot:
             except Exception as e:
                 logger.error(f"Channel scheduler error: {e}")
             await asyncio.sleep(post_interval)
+
+    async def _fetch_and_post_news(self, channel_id: int, mood: str) -> bool:
+        """Fetch auto news from RSS feeds, write AI commentary, post to channel.
+        Returns True if a news post was made."""
+        import feedparser
+        import httpx
+        from bot.persona import CHANNEL_POST_PROMPT
+
+        # Auto news RSS feeds (tested working)
+        RSS_FEEDS = [
+            "https://news.mail.ru/rss/auto/",
+        ]
+
+        try:
+            # Fetch RSS feeds concurrently
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                feed_texts = []
+                for url in RSS_FEEDS:
+                    try:
+                        resp = await client.get(url, headers={"User-Agent": "AsyaBot/1.0"})
+                        if resp.status_code == 200:
+                            feed_texts.append(resp.text)
+                    except: pass
+
+            if not feed_texts:
+                logger.debug("No RSS feeds fetched")
+                return False
+
+            # Parse feeds and collect recent items
+            news_items = []
+            for feed_text in feed_texts:
+                feed = feedparser.parse(feed_text)
+                for entry in feed.entries[:5]:
+                    title = entry.get("title", "").strip()
+                    link = entry.get("link", "").strip()
+                    summary = entry.get("summary", entry.get("description", "")).strip()
+                    if title and len(title) > 10:
+                        # Clean HTML from summary
+                        import re
+                        summary = re.sub(r"<[^>]+>", "", summary)[:200]
+                        news_items.append({"title": title, "link": link, "summary": summary})
+
+            if not news_items:
+                logger.debug("No news items found in feeds")
+                return False
+
+            # Pick a random news item
+            import random as _r
+            news = _r.choice(news_items)
+            logger.info(f"News fetched: {news['title'][:60]}")
+
+            # Generate AI commentary on the news
+            prompt = (
+                f"Напиши пост для канала @sochiautoparts с комментарием на эту авто-новость:\n\n"
+                f"Новость: {news['title']}\n"
+                f"Кратко: {news['summary'][:200]}\n\n"
+                f"Дай свой комментарий как автоэксперт, поделись мнением. "
+                f"3-5 предложений, живо, с эмодзи. Настроение: {mood}. "
+                f"Если уместно — добавь ссылку на источник."
+            )
+            post = await ai_client.chat(prompt, system=CHANNEL_POST_PROMPT, fast=True, max_tokens=400, allow_static_fallback=False)
+            if post:
+                post = post.strip()
+                # Add source link if available
+                if news["link"] and news["link"] not in post:
+                    post += f"\n\n📖 Источник: {news['link']}"
+                if not post.endswith("@sochiautoparts"):
+                    post += "\n\n🚗 @sochiautoparts"
+                await self.bot.send_message(channel_id, post[:4000])
+                logger.info(f"Channel: posted NEWS content ({len(post)} chars) — {news['title'][:40]}")
+                return True
+        except Exception as e:
+            logger.debug(f"news fetch error: {e}")
+        return False
 
     async def _notify_owner(self):
         mood = await current_mood_descriptor()
