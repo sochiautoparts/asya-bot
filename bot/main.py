@@ -233,17 +233,18 @@ class AsyaBot:
                 posted = False
                 if image_url:
                     try:
-                        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as img_client:
-                            img_resp = await img_client.get(image_url, headers={"User-Agent": "Mozilla/5.0 (compatible; AsyaBot/1.0)"})
-                        if img_resp.status_code == 200 and len(img_resp.content) > 1000:
-                            from io import BytesIO
-                            photo = BytesIO(img_resp.content)
-                            photo.name = "news.jpg"
-                            # Caption limit is 1024 for photos — truncate text
-                            caption = post_text[:1000]
-                            await self.bot.send_photo(channel_id, photo, caption=caption)
+                        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as img_client:
+                            img_resp = await img_client.get(image_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+                        if img_resp.status_code == 200 and len(img_resp.content) > 2000:
+                            from aiogram.types import BufferedInputFile
+                            photo_file = BufferedInputFile(img_resp.content, filename="news.jpg")
+                            # Caption limit is 1024 for photos
+                            caption = post_text[:1024]
+                            await self.bot.send_photo(channel_id, photo_file, caption=caption)
                             posted = True
                             logger.info(f"Channel: posted NEWS+photo ({len(post_text)} chars, caption {len(caption)}) — {title[:40]}")
+                        else:
+                            logger.warning(f"Image download bad status/size: HTTP {img_resp.status_code}, {len(img_resp.content)} bytes")
                     except Exception as e:
                         logger.warning(f"Image download failed: {e}")
 
