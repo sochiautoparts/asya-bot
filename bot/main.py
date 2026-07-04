@@ -196,20 +196,26 @@ class AsyaBot:
 
                 logger.info(f"Selected news: {title[:60]} (img: {'yes' if image_url else 'no'})")
 
-                # 3. Generate AI commentary
+                # 3. Generate AI commentary — like the old bot did
+                # Old format: 500-1000 chars, expert opinion, personal touch, emoji
                 prompt = (
-                    f"Напиши пост для канала @sochiautoparts с комментарием на эту авто-новость:\n\n"
-                    f"Заголовок: {title}\n"
-                    f"Кратко: {summary[:300]}\n"
-                    f"Источник: {source}\n\n"
-                    f"Дай свой комментарий как автоэксперт — поделись мнением, "
-                    f"выдели главное, добавь инсайт. 3-6 предложений, живо, с эмодзи. "
-                    f"Настроение: {mood}. Женский род. По-русски. "
-                    f"НЕ копируй текст новости — напиши СВОЙ комментарий."
+                    f"Напиши пост для канала @sochiautoparts с комментарием на эту авто-новость.\n\n"
+                    f"Заголовок новости: {title}\n"
+                    f"Краткое содержание: {summary[:400]}\n\n"
+                    f"Требования:\n"
+                    f"- Напиши СВОЙ комментарий как автоэксперт (НЕ копируй новость!)\n"
+                    f"- 500-900 символов, живой, экспертный, с мнением\n"
+                    f"- Эмодзи уместно (🚗⚡🔥✨🤔💪)\n"
+                    f"- Упомяни технические детали если есть\n"
+                    f"- Поделись личным мнением как Ася (бывший юрист, автоэксперт)\n"
+                    f"- Женский род, по-русски\n"
+                    f"- Настроение: {mood}\n"
+                    f"- НЕ добавляй ссылки и НЕ пиши «Источник»\n"
+                    f"- НЕ начинай с «Ася:»"
                 )
                 ai_commentary = await ai_client.chat(
                     prompt, system=CHANNEL_POST_PROMPT,
-                    fast=True, max_tokens=500, allow_static_fallback=False
+                    max_tokens=800, temperature=0.9, allow_static_fallback=False
                 )
 
                 if not ai_commentary:
@@ -217,11 +223,11 @@ class AsyaBot:
                     await asyncio.sleep(post_interval)
                     continue
 
-                # 4. Build post text
+                # 4. Build post text — match old format: just AI text + footer
                 post_text = ai_commentary.strip()[:3000]
-                if url:
-                    post_text += f"\n\n📖 {url}"
-                post_text += "\n\n🚗 @sochiautoparts"
+                # Footer: 🚗 @sochiautoparts (no source link — matches old format)
+                if not post_text.endswith("@sochiautoparts"):
+                    post_text += "\n\n🚗 @sochiautoparts"
 
                 # 5. Download image and post with photo
                 posted = False
@@ -233,13 +239,15 @@ class AsyaBot:
                             from io import BytesIO
                             photo = BytesIO(img_resp.content)
                             photo.name = "news.jpg"
-                            await self.bot.send_photo(channel_id, photo, caption=post_text[:1024])
+                            # Caption limit is 1024 for photos — truncate text
+                            caption = post_text[:1000]
+                            await self.bot.send_photo(channel_id, photo, caption=caption)
                             posted = True
-                            logger.info(f"Channel: posted NEWS with photo ({len(post_text)} chars) — {title[:40]}")
+                            logger.info(f"Channel: posted NEWS+photo ({len(post_text)} chars, caption {len(caption)}) — {title[:40]}")
                     except Exception as e:
                         logger.warning(f"Image download failed: {e}")
 
-                # 6. Fallback: post text only (no image)
+                # 6. Fallback: post text only (no image) — full text up to 4096
                 if not posted:
                     try:
                         await self.bot.send_message(channel_id, post_text[:4096])
