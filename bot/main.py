@@ -437,6 +437,7 @@ class AsyaBot:
         name = campaign.get("name", "")
         logo = campaign.get("logo", "")
         goto = campaign.get("goto_link", "")
+        site = campaign.get("site_url", "")
         cats = campaign.get("categories", []) or []
         regions = campaign.get("regions", []) or []
         mood = await current_mood_descriptor()
@@ -445,17 +446,19 @@ class AsyaBot:
         prompt = (
             f"Напиши партнёрский пост для канала @sochiautoparts ОТ ИМЕНИ РЕДАКЦИИ.\n\n"
             f"Партнёр: {name}\n"
+            f"Сайт: {site}\n"
             f"Категории: {', '.join(cats[:5])}\n"
             f"Регионы: {', '.join(regions[:5])}\n"
-            f"Ссылка: {goto}\n\n"
-            f"СТИЛЬ (от имени редакции @sochiautoparts):\n"
-            f"- 400-700 символов, рекомендация партнёра от лица редакции\n"
-            f"- Что это, зачем нужно, кому пригодится, почему редакция советует\n"
-            f"- Живо, профессионально, с эмодзи (🚗💡✅🔗)\n"
-            f"- Обязательно вставь ссылку {goto} прямо в текст\n"
-            f"- Женский род (редакция), по-русски\n"
-            f"- Настроение: {mood}\n"
-            f"- НЕ начинай с 'Ася:' или 'Редакция:'"
+            f"Реферальная ссылка (ОБЯЗАТЕЛЬНО вставь в текст): {goto}\n\n"
+            f"ЗАДАЧА:\n"
+            f"1. Пойми ЧЕМ занимается партнёр (по названию, сайту, категориям) — не выдумывай!\n"
+            f"2. Напиши 300-500 символов: что это, зачем нужно, кому пригодится\n"
+            f"3. Вставь ссылку {goto} естественно в текст (не в конце, а внутри)\n"
+            f"4. Стиль: живо, профессионально, эмодзи (🚗💡✅🔗)\n"
+            f"5. Женский род (редакция), по-русски, БЕЗ грамматических ошибок\n"
+            f"6. Настроение: {mood}\n"
+            f"7. НЕ начинай с имени\n"
+            f"8. НЕ выдумывай услуги/товары которых нет у партнёра"
         )
         text = await ai_client.chat(
             prompt, system=channel_prompt,
@@ -465,15 +468,22 @@ class AsyaBot:
             logger.warning("Partner AI text empty — skip")
             return
         ai_text = clean_post_text(text)
+        # Ensure goto_link is present (add if AI forgot or was truncated)
         if goto and goto not in ai_text:
-            ai_text += f"\n\n🔗 {goto}"
+            ai_text += f"\n\n🔗 {{goto}}"
 
         channel_id = int(config.CHANNEL_ID)
         # Try photo with logo (caption ≤1024 incl. footer)
         posted = False
         if logo:
-            caption_body = smart_truncate(ai_text, 1024, len(FOOTER))
-            caption_full = caption_body + FOOTER
+            # Truncate body WITHOUT goto_link, then append goto_link + FOOTER
+            # This ensures goto_link is never cut off
+            body_without_goto = ai_text.replace(f"\n\n🔗 {{goto}}", "").replace(goto, "").strip() if goto else ai_text
+            # Reserve space for goto_link + footer
+            goto_line = f"\n\n🔗 {{goto}}" if goto and goto not in body_without_goto else ""
+            reserve = len(FOOTER) + len(goto_line) + 10
+            caption_body = smart_truncate(body_without_goto, 1024 - len(goto_line), 0)
+            caption_full = caption_body + goto_line + FOOTER
             try:
                 async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as img_client:
                     img_resp = await img_client.get(logo, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
@@ -495,8 +505,10 @@ class AsyaBot:
 
         # Fallback: text only (≤4096 incl. footer)
         if not posted:
-            text_body = smart_truncate(ai_text, 4096, len(FOOTER))
-            text_full = text_body + FOOTER
+            body_without_goto = ai_text.replace(f"\n\n🔗 {{goto}}", "").replace(goto, "").strip() if goto else ai_text
+            goto_line = f"\n\n🔗 {{goto}}" if goto and goto not in body_without_goto else ""
+            text_body = smart_truncate(body_without_goto, 4096 - len(goto_line) - len(FOOTER) - 10, 0)
+            text_full = text_body + goto_line + FOOTER
             try:
                 await self.bot.send_message(channel_id, text_full[:4096])
                 posted = True
