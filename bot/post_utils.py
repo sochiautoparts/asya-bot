@@ -169,9 +169,13 @@ def clean_post_text(text: str, bot_name: str = "Ася") -> str:
 # ─── Validation ─────────────────────────────────────────────────────────────
 
 _POLITICS_KEYWORDS = [
-    "путин", "кремл", "госдум", "санкци", "сво", "мобилиз", "война",
+    "путин", "кремл", "госдум", "санкци", "мобилиз",
     "зеленск", "байден", "трамп", "выборы", "парламент", "ракетн", "обстрел",
-    "ввп", "минобор", "днр", "лнр",
+    "минобор", "днр", "лнр",
+    # "сво" — only match as standalone Russian abbreviation (not Spanish "sitio", "sivo")
+    "сво ", " сво ", 
+    # "война" — only with context (standalone war, not "войната" in other languages)
+    " война ", 
 ]
 
 _NSFW_KEYWORDS = [

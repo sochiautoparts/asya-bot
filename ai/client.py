@@ -165,8 +165,19 @@ async def chat(prompt, system="", extra_context="", dialog_history=None, max_tok
         if out:
             _stats["success"] += 1; _stats["pollinations_backup"] += 1
             return _strip_name_prefix(out)
+        # GET fallback: build a combined prompt and use GET (more reliable for long prompts)
+        combined = ""
+        if system: combined += system + "\n\n"
+        combined += prompt
+        if len(combined) < 3000:
+            out = await _call_pollinations_get(combined, 20.0)
+            if out:
+                _stats["success"] += 1; _stats["pollinations_backup"] += 1
+                logger.info(f"AI fallback=pollinations-GET ({time.time()-t0:.1f}s) len={len(out)}")
+                return _strip_name_prefix(out)
 
     _stats["fail"] += 1
+    _stats["last_error"] = "all providers returned empty"
     if allow_static_fallback:
         fb = _static_fallback(prompt)
         _stats["static_fallback"] += 1
