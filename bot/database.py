@@ -203,6 +203,58 @@ async def is_news_posted(news_id: str) -> bool:
 async def mark_news_posted(news_id: str, title: str = "") -> None:
     await _conn().execute("INSERT OR IGNORE INTO posted_news(news_id, title, posted_at) VALUES(?,?,?)", (news_id, title[:200], int(time.time())))
     await _conn().commit()
+    # Also save to file for backup (survives DB cache loss)
+    try:
+        import json, os
+        filepath = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "posted_news.json")
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        data = {}
+        if os.path.exists(filepath):
+            with open(filepath, "r") as f:
+                data = json.load(f)
+        data[news_id] = {"title": title[:200], "ts": int(time.time())}
+        # Keep only last 1000 entries
+        if len(data) > 1000:
+            sorted_items = sorted(data.items(), key=lambda x: x[1]["ts"])
+            data = dict(sorted_items[-1000:])
+        with open(filepath, "w") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        pass  # file backup is best-effort
+
+async def is_news_posted_file(news_id: str) -> bool:
+    """Check if news was posted (file-based backup)."""
+    try:
+        import json, os
+        filepath = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "posted_news.json")
+        if os.path.exists(filepath):
+            with open(filepath, "r") as f:
+                data = json.load(f)
+            return news_id in data
+    except: pass
+    return False
+
+async def load_posted_news_from_file():
+    """Load posted_news from file into DB (on startup)."""
+    try:
+        import json, os
+        filepath = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "posted_news.json")
+        if os.path.exists(filepath):
+            with open(filepath, "r") as f:
+                data = json.load(f)
+            count = 0
+            for news_id, info in data.items():
+                await _conn().execute(
+                    "INSERT OR IGNORE INTO posted_news(news_id, title, posted_at) VALUES(?,?,?)",
+                    (news_id, info.get("title", ""), info.get("ts", 0))
+                )
+                count += 1
+            await _conn().commit()
+            if count > 0:
+                import logging
+                logging.getLogger("asya.db").info(f"Loaded {count} posted_news from file backup")
+    except Exception as e:
+        pass
 
 async def run_periodic_cleanup():
     import asyncio

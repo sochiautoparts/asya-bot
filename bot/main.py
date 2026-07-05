@@ -104,6 +104,11 @@ class AsyaBot:
         except Exception as e: logger.warning(f"get_me failed: {e}")
         await db.init_db()
         logger.info("DB initialized")
+        # Load posted_news from file backup (prevents duplicates after restart)
+        try:
+            await db.load_posted_news_from_file()
+        except Exception as e:
+            logger.warning(f"load_posted_news_from_file failed: {e}")
         try:
             await partner_manager.load()
             logger.info(f"Partners loaded: {len(partner_manager.campaigns)} campaigns")

@@ -79,7 +79,9 @@ jobs:
       - name: Restore database cache
         uses: actions/cache@v4
         with:
-          path: data/asya.db
+          path: |
+            data/asya.db
+            data/posted_news.json
           key: asya-bot-db-v1
           restore-keys: |
             asya-bot-db-
@@ -149,7 +151,9 @@ jobs:
         uses: actions/cache/save@v4
         if: always()
         with:
-          path: data/asya.db
+          path: |
+            data/asya.db
+            data/posted_news.json
           key: asya-bot-db-v1-${{ github.run_id }}
 
       - name: Save database to git
