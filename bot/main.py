@@ -470,7 +470,7 @@ class AsyaBot:
         ai_text = clean_post_text(text)
         # Ensure goto_link is present (add if AI forgot or was truncated)
         if goto and goto not in ai_text:
-            ai_text += f"\n\n🔗 {{goto}}"
+            ai_text += f"\n\n🔗 {goto}"
 
         channel_id = int(config.CHANNEL_ID)
         # Try photo with logo (caption ≤1024 incl. footer)
@@ -478,9 +478,9 @@ class AsyaBot:
         if logo:
             # Truncate body WITHOUT goto_link, then append goto_link + FOOTER
             # This ensures goto_link is never cut off
-            body_without_goto = ai_text.replace(f"\n\n🔗 {{goto}}", "").replace(goto, "").strip() if goto else ai_text
+            body_without_goto = ai_text.replace(f"\n\n🔗 {goto}", "").replace(goto, "").strip() if goto else ai_text
             # Reserve space for goto_link + footer
-            goto_line = f"\n\n🔗 {{goto}}" if goto and goto not in body_without_goto else ""
+            goto_line = f"\n\n🔗 {goto}" if goto and goto not in body_without_goto else ""
             reserve = len(FOOTER) + len(goto_line) + 10
             caption_body = smart_truncate(body_without_goto, 1024 - len(goto_line), 0)
             caption_full = caption_body + goto_line + FOOTER
@@ -505,8 +505,8 @@ class AsyaBot:
 
         # Fallback: text only (≤4096 incl. footer)
         if not posted:
-            body_without_goto = ai_text.replace(f"\n\n🔗 {{goto}}", "").replace(goto, "").strip() if goto else ai_text
-            goto_line = f"\n\n🔗 {{goto}}" if goto and goto not in body_without_goto else ""
+            body_without_goto = ai_text.replace(f"\n\n🔗 {goto}", "").replace(goto, "").strip() if goto else ai_text
+            goto_line = f"\n\n🔗 {goto}" if goto and goto not in body_without_goto else ""
             text_body = smart_truncate(body_without_goto, 4096 - len(goto_line) - len(FOOTER) - 10, 0)
             text_full = text_body + goto_line + FOOTER
             try:
