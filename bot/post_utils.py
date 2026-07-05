@@ -264,6 +264,50 @@ def validate_image(content: bytes) -> bool:
     return False
 
 
+def is_svg(content: bytes) -> bool:
+    """Check if content is an SVG image (by magic bytes or content-type)."""
+    if not content:
+        return False
+    # SVG magic: <?xml or <svg
+    head = content[:200].lower()
+    return b"<svg" in head or b"<?xml" in head and b"svg" in head
+
+
+def convert_svg_to_png(svg_content: bytes, output_width: int = 512) -> bytes:
+    """Convert SVG image to PNG bytes using cairosvg.
+    Returns PNG bytes or empty bytes on failure.
+    """
+    try:
+        import cairosvg
+        png_bytes = cairosvg.svg2png(
+            bytestring=svg_content,
+            output_width=output_width,
+            output_height=output_width,
+        )
+        return png_bytes
+    except Exception as e:
+        logger.warning(f"SVG→PNG conversion failed: {e}")
+        return b""
+
+
+def prepare_partner_logo(content: bytes) -> bytes:
+    """Prepare partner logo for Telegram send_photo.
+    If SVG — convert to PNG. If already JPEG/PNG/WebP — return as-is.
+    Returns empty bytes if cannot prepare.
+    """
+    if not content:
+        return b""
+    # If already valid image — return as-is
+    if validate_image(content):
+        return content
+    # If SVG — convert to PNG
+    if is_svg(content):
+        png = convert_svg_to_png(content)
+        if png and validate_image(png):
+            return png
+    return b""
+
+
 # ─── Deduplication ──────────────────────────────────────────────────────────
 
 def title_fingerprint(title: str) -> str:

@@ -466,14 +466,19 @@ class AsyaBot:
             try:
                 async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as img_client:
                     img_resp = await img_client.get(logo, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
-                if img_resp.status_code == 200 and len(img_resp.content) > 2000:
-                    from aiogram.types import BufferedInputFile
-                    photo_file = BufferedInputFile(img_resp.content, filename="partner.jpg")
-                    await self.bot.send_photo(channel_id, photo_file, caption=caption_full[:1024])
-                    posted = True
-                    logger.info(f"Partner post sent WITH logo photo (caption {len(caption_full[:1024])}) — {name[:40]}")
+                if img_resp.status_code == 200:
+                    from bot.post_utils import prepare_partner_logo
+                    logo_bytes = prepare_partner_logo(img_resp.content)
+                    if logo_bytes:
+                        from aiogram.types import BufferedInputFile
+                        photo_file = BufferedInputFile(logo_bytes, filename="partner.png")
+                        await self.bot.send_photo(channel_id, photo_file, caption=caption_full[:1024])
+                        posted = True
+                        logger.info(f"Partner post sent WITH logo photo (caption {len(caption_full[:1024])}) — {name[:40]}")
+                    else:
+                        logger.warning(f"Partner logo prepare failed (SVG→PNG or validation): {len(img_resp.content)} bytes")
                 else:
-                    logger.warning(f"Partner logo download bad: HTTP {img_resp.status_code}, {len(img_resp.content)} bytes")
+                    logger.warning(f"Partner logo download bad: HTTP {img_resp.status_code}")
             except Exception as e:
                 logger.warning(f"Partner logo download failed: {e}")
 
