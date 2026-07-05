@@ -177,53 +177,54 @@ class AsyaBot:
 
                 logger.info(f"Fetched {len(all_items)} news items from auto-news.json")
 
-                # 2. Find up to 2 unposted news items (dedup by news_id AND title fingerprint AND URL)
-                unposted = []
-                seen_titles = set()  # local dedup within this cycle
+                # 2. Find up to 8 candidate news items (to retry if AI empty/validation fail)
+                # Dedup by news_id AND URL AND title fingerprint AND topic fingerprint
+                candidates = []
+                seen_titles = set()
                 for item in all_items:
                     news_id = item.get("id", "")
                     title = item.get("title", "")
                     item_url = item.get("url", "")
-                    # Skip if news_id already posted
                     if news_id and await db.is_news_posted(news_id):
                         continue
-                    # Skip if URL already posted
                     if item_url and await db.is_news_posted(url_normalize(item_url)):
                         continue
-                    # Skip if title fingerprint already posted (catches duplicate titles from source)
                     tf = title_fingerprint(title)
                     if tf and await db.is_news_posted(f"tf:{tf}"):
                         continue
-                    # Topic fingerprint dedup (catches different articles about same event)
                     topic = topic_fingerprint(title, item.get("summary", ""))
                     if topic and len(topic.split()) >= 2 and await db.is_news_posted(f"topic:{topic}"):
-                        logger.info(f"Topic already posted — skip: {topic[:40]}")
                         continue
-                    # Skip if same title already selected in this cycle
                     if tf and tf in seen_titles:
                         continue
                     seen_titles.add(tf)
-                    unposted.append(item)
-                    if len(unposted) >= 2:
+                    candidates.append(item)
+                    if len(candidates) >= 8:
                         break
 
-                if not unposted:
-                    # All items posted — pick random items (NO destructive reset)
+                if not candidates:
                     logger.info("All news items already posted — picking random for AI uniquification")
                     import random as _rng
-                    unposted = _rng.sample(all_items, min(2, len(all_items)))
-                    logger.info(f"Picked {len(unposted)} random items for AI uniquification")
+                    candidates = _rng.sample(all_items, min(4, len(all_items)))
 
-                # 3. Post each item (up to 2 per cycle), with a short gap between
-                for idx, news_item in enumerate(unposted):
+                # 3. Try candidates until we post 2 (or exhaust candidates)
+                posted_count = 0
+                target_posts = 2
+                for news_item in candidates:
+                    if posted_count >= target_posts:
+                        break
                     try:
                         posted = await self._post_news_item(news_item, mood, channel_id, CHANNEL_POST_PROMPT)
                         if posted:
-                            logger.info(f"Cycle: posted news {idx+1}/{len(unposted)}")
+                            posted_count += 1
+                            logger.info(f"Cycle: posted news {posted_count}/{target_posts}")
+                            if posted_count < target_posts:
+                                await asyncio.sleep(60)  # gap between posts
+                        else:
+                            logger.info(f"News skipped (AI empty or validation) — trying next candidate")
                     except Exception as e:
                         logger.error(f"Post news item error: {e}")
-                    if idx < len(unposted) - 1:
-                        await asyncio.sleep(60)  # small gap between the 2 posts
+                logger.info(f"Cycle complete: posted {posted_count}/{target_posts} from {len(candidates)} candidates")
 
             except asyncio.CancelledError:
                 break
@@ -295,7 +296,12 @@ class AsyaBot:
         )
 
         if not ai_commentary:
-            logger.warning("AI commentary empty — skipping post")
+            logger.warning("AI commentary empty — marking news as skipped to try next")
+            # Mark as posted so scheduler moves to next news (avoid infinite loop)
+            if news_id:
+                await db.mark_news_posted(news_id, title)
+            if url:
+                await db.mark_news_posted(url_normalize(url), title)
             return False
 
         # Clean AI output (strip markdown, prompt leakage, disclaimers, name prefixes)
@@ -304,7 +310,12 @@ class AsyaBot:
         # Validate (politics/NSFW/auto-relevance)
         is_valid, reason = validate_post_text(ai_text)
         if not is_valid:
-            logger.warning(f"Post validation FAILED ({reason}) — skipping: {title[:40]}")
+            logger.warning(f"Post validation FAILED ({reason}) — marking as skipped: {title[:40]}")
+            # Mark as posted so scheduler moves to next news
+            if news_id:
+                await db.mark_news_posted(news_id, title)
+            if url:
+                await db.mark_news_posted(url_normalize(url), title)
             return False
 
         # Text fingerprint dedup (catches AI generating identical text for different news)
