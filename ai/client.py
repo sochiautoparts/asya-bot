@@ -1,5 +1,5 @@
 """Ася AI Client — routes all AI through OpenClaw Gateway + Pollinations direct."""
-import asyncio, logging, random, time
+import asyncio, logging, os, random, time
 from typing import List, Optional
 import httpx
 from bot.config import config
@@ -21,6 +21,36 @@ if not _POLLINATIONS_KEYS:
     _k = os.getenv("POLLINATIONS_API_KEY", "")
     if _k: _POLLINATIONS_KEYS.append(_k)
 _POLLINATIONS_KEY_IDX = 0  # round-robin index
+
+# Cloudflare Workers AI (Tier-2 fallback — more reliable, no rate limits)
+_CF_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct"
+_CF_ACCOUNTS = []
+for _i in range(1, 3):
+    _aid = os.getenv(f"CF_ACCOUNT_ID_{_i}", "")
+    _tok = os.getenv(f"CF_API_TOKEN_{_i}", "")
+    if _aid and _tok:
+        _CF_ACCOUNTS.append((_aid, _tok))
+_CF_ACCOUNT_IDX = 0
+
+def _get_cf_account():
+    """Get next Cloudflare account (round-robin). Returns (account_id, token) or None."""
+    global _CF_ACCOUNT_IDX
+    if not _CF_ACCOUNTS:
+        return None
+    acct = _CF_ACCOUNTS[_CF_ACCOUNT_IDX % len(_CF_ACCOUNTS)]
+    _CF_ACCOUNT_IDX += 1
+    return acct
+
+def _strip_pollinations_ads(text):
+    """Strip Pollinations ad suffix from response."""
+    if not text:
+        return text
+    # Remove ad suffix
+    for marker in ["---\n\n**Support Pollinations", "**Support Pollinations", "🌸 **Ad** 🌸"]:
+        idx = text.find(marker)
+        if idx > 0:
+            text = text[:idx].rstrip()
+    return text
 
 def _get_pollinations_key():
     """Get next API key (round-robin). Returns empty string if none."""
@@ -108,12 +138,13 @@ async def _call_openclaw(messages, max_tokens, temperature, timeout=25.0):
 
 async def _call_pollinations_direct(messages, max_tokens, timeout=30.0, retries=2):
     if _client is None: await initialize()
-    payload = {"model": _POLLINATIONS_MODEL, "messages": messages, "temperature": 0.9, "max_tokens": max_tokens, "stream": False, "referrer": "asya-bot"}
+    payload = {"model": _POLLINATIONS_MODEL, "messages": messages, "temperature": 0.9, "max_tokens": max_tokens, "stream": False, "referrer": "asya-bot", "reasoning_effort": "low"}
     sem = _get_pollinations_sem()
     for attempt in range(retries + 1):
         try:
             t_start = time.time()
             headers = _pollinations_headers()
+            headers["Referer"] = "asya-bot"
             async with sem:
                 r = await _client.post(_POLLINATIONS_URL, json=payload, timeout=timeout, headers=headers)
             elapsed = time.time() - t_start
@@ -123,7 +154,8 @@ async def _call_pollinations_direct(messages, max_tokens, timeout=30.0, retries=
                 if choices:
                     msg = choices[0].get("message", {}) or {}
                     content = (msg.get("content", "") or "").strip()
-                    if content: return content
+                    if content:
+                        return _strip_pollinations_ads(content)
                     reasoning = (msg.get("reasoning", "") or "").strip()
                     if reasoning:
                         parts = reasoning.split(".")
@@ -226,8 +258,16 @@ async def chat(prompt, system="", extra_context="", dialog_history=None, max_tok
         out = await _call_pollinations_get(combined, 60.0)
         logger.info(f"AI Pollinations-GET: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
         if out:
+            out = _strip_pollinations_ads(out)
             _stats["success"] += 1; _stats["pollinations_backup"] += 1
             logger.info(f"AI fallback=pollinations-GET ({time.time()-t0:.1f}s) len={len(out)}")
+            return _strip_name_prefix(out)
+        # Tier-2: Cloudflare Workers AI (more reliable, no rate limits)
+        out = await _call_cloudflare(messages, max_tokens, 30.0)
+        logger.info(f"AI Cloudflare: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
+        if out:
+            _stats["success"] += 1
+            logger.info(f"AI fallback=cloudflare ({time.time()-t0:.1f}s) len={len(out)}")
             return _strip_name_prefix(out)
 
     _stats["fail"] += 1
@@ -237,6 +277,45 @@ async def chat(prompt, system="", extra_context="", dialog_history=None, max_tok
         _stats["static_fallback"] += 1
         return fb
     return ""
+
+async def _call_cloudflare(messages, max_tokens, timeout=30.0):
+    """Call Cloudflare Workers AI (Tier-2 fallback). Returns content or empty string."""
+    if _client is None: await initialize()
+    acct = _get_cf_account()
+    if not acct:
+        return ""
+    account_id, token = acct
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/chat/completions"
+    payload = {
+        "model": _CF_MODEL,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": 0.85,
+    }
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    try:
+        r = await _client.post(url, json=payload, timeout=timeout, headers=headers)
+        if r.status_code == 200:
+            data = r.json()
+            # Cloudflare returns either OpenAI format or {result: {response: ...}}
+            choices = data.get("choices") or []
+            if choices:
+                content = (choices[0].get("message", {}).get("content", "") or "").strip()
+                if content:
+                    return content
+            result = data.get("result", {})
+            if isinstance(result, dict):
+                content = (result.get("response", "") or "").strip()
+                if content:
+                    return content
+        return ""
+    except Exception as e:
+        _stats["last_error"] = f"Cloudflare: {type(e).__name__}: {e}"
+        return ""
+
 
 def _strip_name_prefix(text):
     if not text: return text
