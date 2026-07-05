@@ -149,6 +149,7 @@ class AsyaBot:
         with a short gap between them.
         """
         from bot.persona import CHANNEL_POST_PROMPT
+        from bot.post_utils import topic_fingerprint
         await asyncio.sleep(120)
         post_interval = 1200  # 20 min — 2 posts per cycle
         NEWS_URL = "https://raw.githubusercontent.com/sochiautoparts/nws/main/data/auto-news.json"
