@@ -11,6 +11,33 @@ _MODEL = "openclaw"
 _POLLINATIONS_URL = "https://text.pollinations.ai/openai/chat/completions"
 _POLLINATIONS_MODEL = "openai"
 
+# Load up to 3 Pollinations API keys from environment (for rotation)
+_POLLINATIONS_KEYS = []
+for _i in range(1, 4):
+    _k = os.getenv(f"POLLINATIONS_API_KEY_{_i}", "")
+    if _k: _POLLINATIONS_KEYS.append(_k)
+if not _POLLINATIONS_KEYS:
+    # Fallback to single key
+    _k = os.getenv("POLLINATIONS_API_KEY", "")
+    if _k: _POLLINATIONS_KEYS.append(_k)
+_POLLINATIONS_KEY_IDX = 0  # round-robin index
+
+def _get_pollinations_key():
+    """Get next API key (round-robin). Returns empty string if none."""
+    global _POLLINATIONS_KEY_IDX
+    if not _POLLINATIONS_KEYS:
+        return ""
+    key = _POLLINATIONS_KEYS[_POLLINATIONS_KEY_IDX % len(_POLLINATIONS_KEYS)]
+    _POLLINATIONS_KEY_IDX += 1
+    return key
+
+def _pollinations_headers():
+    """Build Authorization header if API key available."""
+    key = _get_pollinations_key()
+    if key:
+        return {"Authorization": f"Bearer {key}"}
+    return {}
+
 _client: Optional[httpx.AsyncClient] = None
 _pollinations_sem: asyncio.Semaphore | None = None
 _openclaw_sem: asyncio.Semaphore | None = None
@@ -86,8 +113,9 @@ async def _call_pollinations_direct(messages, max_tokens, timeout=30.0, retries=
     for attempt in range(retries + 1):
         try:
             t_start = time.time()
+            headers = _pollinations_headers()
             async with sem:
-                r = await _client.post(_POLLINATIONS_URL, json=payload, timeout=timeout)
+                r = await _client.post(_POLLINATIONS_URL, json=payload, timeout=timeout, headers=headers)
             elapsed = time.time() - t_start
             if r.status_code == 200:
                 data = r.json()
@@ -118,8 +146,10 @@ async def _call_pollinations_get(prompt, timeout=12.0):
     url = f"https://text.pollinations.ai/{quote(prompt)}"
     sem = _get_pollinations_sem()
     try:
+        headers = {"Accept": "text/plain"}
+        headers.update(_pollinations_headers())
         async with sem:
-            r = await _client.get(url, timeout=timeout, headers={"Accept": "text/plain"})
+            r = await _client.get(url, timeout=timeout, headers=headers)
         if r.status_code == 200:
             text = r.text.strip()
             if text and len(text) > 2: return text[:2000]

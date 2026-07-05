@@ -96,6 +96,9 @@ jobs:
           CF_ACCOUNT_ID_1: ${{ secrets.CF_ACCOUNT_ID_1 }}
           CF_API_TOKEN_1: ${{ secrets.CF_API_TOKEN_1 }}
           POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
+          POLLINATIONS_API_KEY_1: ${{ secrets.POLLINATIONS_API_KEY_1 }}
+          POLLINATIONS_API_KEY_2: ${{ secrets.POLLINATIONS_API_KEY_2 }}
+          POLLINATIONS_API_KEY_3: ${{ secrets.POLLINATIONS_API_KEY_3 }}
         run: |
           python3 scripts/gen_openclaw_config.py --out /tmp/oc-preview.json
           cat /tmp/oc-preview.json | python3 -c "import json,sys; d=json.load(sys.stdin); print('providers:', list(d['models']['providers'].keys())); print('primary:', d['agents']['defaults']['model']['primary'])"
