@@ -147,7 +147,7 @@ async def chat(prompt, system="", extra_context="", dialog_history=None, max_tok
                 _stats["success"] += 1; _stats["pollinations_backup"] += 1
                 logger.info(f"AI fast=pollinations-GET ({time.time()-t0:.1f}s) len={len(out)}")
                 return _strip_name_prefix(out)
-        out = await _call_pollinations_direct(messages, max_tokens, 30.0)
+        out = await _call_pollinations_direct(messages, max_tokens, 45.0)
         if out:
             _stats["success"] += 1; _stats["pollinations_backup"] += 1
             logger.info(f"AI fast=pollinations-POST ({time.time()-t0:.1f}s) len={len(out)}")
@@ -159,7 +159,7 @@ async def chat(prompt, system="", extra_context="", dialog_history=None, max_tok
     else:
         # If prefer_pollinations, try Pollinations POST first (more reliable for long prompts)
         if prefer_pollinations:
-            out = await _call_pollinations_direct(messages, max_tokens, 30.0)
+            out = await _call_pollinations_direct(messages, max_tokens, 45.0)
             logger.info(f"AI Pollinations-POST: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
             if out:
                 _stats["success"] += 1; _stats["pollinations_backup"] += 1
@@ -170,7 +170,7 @@ async def chat(prompt, system="", extra_context="", dialog_history=None, max_tok
             _stats["success"] += 1; _stats["openclaw_ok"] += 1
             return _strip_name_prefix(out)
         if not prefer_pollinations:
-            out = await _call_pollinations_direct(messages, max_tokens, 30.0)
+            out = await _call_pollinations_direct(messages, max_tokens, 45.0)
             logger.info(f"AI Pollinations-POST: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
             if out:
                 _stats["success"] += 1; _stats["pollinations_backup"] += 1
@@ -181,7 +181,7 @@ async def chat(prompt, system="", extra_context="", dialog_history=None, max_tok
         combined += prompt
         if len(combined) > 3500:
             combined = combined[:3500]
-        out = await _call_pollinations_get(combined, 25.0)
+        out = await _call_pollinations_get(combined, 60.0)
         logger.info(f"AI Pollinations-GET: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
         if out:
             _stats["success"] += 1; _stats["pollinations_backup"] += 1
