@@ -99,8 +99,6 @@ jobs:
           POLLINATIONS_API_KEY_1: ${{ secrets.POLLINATIONS_API_KEY_1 }}
           POLLINATIONS_API_KEY_2: ${{ secrets.POLLINATIONS_API_KEY_2 }}
           POLLINATIONS_API_KEY_3: ${{ secrets.POLLINATIONS_API_KEY_3 }}
-          CF_ACCOUNT_ID_1: ${{ secrets.CF_ACCOUNT_ID_1 }}
-          CF_API_TOKEN_1: ${{ secrets.CF_API_TOKEN_1 }}
           CF_ACCOUNT_ID_2: ${{ secrets.CF_ACCOUNT_ID_2 }}
           CF_API_TOKEN_2: ${{ secrets.CF_API_TOKEN_2 }}
         run: |
