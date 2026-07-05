@@ -292,7 +292,7 @@ class AsyaBot:
         )
         ai_commentary = await ai_client.chat(
             prompt, system=channel_prompt,
-            max_tokens=800, temperature=0.9, allow_static_fallback=False
+            max_tokens=800, temperature=0.9, allow_static_fallback=False, prefer_pollinations=True
         )
 
         if not ai_commentary:
@@ -459,7 +459,7 @@ class AsyaBot:
         )
         text = await ai_client.chat(
             prompt, system=channel_prompt,
-            max_tokens=500, temperature=0.8, allow_static_fallback=False
+            max_tokens=500, temperature=0.8, allow_static_fallback=False, prefer_pollinations=True
         )
         if not text:
             logger.warning("Partner AI text empty — skip")

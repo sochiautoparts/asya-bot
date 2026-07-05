@@ -126,7 +126,7 @@ def _static_fallback(prompt):
     if any(w in t for w in ["как дела", "как ты", "как жизнь", "что нового"]): return random.choice(_STATIC_FALLBACKS["howareyou"])
     return random.choice(_STATIC_FALLBACKS["default"])
 
-async def chat(prompt, system="", extra_context="", dialog_history=None, max_tokens=600, temperature=0.9, allow_static_fallback=True, fast=False):
+async def chat(prompt, system="", extra_context="", dialog_history=None, max_tokens=600, temperature=0.9, allow_static_fallback=True, fast=False, prefer_pollinations=False):
     global _stats
     _stats["requests"] += 1
     t0 = time.time()
@@ -157,21 +157,28 @@ async def chat(prompt, system="", extra_context="", dialog_history=None, max_tok
             _stats["success"] += 1; _stats["openclaw_ok"] += 1
             return _strip_name_prefix(out)
     else:
+        # If prefer_pollinations, try Pollinations POST first (more reliable for long prompts)
+        if prefer_pollinations:
+            out = await _call_pollinations_direct(messages, max_tokens, 30.0)
+            logger.info(f"AI Pollinations-POST: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
+            if out:
+                _stats["success"] += 1; _stats["pollinations_backup"] += 1
+                return _strip_name_prefix(out)
         out = await _call_openclaw(messages, max_tokens, temperature, 25.0)
         logger.info(f"AI OpenClaw: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
         if out:
             _stats["success"] += 1; _stats["openclaw_ok"] += 1
             return _strip_name_prefix(out)
-        out = await _call_pollinations_direct(messages, max_tokens, 30.0)
-        logger.info(f"AI Pollinations-POST: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
-        if out:
-            _stats["success"] += 1; _stats["pollinations_backup"] += 1
-            return _strip_name_prefix(out)
+        if not prefer_pollinations:
+            out = await _call_pollinations_direct(messages, max_tokens, 30.0)
+            logger.info(f"AI Pollinations-POST: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
+            if out:
+                _stats["success"] += 1; _stats["pollinations_backup"] += 1
+                return _strip_name_prefix(out)
         # GET fallback: build a combined prompt and use GET (more reliable for long prompts)
         combined = ""
         if system: combined += system + "\n\n"
         combined += prompt
-        # Truncate to 3500 chars for GET (Pollinations GET limit ~4000)
         if len(combined) > 3500:
             combined = combined[:3500]
         out = await _call_pollinations_get(combined, 25.0)
