@@ -274,6 +274,35 @@ def title_fingerprint(title: str) -> str:
     return " ".join(words)
 
 
+# Key entities for topic dedup (brand + model keywords that indicate same event)
+_TOPIC_ENTITIES = [
+    # Ferrari
+    "ferrari", "феррари", "12cilindri", "manuale", "355 gts",
+    # Skoda/VW
+    "kodiaq", "tayron", "skoda", "шкода",
+    # BMW models
+    "m3", "m4", "m5", "m8", "ix5", "ix7", "ix3", "x5", "x7",
+    "alpina", "b58", "s63", "n55",
+    # Events
+    "norisring", "dtm", "нюрбургринг", "nurburgring",
+    # Furniture brands (Даша)
+    "kerama", "marazzi", "ikea", "misladen",
+]
+
+
+def topic_fingerprint(title: str, summary: str = "") -> str:
+    """Extract topic fingerprint from title+summary for semantic dedup.
+    Returns a normalized string of key entities found (e.g. 'ferrari manuale').
+    Two news items with same topic fingerprint are about the SAME event.
+    """
+    combined = f"{title} {summary}".lower()
+    found = []
+    for entity in _TOPIC_ENTITIES:
+        if entity in combined and entity not in found:
+            found.append(entity)
+    return " ".join(sorted(found))
+
+
 def text_fingerprint(text: str) -> str:
     """Create MD5 hash of normalized text for dedup."""
     t = re.sub(r"[^\w\sа-яё]", "", (text or "").lower())

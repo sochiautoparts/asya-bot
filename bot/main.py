@@ -193,6 +193,11 @@ class AsyaBot:
                     tf = title_fingerprint(title)
                     if tf and await db.is_news_posted(f"tf:{tf}"):
                         continue
+                    # Topic fingerprint dedup (catches different articles about same event)
+                    topic = topic_fingerprint(title, item.get("summary", ""))
+                    if topic and len(topic) > 3 and await db.is_news_posted(f"topic:{topic}"):
+                        logger.info(f"Topic already posted — skip: {topic[:40]}")
+                        continue
                     # Skip if same title already selected in this cycle
                     if tf and tf in seen_titles:
                         continue
@@ -235,7 +240,7 @@ class AsyaBot:
         import httpx
         from bot.post_utils import (smart_truncate, clean_post_text, validate_post_text,
             needs_translation, validate_image, title_fingerprint, text_fingerprint,
-            url_normalize, date_context, UNIQUIFICATION_RULES)
+            url_normalize, date_context, UNIQUIFICATION_RULES, topic_fingerprint)
 
         title = news_item.get("title", "")
         summary = news_item.get("summary", "")
@@ -354,13 +359,19 @@ class AsyaBot:
             except Exception as e:
                 logger.error(f"Channel post failed: {e}")
 
-        # Mark as posted (news_id + URL fingerprint + text fingerprint)
+        # Mark as posted (news_id + URL + title fingerprint + topic + text fingerprint)
         if posted:
             if news_id:
                 await db.mark_news_posted(news_id, title)
             if url:
                 await db.mark_news_posted(url_normalize(url), title)
-            await db.mark_news_posted(fp, title)
+            tf = title_fingerprint(title)
+            if tf:
+                await db.mark_news_posted(f"tf:{tf}", title)
+            topic = topic_fingerprint(title, summary)
+            if topic and len(topic) > 3:
+                await db.mark_news_posted(f"topic:{topic}", title)
+            await db.mark_news_posted(f"fp:{fp}", title)
         return posted
 
     async def _build_media_group(self, image_urls, caption_full):
