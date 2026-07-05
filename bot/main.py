@@ -224,7 +224,7 @@ class AsyaBot:
                             posted_count += 1
                             logger.info(f"Cycle: posted news {posted_count}/{target_posts}")
                             if posted_count < target_posts:
-                                await asyncio.sleep(60)  # gap between posts
+                                await asyncio.sleep(5)  # gap between posts (was 60s)
                         else:
                             logger.info(f"News skipped (AI empty or validation) — trying next candidate")
                     except Exception as e:
