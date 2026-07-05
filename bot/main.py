@@ -209,17 +209,22 @@ class AsyaBot:
             await asyncio.sleep(post_interval)
 
     async def _post_news_item(self, news_item, mood, channel_id, channel_prompt):
-        """Post a single news item to channel with photo (editorial voice). Returns True if posted."""
+        """Post a single news item to channel with photo (editorial voice). Returns True if posted.
+
+        Handles: 1 photo → send_photo; 2+ photos → send_media_group (caption on first);
+        0 photos → send_message. Reserves space for footer to avoid truncation.
+        """
         import httpx
         title = news_item.get("title", "")
         summary = news_item.get("summary", "")
         image_url = news_item.get("image", "")
         images_list = news_item.get("images", []) or []
-        all_images = list(dict.fromkeys([image_url] + images_list))[:10] if image_url else images_list[:10]
+        # Dedup image list, cap at 10 (Telegram media group limit)
+        all_images = list(dict.fromkeys([image_url] + images_list)) if image_url else list(images_list)
         all_images = [u for u in all_images if u][:10]
         news_id = news_item.get("id", "")
 
-        logger.info(f"Selected news: {title[:60]} (img: {'yes' if image_url else 'no'})")
+        logger.info(f"Selected news: {title[:60]} (imgs: {len(all_images)})")
 
         # Generate AI commentary — editorial voice (от имени редакции)
         prompt = (
@@ -247,34 +252,53 @@ class AsyaBot:
             logger.warning("AI commentary empty — skipping post")
             return False
 
-        # Build post text — AI text + editorial footer
-        post_text = ai_commentary.strip()[:3000]
-        if not post_text.endswith("@sochiautoparts"):
-            post_text += "\n\nАвтор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
+        # Footer (constant)
+        FOOTER = "\n\nАвтор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
+        ai_text = ai_commentary.strip()
+
+        # Reserve space for footer: caption ≤ 1024, text ≤ 4096
+        caption_limit = 1024 - len(FOOTER) - 5
+        text_limit = 4096 - len(FOOTER) - 5
+        caption_body = ai_text[:caption_limit]
+        text_body = ai_text[:text_limit]
+        caption_full = caption_body + FOOTER
+        text_full = text_body + FOOTER
 
         posted = False
-        if image_url:
+
+        # Case A: 2+ images → send_media_group (caption on first photo only, ≤1024)
+        if len(all_images) >= 2:
+            try:
+                media_group = await self._build_media_group(all_images, caption_full)
+                if media_group:
+                    await self.bot.send_media_group(channel_id, media_group)
+                    posted = True
+                    logger.info(f"Channel: posted NEWS media_group ({len(media_group)} photos, caption {len(caption_full)}) — {title[:40]}")
+            except Exception as e:
+                logger.warning(f"send_media_group failed: {e}")
+
+        # Case B: exactly 1 image → send_photo (caption ≤1024)
+        if not posted and len(all_images) == 1:
             try:
                 async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as img_client:
-                    img_resp = await img_client.get(image_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+                    img_resp = await img_client.get(all_images[0], headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
                 if img_resp.status_code == 200 and len(img_resp.content) > 2000:
                     from aiogram.types import BufferedInputFile
                     photo_file = BufferedInputFile(img_resp.content, filename="news.jpg")
-                    caption = post_text[:1024]
-                    await self.bot.send_photo(channel_id, photo_file, caption=caption)
+                    await self.bot.send_photo(channel_id, photo_file, caption=caption_full)
                     posted = True
-                    logger.info(f"Channel: posted NEWS+photo ({len(post_text)} chars, caption {len(caption)}) — {title[:40]}")
+                    logger.info(f"Channel: posted NEWS+photo (caption {len(caption_full)}) — {title[:40]}")
                 else:
-                    logger.warning(f"Image download bad status/size: HTTP {img_resp.status_code}, {len(img_resp.content)} bytes")
+                    logger.warning(f"Image download bad: HTTP {img_resp.status_code}, {len(img_resp.content)} bytes")
             except Exception as e:
                 logger.warning(f"Image download failed: {e}")
 
-        # Fallback: post text only (no image) — full text up to 4096
+        # Case C: no image (or all image downloads failed) → send_message (≤4096)
         if not posted:
             try:
-                await self.bot.send_message(channel_id, post_text[:4096])
+                await self.bot.send_message(channel_id, text_full[:4096])
                 posted = True
-                logger.info(f"Channel: posted NEWS text-only ({len(post_text)} chars) — {title[:40]}")
+                logger.info(f"Channel: posted NEWS text-only ({len(text_full)} chars) — {title[:40]}")
             except Exception as e:
                 logger.error(f"Channel post failed: {e}")
 
@@ -282,8 +306,31 @@ class AsyaBot:
             await db.mark_news_posted(news_id, title)
         return posted
 
+    async def _build_media_group(self, image_urls, caption_full):
+        """Download up to 10 images and build a media group (caption on first)."""
+        import httpx
+        from aiogram.types import InputMediaPhoto, BufferedInputFile
+        media = []
+        first = True
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+            for url in image_urls[:10]:
+                try:
+                    r = await client.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+                    if r.status_code == 200 and len(r.content) > 2000:
+                        buf = BufferedInputFile(r.content, filename="news.jpg")
+                        if first:
+                            media.append(InputMediaPhoto(media=buf, caption=caption_full[:1024]))
+                            first = False
+                        else:
+                            media.append(InputMediaPhoto(media=buf))
+                except Exception as e:
+                    logger.warning(f"media group img fetch failed ({url[:50]}): {e}")
+        return media
+
     async def _partner_scheduler(self):
-        """Background task: post 1 affiliate (партнёрский) post to @sochiautoparts every hour."""
+        """Background task: post 1 affiliate (партнёрский) post to @sochiautoparts every hour.
+        Posts WITH partner logo photo when available (caption ≤1024 incl. footer).
+        """
         from bot.persona import CHANNEL_POST_PROMPT
         await asyncio.sleep(300)  # start 5 min after boot
         partner_interval = 3600  # 1 hour
@@ -294,27 +341,24 @@ class AsyaBot:
                     logger.info("No partner campaigns loaded — skip partner post")
                 elif config.CHANNEL_ID:
                     campaign = random.choice(partner_manager.campaigns)
-                    post_text = await self._generate_partner_post(campaign, CHANNEL_POST_PROMPT)
-                    if post_text:
-                        channel_id = int(config.CHANNEL_ID)
-                        try:
-                            await self.bot.send_message(channel_id, post_text[:4096])
-                            logger.info(f"Partner post sent — {campaign.get('name','')[:40]}")
-                        except Exception as e:
-                            logger.error(f"Partner post failed: {e}")
+                    await self._post_partner_campaign(campaign, CHANNEL_POST_PROMPT)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Partner scheduler error: {e}")
             await asyncio.sleep(partner_interval)
 
-    async def _generate_partner_post(self, campaign, channel_prompt):
-        """Generate an affiliate promotional post for a campaign (от имени редакции)."""
+    async def _post_partner_campaign(self, campaign, channel_prompt):
+        """Generate + post a partner campaign (with logo photo if available)."""
+        import httpx
         name = campaign.get("name", "")
+        logo = campaign.get("logo", "")
         goto = campaign.get("goto_link", "")
         cats = campaign.get("categories", []) or []
         regions = campaign.get("regions", []) or []
         mood = await current_mood_descriptor()
+        FOOTER = "\n\nАвтор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
+
         prompt = (
             f"Напиши партнёрский пост для канала @sochiautoparts ОТ ИМЕНИ РЕДАКЦИИ.\n\n"
             f"Партнёр: {name}\n"
@@ -335,13 +379,42 @@ class AsyaBot:
             max_tokens=500, temperature=0.8, allow_static_fallback=False
         )
         if not text:
-            return None
-        text = text.strip()[:3000]
-        if goto and goto not in text:
-            text += f"\n\n🔗 {goto}"
-        if not text.endswith("#sochiautoparts"):
-            text += "\n\nАвтор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
-        return text
+            logger.warning("Partner AI text empty — skip")
+            return
+        ai_text = text.strip()
+        if goto and goto not in ai_text:
+            ai_text += f"\n\n🔗 {goto}"
+
+        channel_id = int(config.CHANNEL_ID)
+        # Try photo with logo (caption ≤1024 incl. footer)
+        posted = False
+        if logo:
+            caption_limit = 1024 - len(FOOTER) - 5
+            caption_full = ai_text[:caption_limit] + FOOTER
+            try:
+                async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as img_client:
+                    img_resp = await img_client.get(logo, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+                if img_resp.status_code == 200 and len(img_resp.content) > 2000:
+                    from aiogram.types import BufferedInputFile
+                    photo_file = BufferedInputFile(img_resp.content, filename="partner.jpg")
+                    await self.bot.send_photo(channel_id, photo_file, caption=caption_full[:1024])
+                    posted = True
+                    logger.info(f"Partner post sent WITH logo photo (caption {len(caption_full[:1024])}) — {name[:40]}")
+                else:
+                    logger.warning(f"Partner logo download bad: HTTP {img_resp.status_code}, {len(img_resp.content)} bytes")
+            except Exception as e:
+                logger.warning(f"Partner logo download failed: {e}")
+
+        # Fallback: text only (≤4096 incl. footer)
+        if not posted:
+            text_limit = 4096 - len(FOOTER) - 5
+            text_full = ai_text[:text_limit] + FOOTER
+            try:
+                await self.bot.send_message(channel_id, text_full[:4096])
+                posted = True
+                logger.info(f"Partner post sent text-only ({len(text_full)} chars) — {name[:40]}")
+            except Exception as e:
+                logger.error(f"Partner post failed: {e}")
 
     async def _notify_owner(self):
         mood = await current_mood_descriptor()
