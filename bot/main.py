@@ -195,7 +195,7 @@ class AsyaBot:
                         continue
                     # Topic fingerprint dedup (catches different articles about same event)
                     topic = topic_fingerprint(title, item.get("summary", ""))
-                    if topic and len(topic) > 3 and await db.is_news_posted(f"topic:{topic}"):
+                    if topic and len(topic.split()) >= 2 and await db.is_news_posted(f"topic:{topic}"):
                         logger.info(f"Topic already posted — skip: {topic[:40]}")
                         continue
                     # Skip if same title already selected in this cycle
@@ -369,7 +369,7 @@ class AsyaBot:
             if tf:
                 await db.mark_news_posted(f"tf:{tf}", title)
             topic = topic_fingerprint(title, summary)
-            if topic and len(topic) > 3:
+            if topic and len(topic.split()) >= 2:
                 await db.mark_news_posted(f"topic:{topic}", title)
             await db.mark_news_posted(f"fp:{fp}", title)
         return posted
