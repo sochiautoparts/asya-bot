@@ -9,6 +9,11 @@ from bot import database as db
 from bot.mood import mood_loop, current_mood_descriptor
 from bot.partners import partner_manager
 from ai import client as ai_client
+from bot.post_utils import (
+    smart_truncate, clean_post_text, validate_post_text,
+    needs_translation, validate_image, title_fingerprint,
+    text_fingerprint, url_normalize, date_context, UNIQUIFICATION_RULES,
+)
 
 logging.basicConfig(level=getattr(logging, config.LOG_LEVEL.upper(), logging.INFO), format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 logger = logging.getLogger("asya.main")
@@ -181,14 +186,20 @@ class AsyaBot:
                             break
 
                 if not unposted:
-                    # All items posted — reset (clear posted_news table)
-                    logger.info("All news items already posted — resetting posted_news")
-                    try:
-                        conn = db._conn()
-                        await conn.execute("DELETE FROM posted_news")
-                        await conn.commit()
-                    except: pass
-                    unposted = all_items[:2]
+                    # All items posted — pick random items (NO destructive reset)
+                    logger.info("All news items already posted — picking random unposted by URL dedup")
+                    import random as _rng
+                    # Try items not posted by URL fingerprint
+                    for item in all_items:
+                        url = item.get("url", "")
+                        if url and not await db.is_news_posted(url_normalize(url)):
+                            unposted.append(item)
+                            if len(unposted) >= 2:
+                                break
+                    if not unposted:
+                        # Fallback: random items (will be uniquified by AI)
+                        unposted = _rng.sample(all_items, min(2, len(all_items)))
+                        logger.info(f"URL dedup exhausted — picked {len(unposted)} random items for AI uniquification")
 
                 # 3. Post each item (up to 2 per cycle), with a short gap between
                 for idx, news_item in enumerate(unposted):
@@ -211,35 +222,55 @@ class AsyaBot:
     async def _post_news_item(self, news_item, mood, channel_id, channel_prompt):
         """Post a single news item to channel with photo (editorial voice). Returns True if posted.
 
-        Handles: 1 photo → send_photo; 2+ photos → send_media_group (caption on first);
-        0 photos → send_message. Reserves space for footer to avoid truncation.
+        Full pipeline: translate (if EN) → AI generate → clean → validate → smart truncate → post.
+        Handles: 1 photo → send_photo; 2+ photos → send_media_group; 0 → send_message.
         """
         import httpx
+        from bot.post_utils import (smart_truncate, clean_post_text, validate_post_text,
+            needs_translation, validate_image, title_fingerprint, text_fingerprint,
+            url_normalize, date_context, UNIQUIFICATION_RULES)
+
         title = news_item.get("title", "")
         summary = news_item.get("summary", "")
+        url = news_item.get("url", "")
         image_url = news_item.get("image", "")
         images_list = news_item.get("images", []) or []
-        # Dedup image list, cap at 10 (Telegram media group limit)
         all_images = list(dict.fromkeys([image_url] + images_list)) if image_url else list(images_list)
         all_images = [u for u in all_images if u][:10]
         news_id = news_item.get("id", "")
 
-        logger.info(f"Selected news: {title[:60]} (imgs: {len(all_images)})")
+        # URL dedup: skip if this URL was already posted
+        if url:
+            url_key = url_normalize(url)
+            if url_key and await db.is_news_posted(url_key):
+                logger.info(f"URL already posted — skip: {url_key[:50]}")
+                return False
 
-        # Generate AI commentary — editorial voice (от имени редакции)
+        logger.info(f"Selected news: {title[:60]} (imgs: {len(all_images)}, lang: {'EN' if needs_translation(title, summary) else 'RU'})")
+
+        # Detect language and build translation-aware prompt
+        is_english = needs_translation(title, summary)
+        translation_note = ""
+        if is_english:
+            translation_note = (
+                "\nВНИМАНИЕ: новость на АНГЛИЙСКОМ — ПЕРЕВЕДИ на русский и УНИКАЛИЗИРУЙ. "
+                "Не делай дословный перевод — перескажи своими словами от лица редакции.\n"
+            )
+
+        # Generate AI commentary — editorial voice + uniquification + date context
         prompt = (
             f"Напиши пост для канала @sochiautoparts с комментарием на эту авто-новость.\n\n"
+            f"Контекст: {date_context()}, настроение: {mood}\n\n"
             f"Заголовок новости: {title}\n"
-            f"Краткое содержание: {summary[:400]}\n\n"
+            f"Краткое содержание: {summary[:500]}\n"
+            f"{translation_note}"
+            f"\n{UNIQUIFICATION_RULES}\n\n"
             f"СТИЛЬ (ОТ ИМЕНИ РЕДАКЦИИ @sochiautoparts):\n"
-            f"- 600-1200 символов, живой экспертный разбор ОТ ИМЕНИ РЕДАКЦИИ канала\n"
-            f"- Пиши от лица редакции (коллектив автоэкспертов, бывший юрист, технари)\n"
-            f"- Не от первого лица лично — а как позиция редакции: 'Редакция считает...', 'Мы разобрались...'\n"
-            f"- Технические детали: л.с., Н·м, км/ч, секунды, размеры\n"
+            f"- 600-1000 символов, живой экспертный разбор ОТ ИМЕНИ РЕДАКЦИИ\n"
+            f"- Пиши от лица редакции: 'Мы разобрались...', 'По нашему мнению...'\n"
+            f"- Технические детали: л.с., Н·м, км/ч, секунды\n"
             f"- Эмодзи: 🚗⚡🔧🔩🤔💪 естественно\n"
-            f"- Женский род (редакция), по-русски\n"
-            f"- Настроение: {mood}\n"
-            f"- НЕ копируй новость — пиши СВОЙ комментарий\n"
+            f"- Женский род (редакция), по-русски, БЕЗ грамматических ошибок\n"
             f"- НЕ добавляй ссылки, НЕ пиши 'Источник'\n"
             f"- НЕ начинай с 'Ася:' или 'Редакция:'"
         )
@@ -252,21 +283,33 @@ class AsyaBot:
             logger.warning("AI commentary empty — skipping post")
             return False
 
-        # Footer (constant)
-        FOOTER = "\n\nАвтор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
-        ai_text = ai_commentary.strip()
+        # Clean AI output (strip markdown, prompt leakage, disclaimers, name prefixes)
+        ai_text = clean_post_text(ai_commentary, "Ася")
 
-        # Reserve space for footer: caption ≤ 1024, text ≤ 4096
-        caption_limit = 1024 - len(FOOTER) - 5
-        text_limit = 4096 - len(FOOTER) - 5
-        caption_body = ai_text[:caption_limit]
-        text_body = ai_text[:text_limit]
+        # Validate (politics/NSFW/auto-relevance)
+        is_valid, reason = validate_post_text(ai_text)
+        if not is_valid:
+            logger.warning(f"Post validation FAILED ({reason}) — skipping: {title[:40]}")
+            return False
+
+        # Text fingerprint dedup
+        fp = text_fingerprint(ai_text)
+        if await db.is_news_posted(fp):
+            logger.info(f"Text fingerprint already posted — skip: {fp[:16]}")
+            return False
+
+        # Footer
+        FOOTER = "\n\nАвтор @asiaexp_bot\n@sochiautoparts\n#sochiautoparts"
+
+        # Smart truncate (reserves space for footer, cuts at sentence/word boundary)
+        caption_body = smart_truncate(ai_text, 1024, len(FOOTER))
+        text_body = smart_truncate(ai_text, 4096, len(FOOTER))
         caption_full = caption_body + FOOTER
         text_full = text_body + FOOTER
 
         posted = False
 
-        # Case A: 2+ images → send_media_group (caption on first photo only, ≤1024)
+        # Case A: 2+ images → send_media_group
         if len(all_images) >= 2:
             try:
                 media_group = await self._build_media_group(all_images, caption_full)
@@ -277,46 +320,53 @@ class AsyaBot:
             except Exception as e:
                 logger.warning(f"send_media_group failed: {e}")
 
-        # Case B: exactly 1 image → send_photo (caption ≤1024)
+        # Case B: exactly 1 image → send_photo
         if not posted and len(all_images) == 1:
             try:
                 async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as img_client:
                     img_resp = await img_client.get(all_images[0], headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
-                if img_resp.status_code == 200 and len(img_resp.content) > 2000:
+                if img_resp.status_code == 200 and validate_image(img_resp.content):
                     from aiogram.types import BufferedInputFile
                     photo_file = BufferedInputFile(img_resp.content, filename="news.jpg")
-                    await self.bot.send_photo(channel_id, photo_file, caption=caption_full)
+                    await self.bot.send_photo(channel_id, photo_file, caption=caption_full[:1024])
                     posted = True
-                    logger.info(f"Channel: posted NEWS+photo (caption {len(caption_full)}) — {title[:40]}")
+                    logger.info(f"Channel: posted NEWS+photo (caption {len(caption_full[:1024])}) — {title[:40]}")
                 else:
-                    logger.warning(f"Image download bad: HTTP {img_resp.status_code}, {len(img_resp.content)} bytes")
+                    logger.warning(f"Image validation failed: HTTP {img_resp.status_code}, {len(img_resp.content)} bytes")
             except Exception as e:
                 logger.warning(f"Image download failed: {e}")
 
-        # Case C: no image (or all image downloads failed) → send_message (≤4096)
+        # Case C: no image → send_message
         if not posted:
             try:
                 await self.bot.send_message(channel_id, text_full[:4096])
                 posted = True
-                logger.info(f"Channel: posted NEWS text-only ({len(text_full)} chars) — {title[:40]}")
+                logger.info(f"Channel: posted NEWS text-only ({len(text_full[:4096])} chars) — {title[:40]}")
             except Exception as e:
                 logger.error(f"Channel post failed: {e}")
 
-        if posted and news_id:
-            await db.mark_news_posted(news_id, title)
+        # Mark as posted (news_id + URL fingerprint + text fingerprint)
+        if posted:
+            if news_id:
+                await db.mark_news_posted(news_id, title)
+            if url:
+                await db.mark_news_posted(url_normalize(url), title)
+            await db.mark_news_posted(fp, title)
         return posted
 
     async def _build_media_group(self, image_urls, caption_full):
-        """Download up to 10 images and build a media group (caption on first)."""
+        """Download up to 10 images and build a media group (caption on first).
+        Validates each image by magic bytes (JPEG/PNG/WebP)."""
         import httpx
         from aiogram.types import InputMediaPhoto, BufferedInputFile
+        from bot.post_utils import validate_image
         media = []
         first = True
         async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
             for url in image_urls[:10]:
                 try:
                     r = await client.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
-                    if r.status_code == 200 and len(r.content) > 2000:
+                    if r.status_code == 200 and validate_image(r.content):
                         buf = BufferedInputFile(r.content, filename="news.jpg")
                         if first:
                             media.append(InputMediaPhoto(media=buf, caption=caption_full[:1024]))
