@@ -131,7 +131,7 @@ class AsyaBot:
             asyncio.create_task(self._partner_scheduler(), name="partner_scheduler")
             logger.info(f"Channel scheduler enabled (@{config.CHANNEL_USERNAME}) — 2 news/20min + 1 partner/hour")
         await self._notify_owner()
-        try: await self.bot.delete_webhook(drop_pending_updates=False)
+        try: await self.bot.delete_webhook(drop_pending_updates=True)
         except: pass
         allowed = ["message", "edited_message", "channel_post", "edited_channel_post", "inline_query", "chosen_inline_result"]
         logger.info("=== Ася в сети — слушаю сообщения ===")
