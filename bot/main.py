@@ -424,8 +424,8 @@ class AsyaBot:
         Posts WITH partner logo photo when available (caption ≤1024 incl. footer).
         """
         from bot.persona import CHANNEL_POST_PROMPT
-        await asyncio.sleep(300)  # start 5 min after boot
-        partner_interval = 3600  # 1 hour
+        await asyncio.sleep(1800)  # start 30 min after boot (prevents partner spam on restart)
+        partner_interval = 7200  # 2 hours (was 1h — was too frequent with restarts)
         while True:
             try:
                 await partner_manager.refresh_if_needed()
