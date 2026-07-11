@@ -303,12 +303,7 @@ class AsyaBot:
         )
 
         if not ai_commentary:
-            logger.warning("AI commentary empty — marking news as skipped to try next")
-            # Mark as posted so scheduler moves to next news (avoid infinite loop)
-            if news_id:
-                await db.mark_news_posted(news_id, title)
-            if url:
-                await db.mark_news_posted(url_normalize(url), title)
+            logger.warning("AI commentary empty — will retry this news next cycle")
             return False
 
         # Clean AI output (strip markdown, prompt leakage, disclaimers, name prefixes)
