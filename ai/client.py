@@ -233,18 +233,18 @@ async def chat(prompt, system="", extra_context="", dialog_history=None, max_tok
     else:
         # If prefer_pollinations, try Pollinations POST first (more reliable for long prompts)
         if prefer_pollinations:
-            out = await _call_pollinations_direct(messages, max_tokens, 45.0)
+            out = await _call_pollinations_direct(messages, max_tokens, 20.0)
             logger.info(f"AI Pollinations-POST: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
             if out:
                 _stats["success"] += 1; _stats["pollinations_backup"] += 1
                 return _strip_name_prefix(out)
-        out = await _call_openclaw(messages, max_tokens, temperature, 25.0)
+        out = await _call_openclaw(messages, max_tokens, temperature, 10.0)
         logger.info(f"AI OpenClaw: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
         if out:
             _stats["success"] += 1; _stats["openclaw_ok"] += 1
             return _strip_name_prefix(out)
         if not prefer_pollinations:
-            out = await _call_pollinations_direct(messages, max_tokens, 45.0)
+            out = await _call_pollinations_direct(messages, max_tokens, 20.0)
             logger.info(f"AI Pollinations-POST: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
             if out:
                 _stats["success"] += 1; _stats["pollinations_backup"] += 1
@@ -255,7 +255,7 @@ async def chat(prompt, system="", extra_context="", dialog_history=None, max_tok
         combined += prompt
         if len(combined) > 3500:
             combined = combined[:3500]
-        out = await _call_pollinations_get(combined, 60.0)
+        out = await _call_pollinations_get(combined, 30.0)
         logger.info(f"AI Pollinations-GET: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
         if out:
             out = _strip_pollinations_ads(out)
@@ -263,7 +263,7 @@ async def chat(prompt, system="", extra_context="", dialog_history=None, max_tok
             logger.info(f"AI fallback=pollinations-GET ({time.time()-t0:.1f}s) len={len(out)}")
             return _strip_name_prefix(out)
         # Tier-2: Cloudflare Workers AI (more reliable, no rate limits)
-        out = await _call_cloudflare(messages, max_tokens, 30.0)
+        out = await _call_cloudflare(messages, max_tokens, 15.0)
         logger.info(f"AI Cloudflare: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
         if out:
             _stats["success"] += 1
