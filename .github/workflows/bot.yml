@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 concurrency:
   group: asya-bot-single
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -18,7 +18,7 @@ env:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 345
+    timeout-minutes: 720
 
     steps:
       - name: Cancel conflicting runs and wait
