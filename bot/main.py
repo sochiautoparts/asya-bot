@@ -131,7 +131,7 @@ class AsyaBot:
             asyncio.create_task(self._partner_scheduler(), name="partner_scheduler")
             logger.info(f"Channel scheduler enabled (@{config.CHANNEL_USERNAME}) — 2 news/20min + 1 partner/hour")
         await self._notify_owner()
-        try: await self.bot.delete_webhook(drop_pending_updates=False)
+        try: await self.bot.delete_webhook(drop_pending_updates=True)
         except: pass
         allowed = ["message", "edited_message", "channel_post", "edited_channel_post", "inline_query", "chosen_inline_result"]
         logger.info("=== Ася в сети — слушаю сообщения ===")
@@ -143,7 +143,7 @@ class AsyaBot:
             except Exception as e:
                 polling_retries += 1
                 logger.error(f"Polling error (attempt {polling_retries}): {type(e).__name__}: {e}")
-                if polling_retries > 200: break
+                if polling_retries > 50: break
                 await asyncio.sleep(5 if polling_retries <= 5 else 10)
         try: await ai_client.close()
         except: pass
