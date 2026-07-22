@@ -1,25 +1,30 @@
 name: Run Asya Bot 24/7 (OpenClaw)
 
 # ════════════════════════════════════════════════════════════════════════════
-# ASYA BOT v2 — stable 24/7 (OpenClaw architecture)
+# ASYA BOT — stable 24/7 (OpenClaw architecture)
 #
-# ПРОБЛЕМА v1 (из логов):
-#   - cancel-in-progress: false → параллельные runs → 409 Conflict на Telegram
-#   - Manual cancel step + sleep 60 → 60-сек gap на каждый restart
-#   - Бот зависает в polling retry loop (409 от параллельного инстанса)
+# АРХИТЕКТУРА (простая и надёжная, без PAT):
+#   - schedule "0 */4 * * *" (каждые 4 часа) — cron-перезапуск
+#   - timeout-minutes: 360 (6ч) — больше чем 4ч schedule, есть overlap
+#   - cancel-in-progress: true — новый run отменяет старый (нет 409 Conflict)
+#   - auto-restart loop внутри run step — переживает любой crash бота
+#   - re-dispatch через GITHUB_TOKEN (встроенный, выдаётся автоматически)
+#   - DB push через GITHUB_TOKEN (не нужен PAT)
 #
-# РЕШЕНИЕ v2:
-#   - cancel-in-progress: true → GitHub auto-cancels old run (5-10 сек gap)
-#   - Убран manual cancel step (не нужен с cancel-in-progress: true)
-#   - timeout 360 мин (6ч) — переживает GitHub schedule delays
-#   - schedule каждый час (fallback если re-dispatch упадёт)
-#   - auto-restart loop внутри run step — переживает crash бота
-#   - re-dispatch через GH_PAT_TOKEN (рабочий, обновлён)
+# КАК ЭТО РАБОТАЕТ:
+#   1. Schedule каждые 4ч запускает новый run
+#   2. cancel-in-progress: true убивает старый run (если ещё active)
+#   3. Новый run: checkout → install → python3 -m bot.main (в while true loop)
+#   4. Если бот падает — auto-restart loop поднимает его через 5-30 сек
+#   5. Если весь run упал (timeout 6ч) — schedule через 4ч поднимет новый
+#   6. re-dispatch в конце — страховка если schedule задерживается
+#
+# НЕ НУЖЕН GH_PAT_TOKEN — GITHUB_TOKEN справляется со всем.
 # ════════════════════════════════════════════════════════════════════════════
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '0 */4 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -105,12 +110,11 @@ jobs:
           python3 scripts/gen_openclaw_config.py --out /tmp/oc-preview.json
           cat /tmp/oc-preview.json | python3 -c "import json,sys; d=json.load(sys.stdin); print('providers:', list(d['models']['providers'].keys())); print('primary:', d['agents']['defaults']['model']['primary'])"
 
-      - name: Run Asya Bot (OpenClaw) with auto-restart
+      - name: Run Asya Bot with auto-restart (crash recovery)
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           BOT_USERNAME: ${{ secrets.BOT_USERNAME }}
           OWNER_ID: ${{ secrets.OWNER_ID }}
-          GH_PAT_TOKEN: ${{ secrets.GH_PAT_TOKEN }}
           GH_REPO: ${{ github.repository }}
           OPENCLAW_PORT: "18789"
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -131,7 +135,8 @@ jobs:
           LOG_LEVEL: INFO
         run: |
           set +e
-          echo "=== Starting Asya Bot (OpenClaw) at $(date -u +%H:%M:%SZ) ==="
+          echo "=== Starting Asya Bot at $(date -u +%H:%M:%SZ) ==="
+          echo "=== Auto-restart enabled: bot will restart on any crash ==="
           RETRY=0; LAST_START=0
           while true; do
             RETRY=$((RETRY+1))
@@ -142,6 +147,7 @@ jobs:
             python3 -m bot.main
             EXIT_CODE=$?
             echo "Bot exited with code $EXIT_CODE (attempt $RETRY) at $(date -u +%H:%M:%SZ)"
+            # Auto-restart with backoff: 5s, 10s, 15s, 30s
             if [ $EXIT_CODE -eq 0 ]; then sleep 5
             elif [ $RETRY -le 3 ]; then sleep 10
             elif [ $RETRY -le 6 ]; then sleep 15
@@ -160,7 +166,7 @@ jobs:
       - name: Save database to git
         if: always()
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ -f data/asya.db ]; then
             git config user.name "Asya Bot"
@@ -169,18 +175,18 @@ jobs:
             git checkout -B db-update origin/main
             git add -f data/asya.db || true
             git diff --staged --quiet || git commit -m "db: update $(date +%Y-%m-%d_%H:%M)" || true
-            git push https://x-access-token:$GH_TOKEN@github.com/${{ github.repository }}.git db-update:main 2>&1 || echo "DB push skipped (newer commits — OK, cached via actions/cache)"
+            git push "https://x-access-token:$GH_TOKEN@github.com/${{ github.repository }}.git" db-update:main 2>&1 || echo "DB push skipped (newer commits — OK, cached via actions/cache)"
           fi
 
-      - name: Re-dispatch workflow for 24/7
+      - name: Re-dispatch workflow (crash recovery insurance)
         if: always()
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "=== Re-dispatching Asya Bot for 24/7 ==="
+          echo "=== Re-dispatching Asya Bot (insurance) ==="
           REPO=${{ github.repository }}
           sleep 10
-          for i in 1 2 3 4 5; do
+          for i in 1 2 3; do
             HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
               -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
               "https://api.github.com/repos/$REPO/actions/workflows/bot.yml/dispatches" -d '{"ref":"main"}')
