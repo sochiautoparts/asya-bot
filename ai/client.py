@@ -87,7 +87,11 @@ _stats = {"requests": 0, "success": 0, "fail": 0, "openclaw_ok": 0, "pollination
 async def initialize():
     global _client
     if _client is None:
-        _client = httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0), limits=httpx.Limits(max_connections=50, max_keepalive_connections=20))
+        _client = httpx.AsyncClient(
+            timeout=httpx.Timeout(60.0, connect=10.0),
+            limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+        )
     logger.info(f"AI client → OpenClaw @ {_ENDPOINT} (providers: {config.providers_status()})")
 
 async def close():
