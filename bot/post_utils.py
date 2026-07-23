@@ -196,6 +196,12 @@ _AUTO_KEYWORDS = [
 ]
 
 
+# ─── Language Detection ────────────────────────────────────────────────────
+
+_CYRILLIC_RE = re.compile(r"[а-яё]", re.IGNORECASE)
+_LATIN_RE = re.compile(r"[a-z]", re.IGNORECASE)
+
+
 def validate_post_text(text: str, require_keywords: list = None) -> Tuple[bool, str]:
     """Validate post text. Returns (is_valid, reason)."""
     if not text or len(text) < 50:
@@ -216,13 +222,13 @@ def validate_post_text(text: str, require_keywords: list = None) -> Tuple[bool, 
     if not has_relevant:
         return False, "not_auto_relevant"
 
+    # Language check: post MUST be in Russian (cyrillic chars > latin)
+    cyrillic = len(_CYRILLIC_RE.findall(text))
+    latin = len(_LATIN_RE.findall(text))
+    if latin > cyrillic * 2:
+        return False, "not_russian"
+
     return True, "ok"
-
-
-# ─── Language Detection ────────────────────────────────────────────────────
-
-_CYRILLIC_RE = re.compile(r"[а-яё]", re.IGNORECASE)
-_LATIN_RE = re.compile(r"[a-z]", re.IGNORECASE)
 
 
 def detect_language(text: str) -> str:
