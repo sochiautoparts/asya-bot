@@ -217,61 +217,61 @@ async def chat(prompt, system="", extra_context="", dialog_history=None, max_tok
 
     if fast:
         use_get = (not extra_context) and (not dialog_history) and len(prompt) < 400
+        # Fast mode: Cloudflare first (reliable), then OpenClaw, then Pollinations
+        out = await _call_cloudflare(messages, max_tokens, 20.0)
+        if out:
+            _stats["success"] += 1
+            logger.info(f"AI fast=cloudflare ({time.time()-t0:.1f}s) len={len(out)}")
+            return _strip_name_prefix(out)
+        out = await _call_openclaw(messages, max_tokens, temperature, 15.0)
+        if out:
+            _stats["success"] += 1; _stats["openclaw_ok"] += 1
+            return _strip_name_prefix(out)
         if use_get:
             short_persona = "Ты Ася, девушка из Сочи. Женский род всегда. Отвечай живо, кратко (2-4 предложения). По-русски. Без выдуманных фактов. Не начинай с имени."
             embedded = f"{short_persona}\n\nВопрос: {prompt}\n\nОтвет:"
-            out = await _call_pollinations_get(embedded, 12.0)
+            out = await _call_pollinations_get(embedded, 10.0)
             if out:
                 _stats["success"] += 1; _stats["pollinations_backup"] += 1
                 logger.info(f"AI fast=pollinations-GET ({time.time()-t0:.1f}s) len={len(out)}")
                 return _strip_name_prefix(out)
-        out = await _call_pollinations_direct(messages, max_tokens, 45.0)
+        out = await _call_pollinations_direct(messages, max_tokens, 15.0)
         if out:
             _stats["success"] += 1; _stats["pollinations_backup"] += 1
             logger.info(f"AI fast=pollinations-POST ({time.time()-t0:.1f}s) len={len(out)}")
             return _strip_name_prefix(out)
-        out = await _call_openclaw(messages, max_tokens, temperature, 15.0)
-        if out:
-            _stats["success"] += 1; _stats["openclaw_ok"] += 1
-            return _strip_name_prefix(out)
     else:
-        # If prefer_pollinations, try Pollinations POST first (more reliable for long prompts)
-        if prefer_pollinations:
-            out = await _call_pollinations_direct(messages, max_tokens, 30.0)
-            logger.info(f"AI Pollinations-POST: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
-            if out:
-                _stats["success"] += 1; _stats["pollinations_backup"] += 1
-                return _strip_name_prefix(out)
-        out = await _call_openclaw(messages, max_tokens, temperature, 15.0)
+        # Channel posts: Cloudflare first (most reliable), then OpenClaw, then Pollinations
+        # Pollinations legacy API is deprecated (402 for long prompts), use as last resort
+        out = await _call_cloudflare(messages, max_tokens, 30.0)
+        logger.info(f"AI Cloudflare: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
+        if out:
+            _stats["success"] += 1
+            logger.info(f"AI primary=cloudflare ({time.time()-t0:.1f}s) len={len(out)}")
+            return _strip_name_prefix(out)
+        out = await _call_openclaw(messages, max_tokens, temperature, 20.0)
         logger.info(f"AI OpenClaw: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
         if out:
             _stats["success"] += 1; _stats["openclaw_ok"] += 1
             return _strip_name_prefix(out)
-        if not prefer_pollinations:
-            out = await _call_pollinations_direct(messages, max_tokens, 30.0)
-            logger.info(f"AI Pollinations-POST: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
-            if out:
-                _stats["success"] += 1; _stats["pollinations_backup"] += 1
-                return _strip_name_prefix(out)
-        # GET fallback: build a combined prompt and use GET (more reliable for long prompts)
+        # Pollinations as last resort (deprecated, short timeout)
+        out = await _call_pollinations_direct(messages, max_tokens, 15.0)
+        logger.info(f"AI Pollinations-POST: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
+        if out:
+            _stats["success"] += 1; _stats["pollinations_backup"] += 1
+            return _strip_name_prefix(out)
+        # GET fallback: build a combined prompt and use GET
         combined = ""
         if system: combined += system + "\n\n"
         combined += prompt
         if len(combined) > 3500:
             combined = combined[:3500]
-        out = await _call_pollinations_get(combined, 45.0)
+        out = await _call_pollinations_get(combined, 20.0)
         logger.info(f"AI Pollinations-GET: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
         if out:
             out = _strip_pollinations_ads(out)
             _stats["success"] += 1; _stats["pollinations_backup"] += 1
             logger.info(f"AI fallback=pollinations-GET ({time.time()-t0:.1f}s) len={len(out)}")
-            return _strip_name_prefix(out)
-        # Tier-2: Cloudflare Workers AI (more reliable, no rate limits)
-        out = await _call_cloudflare(messages, max_tokens, 20.0)
-        logger.info(f"AI Cloudflare: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
-        if out:
-            _stats["success"] += 1
-            logger.info(f"AI fallback=cloudflare ({time.time()-t0:.1f}s) len={len(out)}")
             return _strip_name_prefix(out)
 
     _stats["fail"] += 1
