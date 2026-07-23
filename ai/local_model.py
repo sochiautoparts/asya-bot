@@ -39,7 +39,7 @@ async def _get_llm():
             t0 = time.time()
             _llm = Llama(
                 model_path=model_path,
-                n_ctx=2048,
+                n_ctx=4096,
                 n_threads=int(os.getenv("LOCAL_MODEL_THREADS", "4")),
                 n_gpu_layers=0,
                 verbose=False,
@@ -73,9 +73,27 @@ async def call_local(messages, max_tokens=250, temperature=0.8):
     try:
         loop = asyncio.get_event_loop()
 
+        # Truncate messages to fit context window (leave room for generation)
+        # Context is 4096, reserve 512 for generation, 3584 for input
+        truncated = []
+        total_chars = 0
+        max_input_chars = 12000  # ~3000 tokens (safe margin)
+        for msg in messages:
+            content = msg.get("content", "")
+            if total_chars + len(content) > max_input_chars:
+                # Truncate this message
+                remaining = max_input_chars - total_chars
+                if remaining > 100:
+                    content = content[:remaining] + "..."
+                    msg = {**msg, "content": content}
+                    truncated.append(msg)
+                break
+            truncated.append(msg)
+            total_chars += len(content)
+
         def _generate():
             return llm.create_chat_completion(
-                messages=messages,
+                messages=truncated,
                 max_tokens=min(max_tokens, 250),
                 temperature=temperature,
                 top_p=0.9,
