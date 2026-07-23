@@ -1,13 +1,17 @@
-"""Local LLM provider — Qwen2.5-0.5B-Instruct (GGUF format).
+"""Local LLM provider — Qwen2.5-7B-Instruct (GGUF format).
 
 Always available, no network needed. Ensures posting NEVER stops
 even when all cloud providers (Pollinations, OpenClaw, Cloudflare) fail.
 
-Model: Qwen/Qwen2.5-0.5B-Instruct-GGUF (Q4_K_M, ~469MB)
-- Load time: ~0.5s
-- Generation: ~17 tok/s (4 CPU threads)
-- Russian quality: good (Qwen trained on multilingual data)
-- RAM: ~1GB
+Model: Qwen/Qwen2.5-7B-Instruct-GGUF (Q5_K_M, ~5.4GB, 2 shards)
+- 7B parameters (14x more than 0.5B) — excellent Russian quality
+- Load time: ~30s
+- Generation: ~8-12 tok/s (4 CPU threads)
+- Russian quality: excellent (Qwen 2.5 trained on large multilingual corpus)
+- RAM: ~8GB
+- Context: 4096 tokens
+
+This model produces high-quality Russian text suitable for channel posts.
 """
 import asyncio, logging, os, time
 from typing import Optional
@@ -30,12 +34,14 @@ async def _get_llm():
             return _llm
         try:
             from llama_cpp import Llama
-            model_path = os.getenv("LOCAL_MODEL_PATH", "data/qwen2.5-0.5b.gguf")
+            # Qwen2.5-7B-Instruct Q5_K_M (sharded into 2 files)
+            # llama-cpp-python auto-loads shards from the first file
+            model_path = os.getenv("LOCAL_MODEL_PATH", "data/qwen2.5-7b-q5_k_m-00001.gguf")
             if not os.path.exists(model_path):
                 logger.warning(f"Local model file not found: {model_path}")
                 _init_failed = True
                 return None
-            logger.info(f"Loading local model: {model_path}")
+            logger.info(f"Loading local model (7B Q5_K_M): {model_path}")
             t0 = time.time()
             _llm = Llama(
                 model_path=model_path,
@@ -44,7 +50,7 @@ async def _get_llm():
                 n_gpu_layers=0,
                 verbose=False,
             )
-            logger.info(f"Local model loaded in {time.time()-t0:.1f}s")
+            logger.info(f"Local model (7B) loaded in {time.time()-t0:.1f}s")
             return _llm
         except ImportError:
             logger.warning("llama-cpp-python not installed — local model unavailable")
@@ -55,12 +61,12 @@ async def _get_llm():
             _init_failed = True
             return None
 
-async def call_local(messages, max_tokens=250, temperature=0.8):
-    """Call local Qwen2.5-0.5B model.
+async def call_local(messages, max_tokens=400, temperature=0.8):
+    """Call local Qwen2.5-7B model.
 
     Args:
         messages: List of {"role": "user"/"system"/"assistant", "content": "..."}
-        max_tokens: Max tokens to generate (capped at 250 for speed)
+        max_tokens: Max tokens to generate (up to 400 for longer posts)
         temperature: 0.0-1.0
 
     Returns:
@@ -94,10 +100,10 @@ async def call_local(messages, max_tokens=250, temperature=0.8):
         def _generate():
             return llm.create_chat_completion(
                 messages=truncated,
-                max_tokens=min(max_tokens, 250),
+                max_tokens=min(max_tokens, 500),
                 temperature=temperature,
                 top_p=0.9,
-                repeat_penalty=1.15,
+                repeat_penalty=1.1,
             )
 
         response = await loop.run_in_executor(None, _generate)
