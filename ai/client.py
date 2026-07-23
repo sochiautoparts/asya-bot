@@ -1,8 +1,10 @@
-"""Ася AI Client — routes all AI through OpenClaw Gateway + Pollinations direct."""
+"""Ася AI Client — routes all AI through OpenClaw Gateway + Pollinations direct.
+Local Qwen2.5-0.5B model as last-resort fallback (always available)."""
 import asyncio, logging, os, random, time
 from typing import List, Optional
 import httpx
 from bot.config import config
+from ai.local_model import call_local
 
 logger = logging.getLogger("asya.ai")
 
@@ -269,6 +271,15 @@ async def chat(prompt, system="", extra_context="", dialog_history=None, max_tok
             _stats["success"] += 1
             logger.info(f"AI fallback=cloudflare ({time.time()-t0:.1f}s) len={len(out)}")
             return _strip_name_prefix(out)
+
+    # Tier-3: Local Qwen2.5-0.5B model (ALWAYS available, no network needed)
+    # This ensures posting NEVER stops even when all cloud providers fail
+    out = await call_local(messages, max_tokens, temperature)
+    logger.info(f"AI Local: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
+    if out:
+        _stats["success"] += 1
+        logger.info(f"AI fallback=local ({time.time()-t0:.1f}s) len={len(out)}")
+        return _strip_name_prefix(out)
 
     _stats["fail"] += 1
     _stats["last_error"] = "all providers returned empty"

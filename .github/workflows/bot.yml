@@ -55,11 +55,30 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
+          pip install llama-cpp-python
 
       - name: Install OpenClaw
         run: |
           npm install -g openclaw@latest
           openclaw --version
+
+      - name: Download local AI model (Qwen2.5-0.5B GGUF)
+        run: |
+          mkdir -p data
+          if [ ! -f data/qwen2.5-0.5b.gguf ]; then
+            echo "Downloading Qwen2.5-0.5B-Instruct GGUF (~469MB)..."
+            curl -sL -o data/qwen2.5-0.5b.gguf \
+              "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+            ls -lh data/qwen2.5-0.5b.gguf
+          else
+            echo "Model already cached"
+          fi
+
+      - name: Restore local model cache
+        uses: actions/cache@v4
+        with:
+          path: data/qwen2.5-0.5b.gguf
+          key: qwen25-05b-gguf-v1
 
       - name: Clean Python cache
         run: find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
