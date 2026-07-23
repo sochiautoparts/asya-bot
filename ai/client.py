@@ -214,6 +214,7 @@ async def chat(prompt, system="", extra_context="", dialog_history=None, max_tok
     messages.append({"role": "user", "content": user_content})
 
     if fast:
+        # Fast mode: Pollinations first (quick), then local, then cloud
         use_get = (not extra_context) and (not dialog_history) and len(prompt) < 400
         if use_get:
             short_persona = "Ты Ася, девушка из Сочи. Женский род всегда. Отвечай живо, кратко (2-4 предложения). По-русски. Без выдуманных фактов. Не начинай с имени."
@@ -228,29 +229,42 @@ async def chat(prompt, system="", extra_context="", dialog_history=None, max_tok
             _stats["success"] += 1; _stats["pollinations_backup"] += 1
             logger.info(f"AI fast=pollinations-POST ({time.time()-t0:.1f}s) len={len(out)}")
             return _strip_name_prefix(out)
+        # Local model as primary fallback in fast mode (always available)
+        out = await call_local(messages, max_tokens, temperature)
+        if out:
+            _stats["success"] += 1
+            logger.info(f"AI fast=local ({time.time()-t0:.1f}s) len={len(out)}")
+            return _strip_name_prefix(out)
         out = await _call_openclaw(messages, max_tokens, temperature, 15.0)
         if out:
             _stats["success"] += 1; _stats["openclaw_ok"] += 1
             return _strip_name_prefix(out)
     else:
-        # If prefer_pollinations, try Pollinations POST first (more reliable for long prompts)
-        if prefer_pollinations:
-            out = await _call_pollinations_direct(messages, max_tokens, 45.0)
-            logger.info(f"AI Pollinations-POST: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
-            if out:
-                _stats["success"] += 1; _stats["pollinations_backup"] += 1
-                return _strip_name_prefix(out)
+        # Channel posts: LOCAL model FIRST (always available, stable, never deprecated)
+        # This ensures posting NEVER stops even when all cloud providers fail
+        out = await call_local(messages, max_tokens, temperature)
+        logger.info(f"AI Local: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
+        if out:
+            _stats["success"] += 1
+            logger.info(f"AI primary=local ({time.time()-t0:.1f}s) len={len(out)}")
+            return _strip_name_prefix(out)
+        # Fallback to cloud providers if local model fails
+        out = await _call_cloudflare(messages, max_tokens, 30.0)
+        logger.info(f"AI Cloudflare: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
+        if out:
+            _stats["success"] += 1
+            logger.info(f"AI fallback=cloudflare ({time.time()-t0:.1f}s) len={len(out)}")
+            return _strip_name_prefix(out)
         out = await _call_openclaw(messages, max_tokens, temperature, 25.0)
         logger.info(f"AI OpenClaw: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
         if out:
             _stats["success"] += 1; _stats["openclaw_ok"] += 1
             return _strip_name_prefix(out)
-        if not prefer_pollinations:
-            out = await _call_pollinations_direct(messages, max_tokens, 45.0)
-            logger.info(f"AI Pollinations-POST: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
-            if out:
-                _stats["success"] += 1; _stats["pollinations_backup"] += 1
-                return _strip_name_prefix(out)
+        out = await _call_pollinations_direct(messages, max_tokens, 45.0)
+        logger.info(f"AI Pollinations-POST: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
+        if out:
+            _stats["success"] += 1; _stats["pollinations_backup"] += 1
+            return _strip_name_prefix(out)
         # GET fallback: build a combined prompt and use GET (more reliable for long prompts)
         combined = ""
         if system: combined += system + "\n\n"
@@ -264,23 +278,8 @@ async def chat(prompt, system="", extra_context="", dialog_history=None, max_tok
             _stats["success"] += 1; _stats["pollinations_backup"] += 1
             logger.info(f"AI fallback=pollinations-GET ({time.time()-t0:.1f}s) len={len(out)}")
             return _strip_name_prefix(out)
-        # Tier-2: Cloudflare Workers AI (more reliable, no rate limits)
-        out = await _call_cloudflare(messages, max_tokens, 30.0)
-        logger.info(f"AI Cloudflare: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
-        if out:
-            _stats["success"] += 1
-            logger.info(f"AI fallback=cloudflare ({time.time()-t0:.1f}s) len={len(out)}")
-            return _strip_name_prefix(out)
 
-    # Tier-3: Local Qwen2.5-0.5B model (ALWAYS available, no network needed)
-    # This ensures posting NEVER stops even when all cloud providers fail
-    out = await call_local(messages, max_tokens, temperature)
-    logger.info(f"AI Local: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
-    if out:
-        _stats["success"] += 1
-        logger.info(f"AI fallback=local ({time.time()-t0:.1f}s) len={len(out)}")
-        return _strip_name_prefix(out)
-
+    # Static fallback (last resort)
     _stats["fail"] += 1
     _stats["last_error"] = "all providers returned empty"
     if allow_static_fallback:
