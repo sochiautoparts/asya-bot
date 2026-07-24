@@ -10,12 +10,27 @@ logger = logging.getLogger("asya.ai")
 
 _ENDPOINT = f"{config.OPENCLAW_URL}/v1/chat/completions"
 _MODEL = "openclaw"
-# Pollinations: new gen.pollinations.ai API (works with keys, OpenAI-compatible)
-# Legacy text.pollinations.ai is deprecated (402 for long prompts)
+# Pollinations: new gen.pollinations.ai API (works with and without keys)
+# Tested working models (2026-07-24):
+#   WITH KEY: openai, openai-large, gpt-oss, mistral, mistral-large, llama, llama-scout,
+#             deepseek, grok, kimi, qwen-coder, gemma, nova-fast, glm
+#   WITHOUT KEY (anonymous): openai, gpt-oss, mistral, llama, deepseek
+#   402 (need pollen): gemini, claude, mercury
+#   empty (0 chars): openai-fast
 _POLLINATIONS_URL = "https://gen.pollinations.ai/v1/chat/completions"
-_POLLINATIONS_MODEL = "openai-fast"  # gpt-5-nano, fast + clean Russian
 _POLLINATIONS_URL_LEGACY = "https://text.pollinations.ai/openai/chat/completions"
-_POLLINATIONS_MODEL_LEGACY = "openai"
+# Pool of working models for round-robin (best Russian quality, tested)
+_POLLINATIONS_MODELS = [
+    "openai",        # gpt-5.4-nano, fast + clean Russian (1-3s)
+    "mistral",       # mistral-small, good Russian (4s)
+    "llama",         # Llama-3.3-70B, excellent Russian (5s)
+    "gpt-oss",       # gpt-oss-20b, good Russian (4s)
+    "grok",          # grok-4.20, good Russian (2s)
+    "gemma",         # gemma-4-26b, good Russian (3s)
+    "qwen-coder",    # Qwen3-Coder-30B, good Russian (5s)
+    "nova-fast",     # Amazon Nova Micro, fast (2s)
+]
+_POLLINATIONS_MODEL_IDX = 0  # round-robin index
 
 # Load up to 3 Pollinations API keys from environment (for rotation)
 _POLLINATIONS_KEYS = []
@@ -143,14 +158,25 @@ async def _call_openclaw(messages, max_tokens, temperature, timeout=25.0):
     return ""
 
 async def _call_pollinations_direct(messages, max_tokens, timeout=30.0, retries=2):
-    """Call Pollinations via new gen.pollinations.ai API (works with keys).
-    Falls back to legacy text.pollinations.ai if no keys available."""
+    """Call Pollinations via gen.pollinations.ai API.
+    Uses round-robin across multiple working models for diversity.
+    Works with AND without API keys (anonymous access for some models).
+    Falls back to legacy text.pollinations.ai if all fail."""
+    global _POLLINATIONS_MODEL_IDX
     if _client is None: await initialize()
     sem = _get_pollinations_sem()
 
-    # Try new gen.pollinations.ai API first (requires key, works for long prompts)
-    if _POLLINATIONS_KEYS:
-        payload = {"model": _POLLINATIONS_MODEL, "messages": messages, "temperature": 0.9, "max_tokens": max_tokens, "stream": False}
+    # Try gen.pollinations.ai with round-robin models
+    # Try up to 3 different models before giving up
+    models_to_try = []
+    for _ in range(3):
+        model = _POLLINATIONS_MODELS[_POLLINATIONS_MODEL_IDX % len(_POLLINATIONS_MODELS)]
+        _POLLINATIONS_MODEL_IDX += 1
+        if model not in models_to_try:
+            models_to_try.append(model)
+
+    for model in models_to_try:
+        payload = {"model": model, "messages": messages, "temperature": 0.9, "max_tokens": max_tokens, "stream": False}
         for attempt in range(retries + 1):
             try:
                 t_start = time.time()
@@ -165,18 +191,25 @@ async def _call_pollinations_direct(messages, max_tokens, timeout=30.0, retries=
                         msg = choices[0].get("message", {}) or {}
                         content = (msg.get("content", "") or "").strip()
                         if content:
+                            logger.info(f"Pollinations model={model} → {data.get('model','?')} ({elapsed:.1f}s)")
                             return _strip_pollinations_ads(content)
-                # Retry on transient errors
+                # 402/403 = model needs payment/forbidden, try next model
+                if r.status_code in (402, 403, 404):
+                    logger.info(f"Pollinations model={model} HTTP {r.status_code} — try next")
+                    break  # try next model
+                # Transient error, retry
                 if elapsed < 5.0 and attempt < retries:
                     await asyncio.sleep(2.0)
                     continue
+                break  # try next model
             except:
                 if attempt < retries:
                     await asyncio.sleep(2.0)
                     continue
+                break  # try next model
 
-    # Fallback: legacy text.pollinations.ai (deprecated, short prompts only, no key needed)
-    payload_legacy = {"model": _POLLINATIONS_MODEL_LEGACY, "messages": messages, "temperature": 0.9, "max_tokens": max_tokens, "stream": False, "referrer": "asya-bot", "reasoning_effort": "low"}
+    # Fallback: legacy text.pollinations.ai (deprecated, short prompts only)
+    payload_legacy = {"model": "openai", "messages": messages, "temperature": 0.9, "max_tokens": max_tokens, "stream": False, "referrer": "asya-bot", "reasoning_effort": "low"}
     for attempt in range(retries + 1):
         try:
             t_start = time.time()
