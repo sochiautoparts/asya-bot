@@ -233,27 +233,19 @@ async def chat(prompt, system="", extra_context="", dialog_history=None, max_tok
         if out:
             _stats["success"] += 1; _stats["openclaw_ok"] += 1
             return _strip_name_prefix(out)
-        # Local 7B model as fallback in fast mode (always available, quality Russian)
         out = await call_local(messages, max_tokens, temperature)
         if out:
             _stats["success"] += 1
             logger.info(f"AI fast=local-7B ({time.time()-t0:.1f}s) len={len(out)}")
             return _strip_name_prefix(out)
     else:
-        # Channel posts: LOCAL 7B model FIRST (always available, excellent Russian)
-        # Qwen2.5-7B produces high-quality Russian posts (600-1000 chars, good grammar)
-        out = await call_local(messages, max_tokens, temperature)
-        logger.info(f"AI Local-7B: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
-        if out:
-            _stats["success"] += 1
-            logger.info(f"AI primary=local-7B ({time.time()-t0:.1f}s) len={len(out)}")
-            return _strip_name_prefix(out)
-        # Fallback to cloud providers if local model fails
+        # Channel posts: Cloudflare FIRST (diverse, high-quality Russian posts)
+        # This was the original order that produced interesting, varied posts
         out = await _call_cloudflare(messages, max_tokens, 30.0)
         logger.info(f"AI Cloudflare: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
         if out:
             _stats["success"] += 1
-            logger.info(f"AI fallback=cloudflare ({time.time()-t0:.1f}s) len={len(out)}")
+            logger.info(f"AI primary=cloudflare ({time.time()-t0:.1f}s) len={len(out)}")
             return _strip_name_prefix(out)
         out = await _call_openclaw(messages, max_tokens, temperature, 25.0)
         logger.info(f"AI OpenClaw: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
@@ -265,7 +257,6 @@ async def chat(prompt, system="", extra_context="", dialog_history=None, max_tok
         if out:
             _stats["success"] += 1; _stats["pollinations_backup"] += 1
             return _strip_name_prefix(out)
-        # GET fallback: build a combined prompt and use GET (more reliable for long prompts)
         combined = ""
         if system: combined += system + "\n\n"
         combined += prompt
@@ -277,6 +268,13 @@ async def chat(prompt, system="", extra_context="", dialog_history=None, max_tok
             out = _strip_pollinations_ads(out)
             _stats["success"] += 1; _stats["pollinations_backup"] += 1
             logger.info(f"AI fallback=pollinations-GET ({time.time()-t0:.1f}s) len={len(out)}")
+            return _strip_name_prefix(out)
+        # LOCAL 7B as LAST resort (always available)
+        out = await call_local(messages, max_tokens, temperature)
+        logger.info(f"AI Local-7B: {len(out) if out else 0} chars ({time.time()-t0:.1f}s)")
+        if out:
+            _stats["success"] += 1
+            logger.info(f"AI fallback=local-7B ({time.time()-t0:.1f}s) len={len(out)}")
             return _strip_name_prefix(out)
 
     # Static fallback (last resort)
