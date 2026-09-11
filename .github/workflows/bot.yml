@@ -6,7 +6,11 @@ on:
   workflow_dispatch:
 concurrency:
   group: asya-bot-single
-  cancel-in-progress: true
+  # cancel-in-progress: false — never kill a running bot! Killing a run makes
+  # its Re-dispatch step spawn a new run (if: always()), and if the new run
+  # cancelled the old one we got an infinite cancel<->dispatch avalanche that
+  # prevented the 5.4GB model download from ever finishing.
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -21,6 +25,15 @@ jobs:
     timeout-minutes: 345
 
     steps:
+      - name: Skip if another run is active or queued (no queue buildup)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          ACTIVE=$(curl -s -H "Authorization: token $GH_TOKEN"
+          "https://api.github.com/repos/${{ github.repository }}/actions/runs?per_page=15"
+          | python3 -c "import sys,json;current=int(sys.argv[1]);d=json.load(sys.stdin);others=[r for r in d.get('workflow_runs',[]) if r['id']!=current and r['path']=='.github/workflows/bot.yml' and r['status'] in ('in_progress','queued','waiting','pending')];print(len(others))" ${{ github.run_id }});
+          if [ "$ACTIVE" -gt 0 ]; then echo "Another bot.yml run is active/queued ($ACTIVE) — skipping."; exit 0; else echo "No other runs — proceeding."; fi
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -204,9 +217,7 @@ jobs:
           fi
 
       - name: Re-dispatch workflow for 24/7
-        # NOT on cancel: a manual cancel must NOT spawn a new run (infinite
-        # cancel<->dispatch avalanche). Re-dispatch on success/failure/timeout.
-        if: success() || failure() || timed_out()
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
