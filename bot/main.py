@@ -322,6 +322,8 @@ class AsyaBot:
             f"СТИЛЬ (ОТ ИМЕНИ РЕДАКЦИИ {style.channel}): живой экспертный разбор, "
             f"технические детали (л.с., Н·м, км/ч), эмодзи умеренно, женский род, "
             f"по-русски, БЕЗ грамматических ошибок. "
+            f"ЗАГОЛОВОК пиши ТОЛЬКО по-русски — никогда не копируй исходный заголовок "
+            f"дословно, если он не на русском. "
             f"НЕ начинай с 'Ася:' или 'Редакция:'."
         )
 
@@ -380,6 +382,17 @@ class AsyaBot:
         # Defensive cleaning (markdown leftovers, name prefixes, CJK/alfabet glitches)
         body_clean = sanitize_text(clean_post_text(parsed["body"], "Ася"))
         headline_clean = sanitize_text(clean_post_text(parsed["headline"], "Ася")).split("\n")[0][:120]
+        # Headline must be Russian: AI sometimes echoes the original foreign title.
+        # If headline is mostly Latin, replace it with the first sentence of the body.
+        _hl_letters = [c for c in headline_clean if c.isalpha()]
+        if _hl_letters:
+            _hl_cyr = sum(1 for c in _hl_letters if ('а' <= c.lower() <= 'я') or c.lower() == 'ё')
+            if _hl_cyr / len(_hl_letters) < 0.5:
+                import re as _re_hl
+                _first_sent = _re_hl.split(r"(?<=[.!?])\s+", body_clean)[0][:110].strip()
+                if _first_sent:
+                    logger.info(f"Headline not Russian — replaced with first body sentence: {headline_clean[:40]!r}")
+                    headline_clean = _first_sent
         question_clean = sanitize_text(clean_post_text(parsed.get("question", ""), "Ася").split("\n")[0][:140]) \
             or style.default_question
 
