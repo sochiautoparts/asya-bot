@@ -1,0 +1,42 @@
+{
+  "t1": {
+    "title": "Honda tiene un ultimo regalo para petrolheads",
+    "ts": 1789126142
+  },
+  "example.com/honda-final": {
+    "title": "Honda tiene un ultimo regalo para petrolheads",
+    "ts": 1789126142
+  },
+  "tf:honda tiene ultimo regalo para": {
+    "title": "Honda tiene un ultimo regalo para petrolheads",
+    "ts": 1789126142
+  },
+  "fp:6a9a01e9b233d1c5b8374d7c1bf3a671": {
+    "title": "Honda tiene un ultimo regalo para petrolheads",
+    "ts": 1789126142
+  },
+  "t2": {
+    "title": "Kia анонсировала электрический кроссовер EV5 для Европы",
+    "ts": 1789126142
+  },
+  "example.com/kia-ev5": {
+    "title": "Kia анонсировала электрический кроссовер EV5 для Европы",
+    "ts": 1789126142
+  },
+  "tf:kia анонсировала новый электрический кроссовер": {
+    "title": "Kia анонсировала новый электрический кроссовер EV5 для Европы",
+    "ts": 1789125894
+  },
+  "fp:9534138fc92174cfdc571536a0c3911d": {
+    "title": "Kia анонсировала новый электрический кроссовер EV5 для Европы",
+    "ts": 1789125894
+  },
+  "tf:kia анонсировала электрический кроссовер ev5": {
+    "title": "Kia анонсировала электрический кроссовер EV5 для Европы",
+    "ts": 1789126142
+  },
+  "fp:c69c6d46ddec06d8feb8de4f032c7a76": {
+    "title": "Kia анонсировала электрический кроссовер EV5 для Европы",
+    "ts": 1789126142
+  }
+}
