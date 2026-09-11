@@ -66,9 +66,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: |
-            data/qwen2.5-7b-q5_k_m-00001.gguf
-            data/qwen2.5-7b-q5_k_m-00002.gguf
-          key: qwen25-7b-q5km-gguf-v2
+            data/qwen2.5-7b-instruct-q5_k_m-00001-of-00002.gguf
+            data/qwen2.5-7b-instruct-q5_k_m-00002-of-00002.gguf
+          key: qwen25-7b-q5km-gguf-v3
 
       - name: Download local AI model (Qwen2.5-7B GGUF) — verify + retry
         env:
@@ -76,8 +76,8 @@ jobs:
         run: |
           set -e
           mkdir -p data
-          S1=data/qwen2.5-7b-q5_k_m-00001.gguf
-          S2=data/qwen2.5-7b-q5_k_m-00002.gguf
+          S1=data/qwen2.5-7b-instruct-q5_k_m-00001-of-00002.gguf
+          S2=data/qwen2.5-7b-instruct-q5_k_m-00002-of-00002.gguf
           # Валидные размеры: shard1 ~3.99GB, shard2 ~1.45GB.
           # Защита от битых скачиваний (HF 429/HTML вместо модели): размер-порог.
           OK1=0; OK2=0
@@ -114,9 +114,9 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: |
-            data/qwen2.5-7b-q5_k_m-00001.gguf
-            data/qwen2.5-7b-q5_k_m-00002.gguf
-          key: qwen25-7b-q5km-gguf-v2
+            data/qwen2.5-7b-instruct-q5_k_m-00001-of-00002.gguf
+            data/qwen2.5-7b-instruct-q5_k_m-00002-of-00002.gguf
+          key: qwen25-7b-q5km-gguf-v3
 
       - name: Clean Python cache
         run: find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
