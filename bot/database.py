@@ -257,6 +257,25 @@ async def load_posted_news_from_file():
     except Exception as e:
         pass
 
+async def get_last_channel_post_ts() -> float:
+    """Timestamp последнего поста в канал (для темп-бюджета «live posting»).
+    Хранится в post_meta → переживает рестарты контейнера (БД коммитится в git)."""
+    try:
+        cur = await _conn().execute("SELECT ts FROM post_meta WHERE key='channel_last_post_ts'")
+        row = await cur.fetchone()
+        return float(row[0]) if row and row[0] else 0.0
+    except Exception:
+        return 0.0
+
+async def set_last_channel_post_ts(ts: float) -> None:
+    try:
+        await _conn().execute(
+            "INSERT OR REPLACE INTO post_meta(key, value, ts) VALUES('channel_last_post_ts', ?, ?)",
+            (str(int(ts)), int(ts)))
+        await _conn().commit()
+    except Exception as e:
+        logger.debug(f"set_last_channel_post_ts error: {e}")
+
 async def run_periodic_cleanup():
     import asyncio
     while True:
