@@ -102,7 +102,7 @@ jobs:
             echo "::error::Model download failed — shard missing or too small"
             exit 1
           fi
-          ls -lh data/qwen2.5-7b-q5_k_m-*.gguf
+          ls -lh data/qwen2.5-7b-instruct-q5_k_m-*.gguf
 
       # Кэш сохраняем СРАЗУ после скачивания (не в конце job): cancel-рестарты
       # не успевали выгрузить 5.4GB в post-фазе — кэш терялся, модель качалась заново
