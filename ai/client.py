@@ -446,6 +446,10 @@ async def _call_cloudflare(messages, max_tokens, timeout=60.0):
                     content = (result.get("response", "") or "").strip()
                     if content and not _looks_garbage(content):
                         return content
+            else:
+                # Видимая диагностика: почему CF пуст (401/403/429/5xx...)
+                _body = r.text[:160].replace("\n", " ") if r.text else ""
+                logger.warning(f"Cloudflare HTTP {r.status_code}: {_body}")
         except Exception as e:
             _stats["last_error"] = f"Cloudflare: {type(e).__name__}: {e}"
     return ""
