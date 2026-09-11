@@ -74,6 +74,14 @@ def _stop_openclaw_gateway():
         except: pass
         _openclaw_proc = None
 
+async def _local_warmup():
+    """Прогрев локальной 7B-модели в фоне (если включён LOCAL_MODEL_PRIMARY)."""
+    try:
+        from ai.local_model import warmup as local_warmup
+        await local_warmup()
+    except Exception as e:
+        logger.debug(f"Local model warm-up skipped: {e}")
+
 class AsyaBot:
     def __init__(self):
         if not config.BOT_TOKEN: raise RuntimeError("BOT_TOKEN not set")
@@ -115,6 +123,8 @@ class AsyaBot:
         except: pass
         await ai_client.initialize()
         logger.info(f"AI client ready — {config.providers_status()}")
+        if os.getenv("LOCAL_MODEL_PRIMARY", "0") == "1":
+            asyncio.create_task(_local_warmup(), name="local_warmup")
         asyncio.create_task(mood_loop(), name="mood_loop")
         asyncio.create_task(db.run_periodic_cleanup(), name="cleanup_loop")
         try:
@@ -274,6 +284,7 @@ class AsyaBot:
             POST_STYLE, STRUCTURED_POST_RULES, ANTI_HALLUCINATION_RULES,
             RETRY_CRITIQUE_TMPL, build_hook_avoid, parse_structured_post, quality_gate,
             smart_hashtags, assemble_html_post, send_channel_post, sanitize_text,
+            LOCAL_EXAMPLE, LOCAL_TASK_REMINDER,
         )
 
         style = POST_STYLE
@@ -327,9 +338,16 @@ class AsyaBot:
             f"НЕ начинай с 'Ася:' или 'Редакция:'."
         )
 
+        # Локальная 7B как основной генератор (LOCAL_MODEL_PRIMARY=1 в workflow):
+        # + one-shot пример формата — small-модели копируют структуру по примеру.
+        prefer_local = os.getenv("LOCAL_MODEL_PRIMARY", "0") == "1"
+        if prefer_local:
+            prompt += "\n\n" + LOCAL_EXAMPLE + "\n\n" + LOCAL_TASK_REMINDER.format(title=title[:100])
+
         raw = await ai_client.chat(
             prompt, system=channel_prompt,
-            max_tokens=900, temperature=0.75, allow_static_fallback=False, prefer_pollinations=True
+            max_tokens=900, temperature=0.75, allow_static_fallback=False,
+            prefer_pollinations=True, prefer_local=prefer_local
         )
         parsed = parse_structured_post(raw)
         if parsed:
@@ -346,13 +364,29 @@ class AsyaBot:
             )
             raw2 = await ai_client.chat(
                 retry_prompt, system=channel_prompt,
-                max_tokens=900, temperature=0.7, allow_static_fallback=False, prefer_pollinations=True
+                max_tokens=900, temperature=0.7, allow_static_fallback=False,
+                prefer_pollinations=True, prefer_local=prefer_local
             )
             parsed2 = parse_structured_post(raw2)
             if parsed2:
                 ok2, reason2 = quality_gate(parsed2)
                 if ok2:
                     parsed, ok, reason = parsed2, True, "ok"
+
+        # Третья попытка — облачный каскад, если локальная дважды не прошла gate
+        # (страховка качества: пост всё равно выйдет редакторского уровня)
+        if not ok and prefer_local and raw:
+            logger.info(f"Local 7B failed gate twice — cloud attempt: {title[:40]}")
+            raw3 = await ai_client.chat(
+                prompt, system=channel_prompt,
+                max_tokens=900, temperature=0.75, allow_static_fallback=False,
+                prefer_pollinations=True
+            )
+            parsed3 = parse_structured_post(raw3)
+            if parsed3:
+                ok3, reason3 = quality_gate(parsed3)
+                if ok3:
+                    parsed, ok, reason = parsed3, True, "ok_cloud"
 
         if parsed and not ok:
             logger.info(f"Gate failed ({reason}) — trying minimal fixes")

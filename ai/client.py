@@ -1,5 +1,6 @@
 """Ася AI Client — routes all AI through OpenClaw Gateway + Pollinations direct.
-Local Qwen2.5-0.5B model as last-resort fallback (always available)."""
+Local Qwen2.5-7B (GGUF) как основной генератор постов (LOCAL_MODEL_PRIMARY=1)
+и как last-resort fallback для всех остальных вызовов."""
 import asyncio, logging, os, random, time
 from typing import List, Optional
 import httpx
@@ -309,7 +310,7 @@ def _static_fallback(prompt):
     if any(w in t for w in ["как дела", "как ты", "как жизнь", "что нового"]): return random.choice(_STATIC_FALLBACKS["howareyou"])
     return random.choice(_STATIC_FALLBACKS["default"])
 
-async def chat(prompt, system="", extra_context="", dialog_history=None, max_tokens=600, temperature=0.9, allow_static_fallback=True, fast=False, prefer_pollinations=False):
+async def chat(prompt, system="", extra_context="", dialog_history=None, max_tokens=600, temperature=0.9, allow_static_fallback=True, fast=False, prefer_pollinations=False, prefer_local=False):
     global _stats
     _stats["requests"] += 1
     t0 = time.time()
@@ -319,6 +320,17 @@ async def chat(prompt, system="", extra_context="", dialog_history=None, max_tok
     if dialog_history: messages.extend(dialog_history)
     user_content = f"{extra_context}\n\n---\n\n{prompt}" if extra_context else prompt
     messages.append({"role": "user", "content": user_content})
+
+    # Локальная модель ПЕРВОЙ для постов канала (LOCAL_MODEL_PRIMARY):
+    # автономность без сетевых лимитов; качество обеспечивает quality gate
+    # в bot/post_quality.py, а облако остаётся страховкой ниже.
+    if prefer_local:
+        out = await call_local(messages, max_tokens, None, mode="post")
+        if out:
+            _stats["success"] += 1
+            logger.info(f"AI primary=local-7B ({time.time()-t0:.1f}s) len={len(out)}")
+            return _strip_name_prefix(out)
+        logger.info("Local 7B unavailable/empty — falling back to cloud cascade")
 
     if fast:
         # Fast mode: Pollinations first (quick), then cloud, then local last resort
@@ -495,4 +507,11 @@ async def transcribe_audio(audio_data_uri, timeout=30.0):
     except: _stats["fail"] += 1
     return ""
 
-def stats(): return dict(_stats)
+def stats():
+    s = dict(_stats)
+    try:
+        from ai.local_model import stats as _local_stats
+        s["local"] = _local_stats()
+    except Exception:
+        pass
+    return s
