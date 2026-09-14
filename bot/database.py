@@ -54,7 +54,10 @@ async def init_db():
 
 async def close_db():
     global _db
-    if _db: await _db.close(); _db = None
+    if _db:
+        try: await _db.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        except Exception as e: logger.debug(f"wal_checkpoint failed: {e}")
+        await _db.close(); _db = None
 
 def _conn():
     if _db is None: raise RuntimeError("DB not initialised")

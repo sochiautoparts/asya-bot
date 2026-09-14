@@ -657,7 +657,7 @@ class AsyaBot:
             import random
             from aiogram.types import ReactionTypeEmoji
             # Only guaranteed Telegram-supported reaction emojis (no ❤️ variation selector)
-            pool = ["👍", "❤", "🔥", "😄", "👏", "🎉"]
+            pool = ["👍", "❤", "🔥", "😁", "👏", "🥳"]
             emojis = random.sample(pool, 3)
             reaction_types = [ReactionTypeEmoji(type="emoji", emoji=e) for e in emojis]
             await self.bot.set_message_reaction(channel_id, message_id, reaction_types)
@@ -697,7 +697,10 @@ async def main():
         try: asyncio.get_running_loop().add_signal_handler(sig, _sig)
         except: pass
     try: await bot.start()
-    finally: _stop_openclaw_gateway()
+    finally:
+        try: await db.close_db()
+        except Exception as e: logger.warning(f"DB close failed: {e}")
+        _stop_openclaw_gateway()
 
 if __name__ == "__main__":
     try: asyncio.run(main())

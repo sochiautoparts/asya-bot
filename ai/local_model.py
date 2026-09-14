@@ -27,6 +27,17 @@ logger = logging.getLogger("asya.local")
 _llm = None
 _init_lock = asyncio.Lock()
 _init_failed = False
+# Llama не потокобезопасна — сериализуем конкурентные генерации одним lock'ом
+# (создаётся лениво, при первом использовании внутри запущенного event loop)
+_gen_lock: Optional[asyncio.Lock] = None
+
+
+def _get_gen_lock() -> asyncio.Lock:
+    """Ленивое создание lock генерации (безопасно внутри async-контекста)."""
+    global _gen_lock
+    if _gen_lock is None:
+        _gen_lock = asyncio.Lock()
+    return _gen_lock
 
 # ─── Статистика локальной модели (видна в /stats админки) ───────────────────
 _stats = {"gens": 0, "ok": 0, "fail": 0, "total_gen_s": 0.0, "total_tokens": 0, "last_error": ""}
@@ -167,7 +178,8 @@ async def call_local(messages, max_tokens=400, temperature=0.8, mode="chat"):
             )
 
         t0 = time.time()
-        response = await loop.run_in_executor(None, _generate)
+        async with _get_gen_lock():
+            response = await loop.run_in_executor(None, _generate)
         gen_s = time.time() - t0
         content = (response["choices"][0]["message"]["content"] or "").strip()
         n_tokens = (response.get("usage") or {}).get("completion_tokens", 0) or 0

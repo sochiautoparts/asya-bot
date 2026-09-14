@@ -1,4 +1,4 @@
-"""Ася Group handler — active participation + web search + partners + site content."""
+"""Ася Group handler — active participation + web search + partners."""
 import asyncio, hashlib, logging, random, re, time
 from typing import List
 from aiogram import Router, F
@@ -64,6 +64,7 @@ def _is_in_bot_loop(message):
     now = time.time()
     tracker = _reply_chain_tracker.get(chat_id, {})
     tracker = {k: v for k, v in tracker.items() if now - v[1] < _THREAD_TTL}
+    _reply_chain_tracker[chat_id] = tracker
     count, _ = tracker.get(thread_key, (0, now))
     return count >= _MAX_BOT_REPLIES_PER_THREAD
 
@@ -124,29 +125,13 @@ async def _generate_group_response(message, text, directed):
     # Partner links
     try:
         await partner_manager.refresh_if_needed()
-        links = partner_manager.get_all_partner_links_for_dialog(text, max_programs=2)
+        links = partner_manager.get_relevant_partners(text, max_programs=2)
         if links:
             extra_ctx += "\n\nПартнёрские ссылки (вставь ОДНУ если к месту, естественно, не в каждом ответе):\n"
-            for pl in links: extra_ctx += f"- {pl['name']} ({pl.get('label','')}): {pl['url']}\n"
+            for pl in links: extra_ctx += f"- {pl}\n"
     except: pass
 
     extra_ctx += "\n\nМожешь иногда (1 из 6 сообщений, если к месту) посоветовать каналы @sochiautoparts (авто-новости) или @bmw_mpower_club (BMW клуб), или магазин sochiautoparts.ru/shop."
-
-    # Site content (products/posts)
-    try:
-        t_lower = (text or "").lower()
-        is_shopping = any(k in t_lower for k in ["купить", "магазин", "цена", "стоим", "заказ", "товар", "запчаст", "детал", "артикул", "подобрать", "найти", "выбор", "рекоменд"])
-        product_prob = 0.5 if is_shopping else 0.25
-        post_prob = 0.25 if is_shopping else 0.12
-        if random.random() < product_prob:
-            from bot import site_content as sc
-            prod = await sc.relevant_product(text) if text else await sc.random_product()
-            if prod: extra_ctx += "\n\nТовар из магазина sochiautoparts.ru/shop (упомяни если к месту):\n" + sc.format_product_for_context(prod)
-        if random.random() < post_prob:
-            from bot import site_content as sc
-            post = await sc.random_post()
-            if post: extra_ctx += "\n\nСвежий пост на сайте (можешь поделиться): " + sc.format_post_for_context(post)
-    except: pass
 
     # Web search
     is_event = _is_event_or_news(text)
