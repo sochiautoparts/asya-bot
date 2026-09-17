@@ -1,164 +1,4 @@
 {
-  "t1": {
-    "title": "Honda tiene un ultimo regalo para petrolheads",
-    "ts": 1789126142
-  },
-  "example.com/honda-final": {
-    "title": "Honda tiene un ultimo regalo para petrolheads",
-    "ts": 1789126142
-  },
-  "tf:honda tiene ultimo regalo para": {
-    "title": "Honda tiene un ultimo regalo para petrolheads",
-    "ts": 1789126142
-  },
-  "fp:6a9a01e9b233d1c5b8374d7c1bf3a671": {
-    "title": "Honda tiene un ultimo regalo para petrolheads",
-    "ts": 1789126142
-  },
-  "t2": {
-    "title": "Kia анонсировала электрический кроссовер EV5 для Европы",
-    "ts": 1789126142
-  },
-  "example.com/kia-ev5": {
-    "title": "Kia анонсировала электрический кроссовер EV5 для Европы",
-    "ts": 1789126142
-  },
-  "tf:kia анонсировала новый электрический кроссовер": {
-    "title": "Kia анонсировала новый электрический кроссовер EV5 для Европы",
-    "ts": 1789125894
-  },
-  "fp:9534138fc92174cfdc571536a0c3911d": {
-    "title": "Kia анонсировала новый электрический кроссовер EV5 для Европы",
-    "ts": 1789125894
-  },
-  "tf:kia анонсировала электрический кроссовер ev5": {
-    "title": "Kia анонсировала электрический кроссовер EV5 для Европы",
-    "ts": 1789126142
-  },
-  "fp:c69c6d46ddec06d8feb8de4f032c7a76": {
-    "title": "Kia анонсировала электрический кроссовер EV5 для Европы",
-    "ts": 1789126142
-  },
-  "32c1702083d46214": {
-    "title": "Todos en España comprando SUV como locos y llega Rumanía y planta, por 21.000 €, 7 plazas, etiqueta ECO y 1.480 km de autonomía en esta perfecta alternativa",
-    "ts": 1789153914
-  },
-  "diariomotor.com/noticia/oferta-dacia-jogger-septiembre-2026": {
-    "title": "Todos en España comprando SUV como locos y llega Rumanía y planta, por 21.000 €, 7 plazas, etiqueta ECO y 1.480 km de autonomía en esta perfecta alternativa",
-    "ts": 1789153914
-  },
-  "cf4012b61a459354": {
-    "title": "Andrea Kimi Antonelli manda en la FP2 de MadRing con Ferrari al acecho y Lando Norris último",
-    "ts": 1789153974
-  },
-  "diariomotor.com/competicion/noticia/andrea-kimi-antonelli-fp2-madring": {
-    "title": "Andrea Kimi Antonelli manda en la FP2 de MadRing con Ferrari al acecho y Lando Norris último",
-    "ts": 1789153974
-  },
-  "8127624f2ab82a93": {
-    "title": "La falta de ritmo no le impide a Sainz disfrutar de un «frenético» Madring",
-    "ts": 1789154034
-  },
-  "motor.es/formula-1/falta-ritmo-sainz-disfrutar-frenetico-madring-2026116370.html": {
-    "title": "La falta de ritmo no le impide a Sainz disfrutar de un «frenético» Madring",
-    "ts": 1789154034
-  },
-  "04166396ee08051d": {
-    "title": "47k-Mile 2009 Mini Cooper S Convertible at No Reserve",
-    "ts": 1789154098
-  },
-  "bringatrailer.com/listing/2009-mini-cooper-s-convertible-6": {
-    "title": "47k-Mile 2009 Mini Cooper S Convertible at No Reserve",
-    "ts": 1789154098
-  },
-  "9d92cad7d2fe7c34": {
-    "title": "Musk promotes blatant Tesla FSD misuse as crash lawyers rejoice",
-    "ts": 1789154154
-  },
-  "electrek.co/2026/09/11/musk-promotes-tesla-fsd-misuse-98-year-old": {
-    "title": "Musk promotes blatant Tesla FSD misuse as crash lawyers rejoice",
-    "ts": 1789154154
-  },
-  "d6f6256541756911": {
-    "title": "Euro 1986 BMW 524d 5-Speeed at No Reserve",
-    "ts": 1789154214
-  },
-  "bringatrailer.com/listing/1986-bmw-524td-10": {
-    "title": "Euro 1986 BMW 524d 5-Speeed at No Reserve",
-    "ts": 1789154214
-  },
-  "eeeb8c76f732055f": {
-    "title": "Arvid Lindblad details Spanish GP crash after impressive early pace",
-    "ts": 1789154276
-  },
-  "planetf1.com/news/arvid-lindblad-crash-fp2-spanish-gp-madrid": {
-    "title": "Arvid Lindblad details Spanish GP crash after impressive early pace",
-    "ts": 1789154276
-  },
-  "ed1b20f06684a6f9": {
-    "title": "Whipple-Supercharged, 4,700-Mile 2010 Ford Mustang Shelby GT500 Coupe",
-    "ts": 1789154336
-  },
-  "bringatrailer.com/listing/2010-ford-mustang-shelby-gt500-coupe-35": {
-    "title": "Whipple-Supercharged, 4,700-Mile 2010 Ford Mustang Shelby GT500 Coupe",
-    "ts": 1789154336
-  },
-  "6ebe7cdc55b905e6": {
-    "title": "1993 Ducati 907 I.E. at No Reserve",
-    "ts": 1789155594
-  },
-  "bringatrailer.com/listing/1993-ducati-907ie-2": {
-    "title": "1993 Ducati 907 I.E. at No Reserve",
-    "ts": 1789155594
-  },
-  "ebb0417f772aaed0": {
-    "title": "14k-Mile 1996 Chevrolet Corvette Coupe at No Reserve",
-    "ts": 1789155654
-  },
-  "bringatrailer.com/listing/1996-chevrolet-corvette-coupe-121": {
-    "title": "14k-Mile 1996 Chevrolet Corvette Coupe at No Reserve",
-    "ts": 1789155654
-  },
-  "264f9e7a6ae3e4b0": {
-    "title": "A Ferrari F355 Arcade Game Sold for $18,000 and I Think I Know Why",
-    "ts": 1789155709
-  },
-  "thedrive.com/news/a-ferrari-f355-arcade-game-sold-for-18000-and-i-think-i-know-why": {
-    "title": "A Ferrari F355 Arcade Game Sold for $18,000 and I Think I Know Why",
-    "ts": 1789155709
-  },
-  "f5e14c602d12c88d": {
-    "title": "Fiat queima estoque do Fastback 2026 com descontos de até R$ 57.000",
-    "ts": 1789155770
-  },
-  "quatrorodas.abril.com.br/descontos-e-promocoes/fiat-queima-estoque-do-fastback-2026-com-descontos-de-ate-r-57-000": {
-    "title": "Fiat queima estoque do Fastback 2026 com descontos de até R$ 57.000",
-    "ts": 1789155770
-  },
-  "0d598dac6b549442": {
-    "title": "“High risk” and a chance of “chaos” - drivers open up on F1’s new Madring circuit",
-    "ts": 1789155831
-  },
-  "motorsport.com/f1/news/very-high-risk-and-the-best-race-in-europe-f1-drivers-share-first-madring-impressions/10854690": {
-    "title": "“High risk” and a chance of “chaos” - drivers open up on F1’s new Madring circuit",
-    "ts": 1789155831
-  },
-  "7b50086be6bd39ce": {
-    "title": "From \"very high risk\" to the \"best race in Europe\" - F1 drivers share first Madring impressions",
-    "ts": 1789155891
-  },
-  "autosport.com/f1/news/high-risk-and-a-chance-of-chaos-drivers-open-up-on-f1s-new-madring-circuit/10854707": {
-    "title": "From \"very high risk\" to the \"best race in Europe\" - F1 drivers share first Madring impressions",
-    "ts": 1789155891
-  },
-  "b983bc18649a37cd": {
-    "title": "GWM Haval H6 One: o que oferece a versão mais barata do SUV híbrido",
-    "ts": 1789155949
-  },
-  "autoesporte.globo.com/setor-automotivo/mercado-automotivo/noticia/2026/09/gwm-haval-h6-one-o-que-oferece-versao-mais-barata-suv-hibrido.ghtml": {
-    "title": "GWM Haval H6 One: o que oferece a versão mais barata do SUV híbrido",
-    "ts": 1789155949
-  },
   "8e2865df599f9ba2": {
     "title": "350-Powered T-Bucket at No Reserve",
     "ts": 1789155995
@@ -3846,5 +3686,317 @@
   "fp:6ca7dea8865c66edf2359a6b411ea400": {
     "title": "2014 Shelby GT500 With 134K Miles: What It's Worth Now",
     "ts": 1789652300
+  },
+  "609e82236b65a469": {
+    "title": "What Was The Golden Age For Your Favorite Automaker?",
+    "ts": 1789653200
+  },
+  "jalopnik.com/2260818/what-was-the-golden-age-for-your-favorite-automaker-reader-question": {
+    "title": "What Was The Golden Age For Your Favorite Automaker?",
+    "ts": 1789653200
+  },
+  "tf:what was the golden age": {
+    "title": "What Was The Golden Age For Your Favorite Automaker?",
+    "ts": 1789653200
+  },
+  "fp:1dcb9839c38011b36e8e1cc89b5c8de3": {
+    "title": "What Was The Golden Age For Your Favorite Automaker?",
+    "ts": 1789653200
+  },
+  "3d1c5c3cee5875cf": {
+    "title": "Mercedes-AMG Electric GT SUV Reveal Date Reportedly Set",
+    "ts": 1789653372
+  },
+  "motor1.com/news/808653/mercedes-amg-sets-date-first": {
+    "title": "Mercedes-AMG Electric GT SUV Reveal Date Reportedly Set",
+    "ts": 1789653372
+  },
+  "tf:mercedesamg electric suv reveal date": {
+    "title": "Mercedes-AMG Electric GT SUV Reveal Date Reportedly Set",
+    "ts": 1789653372
+  },
+  "fp:7cbe4d54b078ce03f68225d6451aed2c": {
+    "title": "Mercedes-AMG Electric GT SUV Reveal Date Reportedly Set",
+    "ts": 1789653372
+  },
+  "cf70e4a7b03a0d31": {
+    "title": "New ABT creations are Volkswagen Multivan and California GTIs in all but name",
+    "ts": 1789653762
+  },
+  "autoexpress.co.uk/volkswagen/370459/new-abt-creations-are-volkswagen-multivan-and-california-gtis-all-name": {
+    "title": "New ABT creations are Volkswagen Multivan and California GTIs in all but name",
+    "ts": 1789653762
+  },
+  "tf:new abt creations are volkswagen": {
+    "title": "New ABT creations are Volkswagen Multivan and California GTIs in all but name",
+    "ts": 1789653762
+  },
+  "fp:e31c7299a2f2bab770e7344176df44d1": {
+    "title": "New ABT creations are Volkswagen Multivan and California GTIs in all but name",
+    "ts": 1789653762
+  },
+  "7e377514cc072704": {
+    "title": "Yes, There's Actually A Reason Jeeps Have Spare Tires On The Back",
+    "ts": 1789655070
+  },
+  "motor1.com/features/808589/why-suvs-have-tailgate-mounted-spare-tires": {
+    "title": "Yes, There's Actually A Reason Jeeps Have Spare Tires On The Back",
+    "ts": 1789655070
+  },
+  "tf:yes theres actually reason jeeps": {
+    "title": "Yes, There's Actually A Reason Jeeps Have Spare Tires On The Back",
+    "ts": 1789655070
+  },
+  "fp:6f0b177e56b99cdc380a5c581a2f7fc7": {
+    "title": "Yes, There's Actually A Reason Jeeps Have Spare Tires On The Back",
+    "ts": 1789655070
+  },
+  "ef1570a26005e00b": {
+    "title": "Mercedes-AMG's First 500-HP Super SUV Costs Half As Much As A Toyota RAV4",
+    "ts": 1789656402
+  },
+  "carbuzz.com/mercedes-amgs-first-500-hp-super-suv-ridiculously-cheap-in-2025": {
+    "title": "Mercedes-AMG's First 500-HP Super SUV Costs Half As Much As A Toyota RAV4",
+    "ts": 1789656402
+  },
+  "tf:mercedesamgs first 500hp super suv": {
+    "title": "Mercedes-AMG's First 500-HP Super SUV Costs Half As Much As A Toyota RAV4",
+    "ts": 1789656402
+  },
+  "fp:54c6f36996462dccf767b257ab6fae6b": {
+    "title": "Mercedes-AMG's First 500-HP Super SUV Costs Half As Much As A Toyota RAV4",
+    "ts": 1789656402
+  },
+  "aac053adab986474": {
+    "title": "VW ID.3 GTI vs Honda Civic Type R: RWD Electric Hot Hatch Revealed",
+    "ts": 1789657532
+  },
+  "hotcars.com/vw-id3-gti-rwd-vs-civic-type-r-september-2026": {
+    "title": "VW ID.3 GTI vs Honda Civic Type R: RWD Electric Hot Hatch Revealed",
+    "ts": 1789657532
+  },
+  "tf:id3 gti honda civic type": {
+    "title": "VW ID.3 GTI vs Honda Civic Type R: RWD Electric Hot Hatch Revealed",
+    "ts": 1789657532
+  },
+  "fp:1f3cd2f768e557acca16a85a88d1558f": {
+    "title": "VW ID.3 GTI vs Honda Civic Type R: RWD Electric Hot Hatch Revealed",
+    "ts": 1789657532
+  },
+  "689baf7fad7fe713": {
+    "title": "How The Golf GTI Beat The Manual Civic Type R To 140 MPH By More Than 5 Seconds",
+    "ts": 1789658937
+  },
+  "carbuzz.com/dsg-golf-gti-beats-manual-civic-type-r": {
+    "title": "How The Golf GTI Beat The Manual Civic Type R To 140 MPH By More Than 5 Seconds",
+    "ts": 1789658937
+  },
+  "608cbdff84ea8cc6": {
+    "title": "The 6-Year-Old Harley-Davidson CVO You Should Buy Used",
+    "ts": 1789659102
+  },
+  "topspeed.com/six-year-old-harley-davidson-cvo-buy-used": {
+    "title": "The 6-Year-Old Harley-Davidson CVO You Should Buy Used",
+    "ts": 1789659102
+  },
+  "tf:the 6yearold harleydavidson cvo you": {
+    "title": "The 6-Year-Old Harley-Davidson CVO You Should Buy Used",
+    "ts": 1789659102
+  },
+  "fp:fefb263d7e9166991be266441c845682": {
+    "title": "The 6-Year-Old Harley-Davidson CVO You Should Buy Used",
+    "ts": 1789659102
+  },
+  "0c7fa6443f93a270": {
+    "title": "Ducati Is About To Make Its Most Violent V4s Even Nastier",
+    "ts": 1789660422
+  },
+  "hotcars.com/ducati-violent-2027-v4-sp-even-nastier": {
+    "title": "Ducati Is About To Make Its Most Violent V4s Even Nastier",
+    "ts": 1789660422
+  },
+  "tf:ducati about make its most": {
+    "title": "Ducati Is About To Make Its Most Violent V4s Even Nastier",
+    "ts": 1789660422
+  },
+  "fp:aa5d6c7e8750e81175125bd7f9f28dd8": {
+    "title": "Ducati Is About To Make Its Most Violent V4s Even Nastier",
+    "ts": 1789660422
+  },
+  "e5ec70620209e6e3": {
+    "title": "Hyundai’s Solution to Awkward Hard-Top Assembly? Magnets",
+    "ts": 1789661729
+  },
+  "caranddriver.com/news/a73760999/hyundai-kia-magnetic-off-road-hard-top-patent": {
+    "title": "Hyundai’s Solution to Awkward Hard-Top Assembly? Magnets",
+    "ts": 1789661729
+  },
+  "461bf91ae8ac4ef3": {
+    "title": "Why Buy A Jeep Grand Cherokee Trackhawk? It's A 707-HP Family SUV For Around $60,000",
+    "ts": 1789661868
+  },
+  "motor1.com/reviews/808233/used-jeep-grand-cherokee-trackhawk-buying-guide": {
+    "title": "Why Buy A Jeep Grand Cherokee Trackhawk? It's A 707-HP Family SUV For Around $60,000",
+    "ts": 1789661868
+  },
+  "tf:why buy jeep grand cherokee": {
+    "title": "Why Buy A Jeep Grand Cherokee Trackhawk? It's A 707-HP Family SUV For Around $60,000",
+    "ts": 1789661868
+  },
+  "fp:da5d549013a2d875e2f46f58906722ea": {
+    "title": "Why Buy A Jeep Grand Cherokee Trackhawk? It's A 707-HP Family SUV For Around $60,000",
+    "ts": 1789661868
+  },
+  "6c9a321d1e925a3c": {
+    "title": "Subaru's Most Important Vehicle In America Will Keep Its Gas-Only Powertrain",
+    "ts": 1789663212
+  },
+  "carbuzz.com/subaru-announces-improved-crosstrek-impreza-japan-september-2026": {
+    "title": "Subaru's Most Important Vehicle In America Will Keep Its Gas-Only Powertrain",
+    "ts": 1789663212
+  },
+  "tf:subarus most important vehicle america": {
+    "title": "Subaru's Most Important Vehicle In America Will Keep Its Gas-Only Powertrain",
+    "ts": 1789663212
+  },
+  "fp:54dd24d196a70a635fb765c3fce75901": {
+    "title": "Subaru's Most Important Vehicle In America Will Keep Its Gas-Only Powertrain",
+    "ts": 1789663212
+  },
+  "2ca553a1d8479b6c": {
+    "title": "Suzuki Refuses To Let Its Greatest V-Twin Engine Die",
+    "ts": 1789664699
+  },
+  "hotcars.com/2028-suzuki-sv650-teased": {
+    "title": "Suzuki Refuses To Let Its Greatest V-Twin Engine Die",
+    "ts": 1789664699
+  },
+  "de45225d2d4565f7": {
+    "title": "Scientists Discover T. Rex Blood Was As Hot As Human Blood, Suggesting They Were Fast-Running Predators",
+    "ts": 1789665087
+  },
+  "jalopnik.com/2261457/scientists-discover-t-rex-blood-hot-as-humans-fast-running-predators": {
+    "title": "Scientists Discover T. Rex Blood Was As Hot As Human Blood, Suggesting They Were Fast-Running Predators",
+    "ts": 1789665087
+  },
+  "ea2b385c9c32fc2a": {
+    "title": "China’s Answer To The Jeep Wrangler Just Got A Live Axle Upgrade",
+    "ts": 1789665228
+  },
+  "carscoops.com/2026/09/tank-300-hooke-trail": {
+    "title": "China’s Answer To The Jeep Wrangler Just Got A Live Axle Upgrade",
+    "ts": 1789665228
+  },
+  "tf:chinas answer the jeep wrangler": {
+    "title": "China’s Answer To The Jeep Wrangler Just Got A Live Axle Upgrade",
+    "ts": 1789665228
+  },
+  "fp:09a518f7ec26c56adb05cb40d9df3007": {
+    "title": "China’s Answer To The Jeep Wrangler Just Got A Live Axle Upgrade",
+    "ts": 1789665228
+  },
+  "84d9fc14c1e7920a": {
+    "title": "Acura Will Drop the MDX’s Type S Performance Trim After 2026",
+    "ts": 1789666547
+  },
+  "caranddriver.com/news/a73776225/acura-mdx-type-s-discontinued": {
+    "title": "Acura Will Drop the MDX’s Type S Performance Trim After 2026",
+    "ts": 1789666547
+  },
+  "tf:acura will drop the mdxs": {
+    "title": "Acura Will Drop the MDX’s Type S Performance Trim After 2026",
+    "ts": 1789666547
+  },
+  "fp:f0025178f9b608c4df3654815863bb88": {
+    "title": "Acura Will Drop the MDX’s Type S Performance Trim After 2026",
+    "ts": 1789666547
+  },
+  "b78efde1e6b97a02": {
+    "title": "Wild Toyota GR Hilux Will Tackle Dakar Without A Single Drop Of Gasoline",
+    "ts": 1789667668
+  },
+  "carscoops.com/2026/09/dkr-gr-fc-hilux": {
+    "title": "Wild Toyota GR Hilux Will Tackle Dakar Without A Single Drop Of Gasoline",
+    "ts": 1789667668
+  },
+  "tf:wild toyota hilux will tackle": {
+    "title": "Wild Toyota GR Hilux Will Tackle Dakar Without A Single Drop Of Gasoline",
+    "ts": 1789667668
+  },
+  "fp:d7abddf302b912f6122af0dbb1475421": {
+    "title": "Wild Toyota GR Hilux Will Tackle Dakar Without A Single Drop Of Gasoline",
+    "ts": 1789667668
+  },
+  "42028c2d4b600435": {
+    "title": "2027 Lexus NX Goes Hybrid-Only: What Buyers Need To Know",
+    "ts": 1789669112
+  },
+  "topspeed.com/2027-lexus-nx-hybrid-only-sept-17": {
+    "title": "2027 Lexus NX Goes Hybrid-Only: What Buyers Need To Know",
+    "ts": 1789669112
+  },
+  "cdf403c3bdc9bdee": {
+    "title": "The Muscle Cars Born From Trans-Am Racing's Golden Era",
+    "ts": 1789669509
+  },
+  "hotcars.com/trans-am-specials-created-greatest-muscle-cars-ever": {
+    "title": "The Muscle Cars Born From Trans-Am Racing's Golden Era",
+    "ts": 1789669509
+  },
+  "c31a26be05ac872b": {
+    "title": "Chevy's New Small-Block V8 Proves Size Does Matter",
+    "ts": 1789669862
+  },
+  "carbuzz.com/ls6-gm-small-block-v8-proves-size-matters": {
+    "title": "Chevy's New Small-Block V8 Proves Size Does Matter",
+    "ts": 1789669862
+  },
+  "cc1e5e543b533e72": {
+    "title": "Being Single In California Could Get Even Better (For Your Wallet, At Least)",
+    "ts": 1789670005
+  },
+  "jalopnik.com/2261597/california-car-insurance-marital-status-premiums-changing": {
+    "title": "Being Single In California Could Get Even Better (For Your Wallet, At Least)",
+    "ts": 1789670005
+  },
+  "tf:being single california could get": {
+    "title": "Being Single In California Could Get Even Better (For Your Wallet, At Least)",
+    "ts": 1789670005
+  },
+  "fp:ecc3e14f864d6ad3bf0f6e1166d83f90": {
+    "title": "Being Single In California Could Get Even Better (For Your Wallet, At Least)",
+    "ts": 1789670005
+  },
+  "582c547489a9f23c": {
+    "title": "A 2028 Chevy Chevelle SS Design Returns As A Four-Door Hellcat-Killing Brute",
+    "ts": 1789671368
+  },
+  "hotcars.com/2028-chevrolet-chevelle-ss-returns-design-render": {
+    "title": "A 2028 Chevy Chevelle SS Design Returns As A Four-Door Hellcat-Killing Brute",
+    "ts": 1789671368
+  },
+  "b59c71b2674a65c6": {
+    "title": "The $69,000 Electric SUV Now Selling For $15,800 Is A Warning To Every EV Buyer",
+    "ts": 1789671747
+  },
+  "carbuzz.com/fisker-depreciation-is-a-warning-to-every-ev-buyer": {
+    "title": "The $69,000 Electric SUV Now Selling For $15,800 Is A Warning To Every EV Buyer",
+    "ts": 1789671747
+  },
+  "c485b2858010da85": {
+    "title": "Ride This Muscular Yamaha Once, And It Could Ruin Every Other Motorcycle For You",
+    "ts": 1789672079
+  },
+  "topspeed.com/yamaha-makes-every-ride-feel-like-good-decision": {
+    "title": "Ride This Muscular Yamaha Once, And It Could Ruin Every Other Motorcycle For You",
+    "ts": 1789672079
+  },
+  "tf:ride this muscular yamaha once": {
+    "title": "Ride This Muscular Yamaha Once, And It Could Ruin Every Other Motorcycle For You",
+    "ts": 1789672079
+  },
+  "fp:4f971d02ba8527c2a74b6523df3b3741": {
+    "title": "Ride This Muscular Yamaha Once, And It Could Ruin Every Other Motorcycle For You",
+    "ts": 1789672079
   }
 }
