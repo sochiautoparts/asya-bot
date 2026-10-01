@@ -410,6 +410,11 @@ async def send_channel_post(bot, channel_id: int, html_text: str, plain_text: st
     """Post to channel: 2+ imgs → media group; 1 img → photo; else text.
     HTML parse mode with automatic plain-text fallback on parse errors.
     Returns Message (or list for media group) on success, None on failure.
+
+    Telegram limits (hard): text ≤4096 chars, photo/media caption ≤1024 chars.
+    Truncation is done at natural boundaries (sentence/word) — never mid-word,
+    mid-emoji or mid-HTML-tag. If HTML must be cut, plain text is sent instead
+    (cutting HTML can leave unclosed tags → "can't parse entities").
     """
     import httpx
     from aiogram.types import BufferedInputFile, InputMediaPhoto
@@ -417,6 +422,31 @@ async def send_channel_post(bot, channel_id: int, html_text: str, plain_text: st
 
     log = log or logger
     UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+
+    TG_TEXT_LIMIT = 4096
+    TG_CAPTION_LIMIT = 1024
+
+    def _smart_cut(text: str, limit: int) -> str:
+        """Smart truncate to `limit` at a natural boundary (sentence > word > hard)."""
+        if not text:
+            return ""
+        if len(text) <= limit:
+            return text
+        cut = text[:limit]
+        for i in range(len(cut) - 1, max(len(cut) - 300, 0), -1):
+            if cut[i] in ".!?\n" and (i + 1 >= len(cut) or cut[i + 1] in " \n\t"):
+                return cut[:i + 1].rstrip() + "…"
+        for i in range(len(cut) - 1, max(len(cut) - 100, 0), -1):
+            if cut[i] in " \n\t":
+                return cut[:i].rstrip() + "…"
+        return cut.rstrip() + "…"
+
+    def _caption_for(html: str, plain: str, limit: int) -> tuple[str, str]:
+        """Return (text_to_send, mode) fitting `limit`. Uses HTML if it fits,
+        otherwise a smartly-cut plain text (safe to truncate)."""
+        if len(html) <= limit:
+            return html, "HTML"
+        return _smart_cut(plain, limit), "PLAIN"
 
     def _is_parse_err(e: Exception) -> bool:
         s = str(e).lower()
@@ -439,8 +469,9 @@ async def send_channel_post(bot, channel_id: int, html_text: str, plain_text: st
                     continue
                 buf = BufferedInputFile(content, filename="news.jpg")
                 if first:
-                    media.append(InputMediaPhoto(media=buf, caption=html_text[:1024],
-                                                 parse_mode="HTML"))
+                    cap, mode = _caption_for(html_text, plain_text, TG_CAPTION_LIMIT)
+                    media.append(InputMediaPhoto(media=buf, caption=cap,
+                                                 parse_mode="HTML" if mode == "HTML" else None))
                     first = False
                 else:
                     media.append(InputMediaPhoto(media=buf))
@@ -453,7 +484,8 @@ async def send_channel_post(bot, channel_id: int, html_text: str, plain_text: st
             except TelegramBadRequest as e:
                 if _is_parse_err(e):
                     log.warning(f"HTML media_group parse failed → plain fallback: {e}")
-                    media[0] = InputMediaPhoto(media=media[0].media, caption=plain_text[:1024])
+                    media[0] = InputMediaPhoto(media=media[0].media,
+                                               caption=_smart_cut(plain_text, TG_CAPTION_LIMIT))
                     try:
                         msgs = await bot.send_media_group(channel_id, media)
                         return msgs[0] if msgs else True
@@ -468,26 +500,33 @@ async def send_channel_post(bot, channel_id: int, html_text: str, plain_text: st
             content = await _download(images[0])
             if content:
                 photo = BufferedInputFile(content, filename="news.jpg")
+                cap, mode = _caption_for(html_text, plain_text, TG_CAPTION_LIMIT)
                 try:
-                    return await bot.send_photo(channel_id, photo, caption=html_text[:1024],
-                                                parse_mode="HTML")
+                    return await bot.send_photo(channel_id, photo, caption=cap,
+                                                parse_mode="HTML" if mode == "HTML" else None)
                 except TelegramBadRequest as e:
                     if _is_parse_err(e):
                         log.warning(f"HTML photo parse failed → plain fallback: {e}")
-                        return await bot.send_photo(channel_id, photo, caption=plain_text[:1024])
+                        return await bot.send_photo(channel_id, photo,
+                                                    caption=_smart_cut(plain_text, TG_CAPTION_LIMIT))
                     log.warning(f"send_photo failed: {e}")
         except Exception as e:
             log.warning(f"single img download/send failed: {e}")
 
-    # Case C: text only
+    # Case C: text only (≤4096 chars; if HTML must be cut → send cut plain)
     try:
-        return await bot.send_message(channel_id, html_text[:4096], parse_mode="HTML",
+        if len(html_text) <= TG_TEXT_LIMIT:
+            msg_text, mode = html_text, "HTML"
+        else:
+            msg_text, mode = _smart_cut(plain_text, TG_TEXT_LIMIT), "PLAIN"
+        return await bot.send_message(channel_id, msg_text,
+                                      parse_mode="HTML" if mode == "HTML" else None,
                                       disable_web_page_preview=True)
     except TelegramBadRequest as e:
         if _is_parse_err(e):
             log.warning(f"HTML message parse failed → plain fallback: {e}")
             try:
-                return await bot.send_message(channel_id, plain_text[:4096],
+                return await bot.send_message(channel_id, _smart_cut(plain_text, TG_TEXT_LIMIT),
                                               disable_web_page_preview=True)
             except Exception as e2:
                 log.error(f"plain send_message failed: {e2}")

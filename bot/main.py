@@ -613,10 +613,10 @@ class AsyaBot:
             # Truncate body WITHOUT goto_link, then append goto_link + FOOTER
             # This ensures goto_link is never cut off
             body_without_goto = ai_text.replace(f"\n\n🔗 {goto}", "").replace(goto, "").strip() if goto else ai_text
-            # Reserve space for goto_link + footer
+            # Reserve space for goto_link + footer (Telegram caption limit = 1024)
             goto_line = f"\n\n🔗 {goto}" if goto and goto not in body_without_goto else ""
             reserve = len(FOOTER) + len(goto_line) + 10
-            caption_body = smart_truncate(body_without_goto, 1024 - len(goto_line), 0)
+            caption_body = smart_truncate(body_without_goto, 1024 - len(goto_line) - len(FOOTER) - 10, 0)
             caption_full = caption_body + goto_line + FOOTER
             try:
                 async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as img_client:
@@ -652,28 +652,18 @@ class AsyaBot:
                 logger.error(f"Partner post failed: {e}")
 
     async def _react_to_own_post(self, channel_id: int, message_id: int, text: str = ""):
-        """Set 3 positive reactions on own channel post with fallback to 1."""
+        """Set a positive reaction on own channel post.
+        Telegram Bot API: non-premium bots can set EXACTLY ONE reaction per message
+        (a 3-reaction list always fails with REACTIONS_TOO_MANY) — so we set 1 directly."""
         try:
             import random
             from aiogram.types import ReactionTypeEmoji
             # Only guaranteed Telegram-supported reaction emojis (no ❤️ variation selector)
-            pool = ["👍", "❤", "🔥", "😁", "👏", "🎉"]
-            emojis = random.sample(pool, 3)
-            reaction_types = [ReactionTypeEmoji(type="emoji", emoji=e) for e in emojis]
-            await self.bot.set_message_reaction(channel_id, message_id, reaction_types)
-            logger.info(f"Reacted to own post (3): {channel_id}/{message_id} with {emojis}")
+            single_emoji = random.choice(["👍", "❤", "🔥", "👏", "🎉"])
+            single = [ReactionTypeEmoji(type="emoji", emoji=single_emoji)]
+            await self.bot.set_message_reaction(channel_id, message_id, single)
+            logger.info(f"Reacted to own post: {channel_id}/{message_id} with {single_emoji}")
         except Exception as e:
-            msg = str(e)
-            if "REACTIONS_TOO_MANY" in msg or "REACTION_INVALID" in msg:
-                try:
-                    import random as _r
-                    single_emoji = _r.choice(["👍", "❤", "🔥"])
-                    single = [ReactionTypeEmoji(type="emoji", emoji=single_emoji)]
-                    await self.bot.set_message_reaction(channel_id, message_id, single)
-                    logger.info(f"Reacted to own post (1 fallback): {channel_id}/{message_id} with {single_emoji}")
-                    return
-                except Exception as e2:
-                    logger.warning(f"React to own post fallback failed: {e2}")
             logger.warning(f"React to own post failed: {e}")
 
     async def _notify_owner(self):
