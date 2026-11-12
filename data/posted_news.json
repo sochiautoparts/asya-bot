@@ -1,252 +1,4 @@
 {
-  "caranddriver.com/subaru/getaway-2028": {
-    "title": "2028 Subaru Getaway",
-    "ts": 1794045291
-  },
-  "tf:2028 subaru getaway": {
-    "title": "2028 Subaru Getaway",
-    "ts": 1794045291
-  },
-  "fp:b529d8da069126d875ae13e72f816bdc": {
-    "title": "2028 Subaru Getaway",
-    "ts": 1794045291
-  },
-  "5c01ccf92ef147cb": {
-    "title": "Mitsubishi Built A New Land Cruiser Rival, Then Gave The USA A Montero-Themed Outlander Instead",
-    "ts": 1794046525
-  },
-  "carbuzz.com/mitsubishi-land-cruiser-rival-not-for-the-us": {
-    "title": "Mitsubishi Built A New Land Cruiser Rival, Then Gave The USA A Montero-Themed Outlander Instead",
-    "ts": 1794046525
-  },
-  "tf:mitsubishi built new land cruiser": {
-    "title": "Mitsubishi Built A New Land Cruiser Rival, Then Gave The USA A Montero-Themed Outlander Instead",
-    "ts": 1794046525
-  },
-  "fp:ed49587c24f29a7ff25be66d34d887ed": {
-    "title": "Mitsubishi Built A New Land Cruiser Rival, Then Gave The USA A Montero-Themed Outlander Instead",
-    "ts": 1794046525
-  },
-  "437c31706fd3aeb3": {
-    "title": "Toyota's GR86 And Subaru's BRZ Just Proved Manual Sports Cars Still Sell",
-    "ts": 1794047672
-  },
-  "topspeed.com/2026-toyota-gr86-subaru-brz-sold-out-manual-sports-cars": {
-    "title": "Toyota's GR86 And Subaru's BRZ Just Proved Manual Sports Cars Still Sell",
-    "ts": 1794047672
-  },
-  "tf:toyotas gr86 and subarus brz": {
-    "title": "Toyota's GR86 And Subaru's BRZ Just Proved Manual Sports Cars Still Sell",
-    "ts": 1794047672
-  },
-  "fp:2a5390aaa8ae844a7644041cb16fb7a6": {
-    "title": "Toyota's GR86 And Subaru's BRZ Just Proved Manual Sports Cars Still Sell",
-    "ts": 1794047672
-  },
-  "579c94b9a0e92b89": {
-    "title": "Long-term test: Volkswagen T-Roc eTSI 150 Style",
-    "ts": 1794049149
-  },
-  "autoexpress.co.uk/volkswagen/t-roc/370846/long-term-test-volkswagen-t-roc-etsi-150-style-alastair-crooks": {
-    "title": "Long-term test: Volkswagen T-Roc eTSI 150 Style",
-    "ts": 1794049149
-  },
-  "9cee19f57de75d18": {
-    "title": "Volkswagen T-Roc eTSI 150 Style long-term test - pictures",
-    "ts": 1794049544
-  },
-  "autoexpress.co.uk/volkswagen/t-roc/370845/volkswagen-t-roc-etsi-150-style-long-term-test-pictures": {
-    "title": "Volkswagen T-Roc eTSI 150 Style long-term test - pictures",
-    "ts": 1794049544
-  },
-  "329d0ead93d94495": {
-    "title": "The Luxury Chevrolet Coupe With A 454 Big-Block V8",
-    "ts": 1794050064
-  },
-  "hotcars.com/luxury-chevrolet-coupe-with-454-big-block-v8": {
-    "title": "The Luxury Chevrolet Coupe With A 454 Big-Block V8",
-    "ts": 1794050064
-  },
-  "tf:the luxury chevrolet coupe with": {
-    "title": "The Luxury Chevrolet Coupe With A 454 Big-Block V8",
-    "ts": 1794050064
-  },
-  "fp:60d1e36d259814eb52bab2e3943402cc": {
-    "title": "The Luxury Chevrolet Coupe With A 454 Big-Block V8",
-    "ts": 1794050064
-  },
-  "1ab4f1614dea9b79": {
-    "title": "Low-Range, 3.2L V6 Power, And Dirt-Cheap Prices: The Suzuki Grand Vitara Is The Perfect Beater 4x4",
-    "ts": 1794051240
-  },
-  "carbuzz.com/the-2009-2010-suzuki-grand-vitara-budget-off-roader": {
-    "title": "Low-Range, 3.2L V6 Power, And Dirt-Cheap Prices: The Suzuki Grand Vitara Is The Perfect Beater 4x4",
-    "ts": 1794051240
-  },
-  "tf:lowrange 32l power and dirtcheap": {
-    "title": "Low-Range, 3.2L V6 Power, And Dirt-Cheap Prices: The Suzuki Grand Vitara Is The Perfect Beater 4x4",
-    "ts": 1794051240
-  },
-  "fp:84abffb277cb79dafbbccac2ded96039": {
-    "title": "Low-Range, 3.2L V6 Power, And Dirt-Cheap Prices: The Suzuki Grand Vitara Is The Perfect Beater 4x4",
-    "ts": 1794051240
-  },
-  "1670a75724bc972e": {
-    "title": "Toyota's 2.5L Hybrid Engine: Why It Hits 300,000 Miles",
-    "ts": 1794052479
-  },
-  "topspeed.com/toyota-2-5l-hybrid-durability": {
-    "title": "Toyota's 2.5L Hybrid Engine: Why It Hits 300,000 Miles",
-    "ts": 1794052479
-  },
-  "tf:toyotas 25l hybrid engine why": {
-    "title": "Toyota's 2.5L Hybrid Engine: Why It Hits 300,000 Miles",
-    "ts": 1794052479
-  },
-  "fp:d8a23a74d93a3cd8db255af0e9837c1e": {
-    "title": "Toyota's 2.5L Hybrid Engine: Why It Hits 300,000 Miles",
-    "ts": 1794052479
-  },
-  "b282dd824f2123f1": {
-    "title": "The Adventure Motorcycle That Makes A Sport Tourer Look Complicated",
-    "ts": 1794053840
-  },
-  "topspeed.com/ducati-multistrada-makes-sport-tourer-look-complicated": {
-    "title": "The Adventure Motorcycle That Makes A Sport Tourer Look Complicated",
-    "ts": 1794053840
-  },
-  "tf:the adventure motorcycle that makes": {
-    "title": "The Adventure Motorcycle That Makes A Sport Tourer Look Complicated",
-    "ts": 1794053840
-  },
-  "fp:abcc90c79912ebb927c0399206e81084": {
-    "title": "The Adventure Motorcycle That Makes A Sport Tourer Look Complicated",
-    "ts": 1794053840
-  },
-  "fa5392e85cd29a75": {
-    "title": "2027 Kawasaki Ninja H2 Carbon And Ninja H2R Prices Are Out (But It's Too Late)",
-    "ts": 1794055045
-  },
-  "topspeed.com/2027-kawasaki-ninja-h2-carbon-and-ninja-h2r-pricing-revealed": {
-    "title": "2027 Kawasaki Ninja H2 Carbon And Ninja H2R Prices Are Out (But It's Too Late)",
-    "ts": 1794055045
-  },
-  "tf:2027 kawasaki ninja carbon and": {
-    "title": "2027 Kawasaki Ninja H2 Carbon And Ninja H2R Prices Are Out (But It's Too Late)",
-    "ts": 1794055045
-  },
-  "fp:ad74ae075467acd29541de3ec9eb4967": {
-    "title": "2027 Kawasaki Ninja H2 Carbon And Ninja H2R Prices Are Out (But It's Too Late)",
-    "ts": 1794055045
-  },
-  "56ff4d5422247fde": {
-    "title": "2027 Toyota Sequoia Trailhunter: Specs, Price, TRD Pro Comparison",
-    "ts": 1794056197
-  },
-  "topspeed.com/2027-sequoia-trailhunter-package": {
-    "title": "2027 Toyota Sequoia Trailhunter: Specs, Price, TRD Pro Comparison",
-    "ts": 1794056197
-  },
-  "tf:2027 toyota sequoia trailhunter specs": {
-    "title": "2027 Toyota Sequoia Trailhunter: Specs, Price, TRD Pro Comparison",
-    "ts": 1794056197
-  },
-  "fp:5070ea270572f4ba77c13e6eb52ced88": {
-    "title": "2027 Toyota Sequoia Trailhunter: Specs, Price, TRD Pro Comparison",
-    "ts": 1794056197
-  },
-  "80bc1732a6fbab6b": {
-    "title": "Forget A New Corolla. This V8 Luxury Barge Costs A Fraction Of The Price",
-    "ts": 1794057342
-  },
-  "topspeed.com/kia-k900-420-hp-v8-costs-less-than-a-new-corolla": {
-    "title": "Forget A New Corolla. This V8 Luxury Barge Costs A Fraction Of The Price",
-    "ts": 1794057342
-  },
-  "tf:forget new corolla this luxury": {
-    "title": "Forget A New Corolla. This V8 Luxury Barge Costs A Fraction Of The Price",
-    "ts": 1794057342
-  },
-  "fp:380576574ba15d0f267cbfaa302009ae": {
-    "title": "Forget A New Corolla. This V8 Luxury Barge Costs A Fraction Of The Price",
-    "ts": 1794057342
-  },
-  "4d4434f5e8187672": {
-    "title": "Buc-Ee's CEO Said He Didn't Want To Operate In Blue States, And Now There's Stores In At Least Five More",
-    "ts": 1794058836
-  },
-  "jalopnik.com/2308757/buc-ees-ceo-said-no-blue-states-now-theres-stores-in-five-more": {
-    "title": "Buc-Ee's CEO Said He Didn't Want To Operate In Blue States, And Now There's Stores In At Least Five More",
-    "ts": 1794058836
-  },
-  "tf:bucees ceo said didnt want": {
-    "title": "Buc-Ee's CEO Said He Didn't Want To Operate In Blue States, And Now There's Stores In At Least Five More",
-    "ts": 1794058836
-  },
-  "fp:3816417c1500bb9649d2819aa20a6805": {
-    "title": "Buc-Ee's CEO Said He Didn't Want To Operate In Blue States, And Now There's Stores In At Least Five More",
-    "ts": 1794058836
-  },
-  "ffd7a7b0a3adedfd": {
-    "title": "Rivian Doesn't Have Dealerships, So How Do You Test Drive One?",
-    "ts": 1794060392
-  },
-  "jalopnik.com/2303702/how-do-you-test-drive-rivian-no-dealership": {
-    "title": "Rivian Doesn't Have Dealerships, So How Do You Test Drive One?",
-    "ts": 1794060392
-  },
-  "3ee127aea819aa9c": {
-    "title": "The Best SUVs To Spend Your Money On When Value Matters",
-    "ts": 1794060556
-  },
-  "carbuzz.com/best-suv-models-for-the-money-2026": {
-    "title": "The Best SUVs To Spend Your Money On When Value Matters",
-    "ts": 1794060556
-  },
-  "tf:the best suvs spend your": {
-    "title": "The Best SUVs To Spend Your Money On When Value Matters",
-    "ts": 1794060556
-  },
-  "fp:d9a5cb7f615a2b3ea5579563372b301f": {
-    "title": "The Best SUVs To Spend Your Money On When Value Matters",
-    "ts": 1794060556
-  },
-  "94f0366a1795147f": {
-    "title": "This Italian Middleweight Makes More Power Than A Ducati Panigale V2 And Costs Less",
-    "ts": 1794061847
-  },
-  "topspeed.com/mv-agusta-f3-gives-taste-of-superbike-performance": {
-    "title": "This Italian Middleweight Makes More Power Than A Ducati Panigale V2 And Costs Less",
-    "ts": 1794061847
-  },
-  "tf:this italian middleweight makes more": {
-    "title": "This Italian Middleweight Makes More Power Than A Ducati Panigale V2 And Costs Less",
-    "ts": 1794061847
-  },
-  "fp:5a3fa5dbdf97b4351b1829b6c3571732": {
-    "title": "This Italian Middleweight Makes More Power Than A Ducati Panigale V2 And Costs Less",
-    "ts": 1794061847
-  },
-  "d75c631b94fa3c67": {
-    "title": "Buyers Are Snapping Up Toyota’s Biggest Hybrid SUV, And The Numbers Show Why",
-    "ts": 1794062860
-  },
-  "topspeed.com/toyota-grand-highlander-suddenly-hybrid-sales-hit": {
-    "title": "Buyers Are Snapping Up Toyota’s Biggest Hybrid SUV, And The Numbers Show Why",
-    "ts": 1794062860
-  },
-  "tf:buyers are snapping toyotas biggest": {
-    "title": "Buyers Are Snapping Up Toyota’s Biggest Hybrid SUV, And The Numbers Show Why",
-    "ts": 1794062860
-  },
-  "fp:1dce762c533a8cc6d7e25fa60fd08bee": {
-    "title": "Buyers Are Snapping Up Toyota’s Biggest Hybrid SUV, And The Numbers Show Why",
-    "ts": 1794062860
-  },
-  "181dc99178008ad6": {
-    "title": "This New York To LA Drive In A 43 HP 1992 Geo Metro Nearly Broke The Driver And The Car",
-    "ts": 1794063328
-  },
   "hotcars.com/geo-metro-new-york-la-drive": {
     "title": "This New York To LA Drive In A 43 HP 1992 Geo Metro Nearly Broke The Driver And The Car",
     "ts": 1794063328
@@ -3998,5 +3750,253 @@
   "fp:7b475f0b102d10fcb41eaf94c9529ce0": {
     "title": "The V8 Lexus SUV That Still Makes A Case For Buying Used",
     "ts": 1794421767
+  },
+  "617c7c93ba51ee11": {
+    "title": "This Gearbox Blurs The Line Between Manual And Automatic",
+    "ts": 1794423688
+  },
+  "motor1.com/features/815089/what-is-an-automated-manual-transmission-how-it-works": {
+    "title": "This Gearbox Blurs The Line Between Manual And Automatic",
+    "ts": 1794423688
+  },
+  "tf:this gearbox blurs the line": {
+    "title": "This Gearbox Blurs The Line Between Manual And Automatic",
+    "ts": 1794423688
+  },
+  "fp:231fc68e7dc5e464bbaf30e4404b25a6": {
+    "title": "This Gearbox Blurs The Line Between Manual And Automatic",
+    "ts": 1794423688
+  },
+  "6def8c8cd950ee6b": {
+    "title": "BYD Issues Recall On Flagship SUV Because The Wheels Were On Backwards",
+    "ts": 1794423910
+  },
+  "carscoops.com/2313907/byd-recall-wheels-backwards-flagship": {
+    "title": "BYD Issues Recall On Flagship SUV Because The Wheels Were On Backwards",
+    "ts": 1794423910
+  },
+  "tf:byd issues recall flagship suv": {
+    "title": "BYD Issues Recall On Flagship SUV Because The Wheels Were On Backwards",
+    "ts": 1794423910
+  },
+  "fp:6b2ace9904ace917869b8937ee000440": {
+    "title": "BYD Issues Recall On Flagship SUV Because The Wheels Were On Backwards",
+    "ts": 1794423910
+  },
+  "83cde5507aa60a01": {
+    "title": "New Lotus Supercar's 670-HP Twin-Turbo V8 Revealed By Powertrain Supplier Horse",
+    "ts": 1794424028
+  },
+  "jalopnik.com/2313897/new-lotus-supercar-twin-turbo-horse-v8-revealed": {
+    "title": "New Lotus Supercar's 670-HP Twin-Turbo V8 Revealed By Powertrain Supplier Horse",
+    "ts": 1794424028
+  },
+  "tf:new lotus supercars 670hp twinturbo": {
+    "title": "New Lotus Supercar's 670-HP Twin-Turbo V8 Revealed By Powertrain Supplier Horse",
+    "ts": 1794424029
+  },
+  "fp:85f9abac28fd98ee6aa81cb8d9613b6f": {
+    "title": "New Lotus Supercar's 670-HP Twin-Turbo V8 Revealed By Powertrain Supplier Horse",
+    "ts": 1794424029
+  },
+  "5e373cc006daa613": {
+    "title": "Why Highway Fuel Economy Drops At 75 MPH, Explained",
+    "ts": 1794425596
+  },
+  "topspeed.com/highway-fuel-economy-speed-drag": {
+    "title": "Why Highway Fuel Economy Drops At 75 MPH, Explained",
+    "ts": 1794425596
+  },
+  "tf:why highway fuel economy drops": {
+    "title": "Why Highway Fuel Economy Drops At 75 MPH, Explained",
+    "ts": 1794425596
+  },
+  "fp:ab42bf0b48617fac8acbc86de3ec9e0a": {
+    "title": "Why Highway Fuel Economy Drops At 75 MPH, Explained",
+    "ts": 1794425596
+  },
+  "8b56617dc133233d": {
+    "title": "The $700,000 Audi Nuvolari Will Be Extremely Rare in the U.S.",
+    "ts": 1794426753
+  },
+  "caranddriver.com/news/a74402204/audi-nuvolari-price-production-numbers": {
+    "title": "The $700,000 Audi Nuvolari Will Be Extremely Rare in the U.S.",
+    "ts": 1794426753
+  },
+  "tf:the 700000 audi nuvolari will": {
+    "title": "The $700,000 Audi Nuvolari Will Be Extremely Rare in the U.S.",
+    "ts": 1794426753
+  },
+  "fp:1c0089a973efc6350a2e979f7775cf22": {
+    "title": "The $700,000 Audi Nuvolari Will Be Extremely Rare in the U.S.",
+    "ts": 1794426753
+  },
+  "b21be9f8866b3152": {
+    "title": "This 2028 Honda Civic Type-R HRC Render Is A Glimpse At The Fasted FWD Production Car Ever",
+    "ts": 1794427935
+  },
+  "hotcars.com/2028-honda-civic-type-r-hrc-render-glimpse-at-the-fasted-fwd-production-car-ever": {
+    "title": "This 2028 Honda Civic Type-R HRC Render Is A Glimpse At The Fasted FWD Production Car Ever",
+    "ts": 1794427935
+  },
+  "tf:this 2028 honda civic typer": {
+    "title": "This 2028 Honda Civic Type-R HRC Render Is A Glimpse At The Fasted FWD Production Car Ever",
+    "ts": 1794427935
+  },
+  "fp:768f15e8c9362178e9a6dfe76f8fcd5b": {
+    "title": "This 2028 Honda Civic Type-R HRC Render Is A Glimpse At The Fasted FWD Production Car Ever",
+    "ts": 1794427935
+  },
+  "5730f34202fb9464": {
+    "title": "The Ultimate Diesel Bargain: Why Used 3.0L EcoDiesel Rams Cost Half A Cummins-Powered Truck",
+    "ts": 1794429074
+  },
+  "carbuzz.com/diesel-bargains-used-30l-ecodiesel-rams-versus-cummins": {
+    "title": "The Ultimate Diesel Bargain: Why Used 3.0L EcoDiesel Rams Cost Half A Cummins-Powered Truck",
+    "ts": 1794429074
+  },
+  "tf:the ultimate diesel bargain why": {
+    "title": "The Ultimate Diesel Bargain: Why Used 3.0L EcoDiesel Rams Cost Half A Cummins-Powered Truck",
+    "ts": 1794429074
+  },
+  "fp:4a43b09d27622329ae9f5da6c225e3e0": {
+    "title": "The Ultimate Diesel Bargain: Why Used 3.0L EcoDiesel Rams Cost Half A Cummins-Powered Truck",
+    "ts": 1794429074
+  },
+  "67dce16a74d33afe": {
+    "title": "Against All Oddities: Miami’s Russian Car Part Emporium",
+    "ts": 1794430403
+  },
+  "hagerty.com/media/opinion/against-all-oddities/against-all-oddities-miamis-russian-car-part-emporium": {
+    "title": "Against All Oddities: Miami’s Russian Car Part Emporium",
+    "ts": 1794430403
+  },
+  "tf:against all oddities miamis russian": {
+    "title": "Against All Oddities: Miami’s Russian Car Part Emporium",
+    "ts": 1794430403
+  },
+  "fp:389ea91fd74210620fe612cc3201c982": {
+    "title": "Against All Oddities: Miami’s Russian Car Part Emporium",
+    "ts": 1794430403
+  },
+  "41f459817288ce61": {
+    "title": "SpaceX Wants To Build Data Center Powered By Its Newest Product: Natural Gas",
+    "ts": 1794431605
+  },
+  "jalopnik.com/2314063/spacex-wants-to-build-data-center-powered-by-natural-gas": {
+    "title": "SpaceX Wants To Build Data Center Powered By Its Newest Product: Natural Gas",
+    "ts": 1794431605
+  },
+  "tf:spacex wants build data center": {
+    "title": "SpaceX Wants To Build Data Center Powered By Its Newest Product: Natural Gas",
+    "ts": 1794431605
+  },
+  "fp:c5f609502545206255c418ec1d8d5ba4": {
+    "title": "SpaceX Wants To Build Data Center Powered By Its Newest Product: Natural Gas",
+    "ts": 1794431605
+  },
+  "1d5649facba8f30b": {
+    "title": "KTM Reveals a New X-Bow Side-by-Side with a 330-HP Audi Engine",
+    "ts": 1794432803
+  },
+  "caranddriver.com/news/a74403060/ktm-x-bow-arrow-sxs-audi-engine-revealed": {
+    "title": "KTM Reveals a New X-Bow Side-by-Side with a 330-HP Audi Engine",
+    "ts": 1794432803
+  },
+  "tf:ktm reveals new xbow sidebyside": {
+    "title": "KTM Reveals a New X-Bow Side-by-Side with a 330-HP Audi Engine",
+    "ts": 1794432803
+  },
+  "fp:a5b6e133cfcfe506e998d8581b0bf685": {
+    "title": "KTM Reveals a New X-Bow Side-by-Side with a 330-HP Audi Engine",
+    "ts": 1794432803
+  },
+  "df7b492a46159310": {
+    "title": "The Average New Car Price Just Hit a Record $51,109",
+    "ts": 1794434166
+  },
+  "autoweek.com/news/a74403579/average-new-car-price-hit-record-51109": {
+    "title": "The Average New Car Price Just Hit a Record $51,109",
+    "ts": 1794434166
+  },
+  "tf:the average new car price": {
+    "title": "The Average New Car Price Just Hit a Record $51,109",
+    "ts": 1794434166
+  },
+  "fp:843c189a87112664298edc44e1778c16": {
+    "title": "The Average New Car Price Just Hit a Record $51,109",
+    "ts": 1794434166
+  },
+  "30e559014eaaa4cb": {
+    "title": "GM Leaves the New York Stock Exchange for “Tech-Heavy” NASDAQ",
+    "ts": 1794436713
+  },
+  "autoweek.com/news/a74403909/gm-leaves-new-york-stock-exchange-nasdaq": {
+    "title": "GM Leaves the New York Stock Exchange for “Tech-Heavy” NASDAQ",
+    "ts": 1794436713
+  },
+  "tf:leaves the new york stock": {
+    "title": "GM Leaves the New York Stock Exchange for “Tech-Heavy” NASDAQ",
+    "ts": 1794436713
+  },
+  "fp:f0bb98c663a6062f2dfa8c4ca0b66ddd": {
+    "title": "GM Leaves the New York Stock Exchange for “Tech-Heavy” NASDAQ",
+    "ts": 1794436713
+  },
+  "afde57acf22d05d0": {
+    "title": "5 Cylinders, Super Slow, Extremely Cool: The Most Reliable Classic Mercedes-Benz Is A Great Buy",
+    "ts": 1794439216
+  },
+  "carbuzz.com/mercedes-benz-300cd-auction-results-november-2026": {
+    "title": "5 Cylinders, Super Slow, Extremely Cool: The Most Reliable Classic Mercedes-Benz Is A Great Buy",
+    "ts": 1794439216
+  },
+  "490e41a28928fe08": {
+    "title": "The MGS6 Is A Great Electric SUV, But It Doesn't Stand Out | Review",
+    "ts": 1794439442
+  },
+  "carscoops.com/2314357/2026-mgs6-review": {
+    "title": "The MGS6 Is A Great Electric SUV, But It Doesn't Stand Out | Review",
+    "ts": 1794439442
+  },
+  "tf:the mgs6 great electric suv": {
+    "title": "The MGS6 Is A Great Electric SUV, But It Doesn't Stand Out | Review",
+    "ts": 1794439442
+  },
+  "fp:b6aadf4f9af9970ae93752cf56ffbfd9": {
+    "title": "The MGS6 Is A Great Electric SUV, But It Doesn't Stand Out | Review",
+    "ts": 1794439442
+  },
+  "4920e48d64eb72c8": {
+    "title": "Cupra's Terramar VZ5 Is Getting The RS3's Epic Five-Cylinder",
+    "ts": 1794441570
+  },
+  "carscoops.com/2314377/cupra-terramar-vz5-spy-shots": {
+    "title": "Cupra's Terramar VZ5 Is Getting The RS3's Epic Five-Cylinder",
+    "ts": 1794441570
+  },
+  "tf:cupras terramar vz5 getting the": {
+    "title": "Cupra's Terramar VZ5 Is Getting The RS3's Epic Five-Cylinder",
+    "ts": 1794441570
+  },
+  "fp:b93593200f3056ac794c00e39fab6a69": {
+    "title": "Cupra's Terramar VZ5 Is Getting The RS3's Epic Five-Cylinder",
+    "ts": 1794441570
+  },
+  "10d4f6fac4f0e566": {
+    "title": "Honda's Underwhelming 40-HP Cruiser Does One Thing The Scout And Rebel 1100 Can't",
+    "ts": 1794443628
+  },
+  "hotcars.com/hondas-underwhelming-40-hp-cruiser-does-one-thing-the-scout-and-rebel-1100-cant": {
+    "title": "Honda's Underwhelming 40-HP Cruiser Does One Thing The Scout And Rebel 1100 Can't",
+    "ts": 1794443628
+  },
+  "tf:hondas underwhelming 40hp cruiser does": {
+    "title": "Honda's Underwhelming 40-HP Cruiser Does One Thing The Scout And Rebel 1100 Can't",
+    "ts": 1794443628
+  },
+  "fp:b9655d2cd93cd8e157077f93492aaeae": {
+    "title": "Honda's Underwhelming 40-HP Cruiser Does One Thing The Scout And Rebel 1100 Can't",
+    "ts": 1794443628
   }
 }
